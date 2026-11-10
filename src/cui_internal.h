@@ -162,6 +162,16 @@ typedef struct cui_text_layout_line { int start, end; float width; } cui_text_la
 
 #ifdef CUI_TEXT_SHAPING
 bool cui__text_needs_shaping(cui_ctx *ui, const char *text, int len);
+bool cui__text_has_rtl(const char *text, int len);   /* RTL or joiner characters, whatever text_unshaped says */
+/* A shaped single line cut into caret cells: one per grapheme (a code point and the marks and joiners
+ * after it), in logical order, each with the visual box it covers (x from the line's left edge) and its
+ * bidi level. The cells of a ligature share the ligature's box. base is 1 for a right-to-left line.
+ * The pure functions of this model (cui__el_*) are in the text editing section; offsets are bytes. */
+typedef struct { int a, b; float l, r; uint8_t level; } cui_edit_cell;
+typedef struct { int n, len, base; float width; cui_edit_cell *cell; } cui_edit_line;
+typedef struct { float l, r; } cui_edit_span;
+/* Fills out for text[0,len) shaped with the given base direction (0 or 1); false when it cannot be shaped. */
+bool cui__edit_line(cui_ctx *ui, cui_font font, float size, const char *text, int len, int base, cui_edit_line *out);
 #endif
 /* Glyph metrics for layout, in points. */
 float cui__font_line_height(cui_ctx *ui, cui_font font, float size);
@@ -365,6 +375,9 @@ typedef struct cui_state_entry {
     uint64_t last_frame;
     cui_rect rect;             /* rect from the previous frame */
     bool has_rect;
+#ifdef CUI_TEXT_SHAPING
+    bool rtl;                  /* its resolved direction, for text fields */
+#endif
     size_t size;
     void *data;
     void (*dtor)(cui_ctx *ui, void *data);   /* frees memory owned by data */
@@ -372,6 +385,9 @@ typedef struct cui_state_entry {
 } cui_state_entry;
 
 cui_state_entry *cui__state_entry(cui_ctx *ui, cui_id id);
+#ifdef CUI_TEXT_SHAPING
+bool cui__prev_rtl(cui_ctx *ui, cui_id id);   /* the direction id's node resolved to last frame */
+#endif
 float cui__hover_fade(cui_ctx *ui, cui_id id, bool on, float duration);   /* a 0..1 fade that keeps state only while above zero */
 void *cui__state_lazy(cui_ctx *ui, cui_id id, size_t size, bool want);   /* state only once wanted: NULL while untouched */
 void cui__state_set_dtor(cui_ctx *ui, cui_id id, void (*dtor)(cui_ctx *ui, void *data));
@@ -670,6 +686,13 @@ cui_id cui__position_id(cui_ctx *ui, uint32_t salt);       /* stable id from the
 void cui__chevron_node(cui_ctx *ui, float angle, float size, cui_color color);   /* 0 points down */
 int cui__text_field(cui_ctx *ui, cui_id id, char *buf, size_t cap, const cui_input_opts *o, bool multiline, int style, const char *trailing_icon_default);
 int cui__edit_lines(cui_ctx *ui, cui_font f, float size, const char *buf, int len, float width, cui_text_layout_line **out);   /* wrapped lines of an edit buffer */
+#ifdef CUI_TEXT_SHAPING
+/* the caret model of a right-to-left or mixed single line (cui_edit_line, cui_text.c), implemented in cui_textedit.c */
+float cui__el_caret_x(const cui_edit_line *L, int pos);       /* x of the caret at byte offset pos */
+int cui__el_hit(const cui_edit_line *L, float x);             /* byte offset of the caret nearest x */
+int cui__el_step(const cui_edit_line *L, int pos, int dir);   /* one grapheme forward (dir > 0) or back, in logical order */
+int cui__el_spans(const cui_edit_line *L, int s0, int s1, cui_edit_span *out, int cap);   /* boxes of [s0,s1), touching ones merged, left to right */
+#endif
 void cui__label_text(cui_ctx *ui, const char *label, cui_font font, float size, cui_color color);
 void cui__icon_node(cui_ctx *ui, const char *icon, float size, cui_color color);
 void cui__field_label(cui_ctx *ui, const char *label);

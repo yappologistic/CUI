@@ -656,6 +656,9 @@ static void cui__record_rect(cui_ctx *ui, cui_node *n) {
     cui_state_entry *e = cui__state_entry(ui, n->id);
     e->rect = n->rect;
     e->has_rect = true;
+#ifdef CUI_TEXT_SHAPING
+    e->rtl = n->rtl;
+#endif
 }
 
 

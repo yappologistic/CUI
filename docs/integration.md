@@ -226,8 +226,34 @@ strings keep the original iterator, rasterization and optical tracking. Shaped
 strings use the font's natural advances without optical tracking, which would
 otherwise pull cursive joins apart.
 
-Text fields keep their existing drawing, cursor and selection behavior. This option
-does not add RTL editing or IME. Shaped paragraphs wrap greedily
+A single-line text field (`cui_input`, `cui_search`, `cui_number`) edits right-to-left
+and mixed text by reading order. Its direction is the container's when that is
+right-to-left, otherwise the first strong letter of the text, and left to right when
+there is none, as in a browser's `<input dir=auto>`. Right-to-left text starts at the
+right edge: the first Persian letter typed into an empty field moves it there, and an
+empty field in a right-to-left container has its caret on the right.
+
+- Left and Right follow the reading order, not the screen: in a right-to-left field
+  Left moves forward and Right moves back. With a selection and no Shift they collapse
+  it to its start or end the same way. Home and End go to the start and end of the text.
+- The caret moves by character together with the marks and joiners after it (ZWNJ, ZWJ,
+  Arabic marks, Hebrew points, combining marks). Inside a lam-alef ligature it stops
+  between the lam and the alef. Where the text changes direction it sits at the edge of
+  the neighbour with the lower bidi level, as in a browser.
+- Delete removes the character with its marks and joiners. Backspace removes one code
+  point, as in a browser.
+- A direction mark (LRM, RLM) takes no room: the caret before and after it is at one
+  place, as in a browser. A zero-width space between a Latin and an Arabic letter still
+  differs: a browser puts the caret after it at the far edge of the Arabic letter.
+- A selection is drawn as one box for each run of the line, so a selection across a
+  change of direction can be two boxes. A click puts the caret at the nearest caret
+  position. Long text scrolls from the start edge of the line and keeps the caret inside.
+
+Not covered: `cui_textarea`, masked password fields, the code editor, word jumps by visual
+order (Ctrl and Cmd with the arrows keep the old word rule, in the reading direction),
+changes to the undo history, IME composition, screen readers and dragging selected text.
+Latin-only text, also in a right-to-left container, keeps its earlier drawing and stays
+at the left. Shaped paragraphs wrap greedily
 at spaces using complete shaped candidate-line advances. They retain their
 paragraph levels and use UAX #9 line ordering for each resulting line. The Latin
 path retains its existing heading balancing and orphan adjustment. An overlong

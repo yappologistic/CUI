@@ -82,11 +82,13 @@ Component coverage:
   Arabic text correctly; give it an explicit direction to change it.
 - Sliders and range sliders fill from the right, follow the pointer from the right
   and swap the arrow keys; radio cards swap the arrow keys too.
-- Does not mirror yet: filled text fields (typed text and the caret stay left to
-  right), and other custom-drawn components such as charts, gauges, the mixer
+- Does not mirror yet: text areas and Latin-only text in text fields (they stay left
+  to right), and other custom-drawn components such as charts, gauges, the mixer
   controls and the node editor. They draw the same in both directions.
 
-Editing, cursor navigation and IME are unchanged.
+Editing, cursor navigation and IME are unchanged, except that with
+`CUI_TEXT_SHAPING=ON` a single-line text field edits right-to-left and mixed text by
+reading order (see [integration](integration.md#optional-arabic-script-text-shaping)).
 
 With `CUI_TEXT_SHAPING=ON`, the resolved container direction sets the paragraph
 base, including English-first mixed text in a forced RTL container. Direct drawing

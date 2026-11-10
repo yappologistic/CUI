@@ -4,6 +4,10 @@ What changed in CUI, newest first. Every component mentioned here runs live in t
 
 ## Unreleased
 
+### Added
+
+- **Editing right-to-left and mixed text in a single-line field** (with text shaping; pull request #12, by Omid Saadat): `cui_input`, `cui_search` and `cui_number` follow the reading order. Left and Right move forward and back through the text instead of left and right on the screen, the caret moves by character with its marks and joiners, a selection is drawn as one box per run, a click lands on the nearest caret position, and right-to-left text starts at the right edge and scrolls from there. The caret and the keys match what Edge does for the same strings. Text areas, password fields, word jumps by visual order, IME composition and screen readers are not covered; Latin-only text is drawn exactly as before. See [Integration](docs/integration.md#optional-arabic-script-text-shaping). The text being edited used to be drawn unshaped, as the placeholder was not.
+
 ### Changed
 
 - **Every component has a description.** Each section of the component docs now opens with one sentence that says what the component is and what it is for. The site shows it under the page title, on the cards that link to the page and in search results, where it used to show whatever sentence came first ("Weeks start on Monday." for the date picker).

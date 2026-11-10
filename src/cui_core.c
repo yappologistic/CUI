@@ -387,6 +387,13 @@ cui_rect cui__prev_rect(cui_ctx *ui, cui_id id) {
     return r;
 }
 
+#ifdef CUI_TEXT_SHAPING
+bool cui__prev_rtl(cui_ctx *ui, cui_id id) {
+    cui_state_entry *e = cui__state_find(ui, id);
+    return e && e->has_rect && e->rtl;
+}
+#endif
+
 bool cui__has_prev_rect(cui_ctx *ui, cui_id id) {
     cui_state_entry *e = cui__state_find(ui, id);
     return e && e->has_rect;

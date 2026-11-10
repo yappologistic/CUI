@@ -20,7 +20,9 @@
 #ifdef CUI_TEXT_SHAPING
 #include "cui_shape.h"
 #include "cui_bidi.h"
-typedef struct { int font, id, start; float x, y; } cui_shaped_glyph;
+/* left and adv are the pen box of the glyph in its line (points) and level its bidi level;
+ * the single-line field turns them into caret cells (cui__edit_line). */
+typedef struct { int font, id, start; float x, y, left, adv; uint8_t level; } cui_shaped_glyph;
 typedef struct cui_shaped_line {
     struct cui_shaped_line *next;
     int start, end, font, count;
@@ -428,9 +430,7 @@ static bool cui__iter_next(cui__glyph_iter *it) {
 }
 
 #ifdef CUI_TEXT_SHAPING
-bool cui__text_needs_shaping(cui_ctx *ui, const char *text, int len) {
-    if (ui->text_unshaped) return false;
-    if (ui->text_paragraph) return true;
+bool cui__text_has_rtl(const char *text, int len) {
     for (int p = 0; p < len;) {
         uint32_t cp;
         p += cui__utf8_decode(text + p, len - p, &cp);
@@ -439,6 +439,12 @@ bool cui__text_needs_shaping(cui_ctx *ui, const char *text, int len) {
             (cp >= 0x202a && cp <= 0x202e) || (cp >= 0x2066 && cp <= 0x2069)) return true;
     }
     return false;
+}
+
+bool cui__text_needs_shaping(cui_ctx *ui, const char *text, int len) {
+    if (ui->text_unshaped) return false;
+    if (ui->text_paragraph) return true;
+    return cui__text_has_rtl(text, len);
 }
 
 static float cui__shape_run(cui_ctx *ui, cui_font font, float size, const char *text, int len,
@@ -894,9 +900,8 @@ static uint32_t cui__shape_script(uint32_t cp) {
     return 0;
 }
 
-static float cui__shape_run(cui_ctx *ui, cui_font font, float size, const char *text, int len,
-                             bool tabular, bool draw, float x, float y, cui_color color, float max_x) {
-    cui_font_data *base = &ui->fonts[font];
+/* The shaped line of text (visual order, cached in its paragraph); NULL when it cannot be built. */
+static cui_shaped_line *cui__shape_line(cui_ctx *ui, cui_font font, float size, const char *text, int len, bool tabular) {
     const char *paragraph = text;
     int plen = len, line_start = 0;
     if (ui->text_paragraph && (uintptr_t)text >= (uintptr_t)ui->text_paragraph &&
@@ -911,14 +916,14 @@ static float cui__shape_run(cui_ctx *ui, cui_font font, float size, const char *
     cui_direction direction = ui->text_direction ? ui->text_direction : ui->direction;
     int requested = direction == CUI_DIRECTION_RTL ? 1 : direction == CUI_DIRECTION_LTR ? 0 : -1;
     cui_shaped_paragraph *p = cui__paragraph(ui, paragraph, plen, requested);
-    if (!p) return 0;
+    if (!p) return NULL;
     cui_shaped_line *cached = p->lines;
     while (cached && !(cached->start == line_start && cached->end == line_start + len &&
         cached->font == font && cached->size == size && cached->tabular == tabular)) cached = cached->next;
-    if (cached) goto paint;
+    if (cached) return cached;
     if (p->line_count == 128) cui__shape_lines_free(ui, p);
     cached = cui__alloc(ui, sizeof *cached);
-    if (!cached) return 0;
+    if (!cached) return NULL;
     *cached = (cui_shaped_line){0};
     cached->start = line_start; cached->end = line_start + len;
     cached->font = font; cached->size = size; cached->tabular = tabular;
@@ -929,7 +934,7 @@ static float cui__shape_run(cui_ctx *ui, cui_font font, float size, const char *
     while (first_char + count < p->count && offsets[first_char + count] < line_start + len) count++;
     int *order = cui__alloc(ui, ((size_t)count + 1) * sizeof *order);
     uint8_t *levels = cui__alloc(ui, (size_t)count + 1);
-    if (!order || !levels) { cui__free(ui, order); cui__free(ui, levels); cui__free(ui, cached); return 0; }
+    if (!order || !levels) { cui__free(ui, order); cui__free(ui, levels); cui__free(ui, cached); return NULL; }
     cui__bidi_line(chars, first_char, count, p->base, order, levels);
     text = paragraph;
     typedef cui_shaped_glyph shaped_glyph;
@@ -986,7 +991,8 @@ static float cui__shape_run(cui_ctx *ui, cui_font font, float size, const char *
                     cui_shape_glyph *g = &input[k];
                     CUI__GROW(ui, glyphs, glyph_count, glyph_cap, 1);
                     glyphs[glyph_count++] = (shaped_glyph){ gf, g->id, g->cluster,
-                        span->width + g->x * em, g->y * em };
+                        span->width + g->x * em, g->y * em, span->width, g->advance * em,
+                        levels[first - first_char] };
                     span->width += g->advance * em;
                     span->count++;
                 }
@@ -1000,7 +1006,7 @@ static float cui__shape_run(cui_ctx *ui, cui_font font, float size, const char *
             for (int j = 0; j < span->count; j++) {
                 CUI__GROW(ui, cached->glyphs, cached->count, result_cap, 1);
                 cui_shaped_glyph g = glyphs[span->first + j];
-                g.x += pen; g.start -= line_start;
+                g.x += pen; g.left += pen; g.start -= line_start;
                 cached->glyphs[cached->count++] = g;
             }
             pen += span->width;
@@ -1010,8 +1016,15 @@ static float cui__shape_run(cui_ctx *ui, cui_font font, float size, const char *
     cui__free(ui, spans);
     cui__free(ui, order); cui__free(ui, levels);
     cached->width = pen; cached->next = p->lines; p->lines = cached; p->line_count++;
-paint:
+    return cached;
+}
+
+static float cui__shape_run(cui_ctx *ui, cui_font font, float size, const char *text, int len,
+                             bool tabular, bool draw, float x, float y, cui_color color, float max_x) {
+    cui_shaped_line *cached = cui__shape_line(ui, font, size, text, len, tabular);
+    if (!cached) return 0;
     if (draw) {
+        cui_font_data *base = &ui->fonts[font];
         float scale = ui->scale;
         float baseline = roundf((y + base->ascent * size) * scale);
         for (int j = 0; j < cached->count; j++) {
@@ -1038,6 +1051,89 @@ paint:
         }
     }
     return cached->width;
+}
+
+/* Marks and joiners that stay with the character before them: the caret never stops inside, and Delete
+ * takes them along. Combining marks, Arabic and Hebrew points, ZWNJ and ZWJ, variation selectors. */
+static bool cui__extends_grapheme(uint32_t cp) {
+    return (cp >= 0x300 && cp <= 0x36f) || (cp >= 0x483 && cp <= 0x489) || (cp >= 0x591 && cp <= 0x5bd) ||
+           cp == 0x5bf || cp == 0x5c1 || cp == 0x5c2 || cp == 0x5c4 || cp == 0x5c5 || cp == 0x5c7 ||
+           (cp >= 0x610 && cp <= 0x61a) || (cp >= 0x64b && cp <= 0x65f) || cp == 0x670 ||
+           (cp >= 0x6d6 && cp <= 0x6dc) || (cp >= 0x6df && cp <= 0x6e4) || cp == 0x6e7 || cp == 0x6e8 ||
+           (cp >= 0x6ea && cp <= 0x6ed) || (cp >= 0x8d3 && cp <= 0x8ff) || cp == 0x200c || cp == 0x200d ||
+           (cp >= 0xfe00 && cp <= 0xfe0f) || (cp >= 0xfe20 && cp <= 0xfe2f);
+}
+
+bool cui__edit_line(cui_ctx *ui, cui_font font, float size, const char *text, int len, int base, cui_edit_line *out) {
+    memset(out, 0, sizeof *out);
+    out->len = len; out->base = base;
+    font = cui__resolve_font(ui, font);
+    if (font < 0) return false;
+    if (len <= 0) return true;
+    /* shape the way the field draws: one paragraph, the given base direction */
+    const char *saved = ui->text_paragraph;
+    int saved_len = ui->text_paragraph_len;
+    cui_direction direction = ui->text_direction;
+    ui->text_paragraph = NULL;
+    ui->text_direction = base ? CUI_DIRECTION_RTL : CUI_DIRECTION_LTR;
+    cui_shaped_line *line = cui__shape_line(ui, font, size, text, len, false);
+    ui->text_paragraph = saved; ui->text_paragraph_len = saved_len; ui->text_direction = direction;
+    if (!line || line->count <= 0) return false;
+    int count = 0;
+    for (int at = 0; at < len; count++) { uint32_t cp; at += cui__utf8_decode(text + at, len - at, &cp); }
+    cui_edit_cell *cells = cui__frame_alloc(ui, sizeof *cells * (size_t)count);
+    /* per byte offset where a glyph starts: the box of the glyphs that start there, and how many graphemes share it */
+    float *gl = cui__frame_alloc(ui, sizeof(float) * 2 * ((size_t)len + 1)), *gr = gl + (len + 1);
+    uint8_t *glevel = cui__frame_alloc(ui, (size_t)len + 1), *has = cui__frame_alloc(ui, (size_t)len + 1);
+    int *share = cui__frame_alloc(ui, sizeof(int) * (3 * (size_t)len + 3 + (size_t)count)), *seen = share + (len + 1), *own = seen + (len + 1);
+    if (!cells || !gl || !glevel || !has || !share) return false;
+    for (int j = 0; j < line->count; j++) {
+        const cui_shaped_glyph *g = &line->glyphs[j];
+        if (g->start < 0 || g->start >= len) continue;
+        /* a glyph with no advance (LRM, RLM, a zero-width space) still marks where its character is: a cell of width 0 there,
+         * not a share of the visible glyph before it. A ligature's later letters have no glyph at all.
+         * A mark inside a grapheme (the fatha of lam fatha alef) is no character of its own: it makes no cell. */
+        if (g->adv <= 0) {
+            uint32_t cp = 0;
+            if (g->start > 0) cui__utf8_decode(text + g->start, len - g->start, &cp);
+            if (g->start > 0 && cui__extends_grapheme(cp)) continue;
+            if (!has[g->start]) { has[g->start] = 1; gl[g->start] = gr[g->start] = g->left; glevel[g->start] = g->level; }
+            continue;
+        }
+        if (!has[g->start] || gr[g->start] == gl[g->start]) { has[g->start] = 1; gl[g->start] = g->left; gr[g->start] = g->left + g->adv; glevel[g->start] = g->level; }
+        else { gl[g->start] = CUI_MIN(gl[g->start], g->left); gr[g->start] = CUI_MAX(gr[g->start], g->left + g->adv); }
+    }
+    int n = 0;
+    for (int at = 0; at < len;) {
+        cui_edit_cell *c = &cells[n++];
+        uint32_t cp;
+        c->a = at;
+        at += cui__utf8_decode(text + at, len - at, &cp);
+        while (at < len) {
+            int step = cui__utf8_decode(text + at, len - at, &cp);
+            if (!cui__extends_grapheme(cp)) break;
+            at += step;
+        }
+        c->b = at;
+    }
+    for (int k = 0; k < n; k++) {   /* the glyph start each grapheme belongs to */
+        int s = cells[k].a;
+        while (s > 0 && !has[s]) s--;
+        if (!has[s]) return false;
+        own[k] = s;
+        share[s]++;
+    }
+    for (int k = 0; k < n; k++) {
+        cui_edit_cell *c = &cells[k];
+        int s = own[k];
+        int parts = share[s], t = seen[s]++;
+        float l = gl[s], r = gr[s], w = (r - l) / (float)parts;
+        c->level = glevel[s];
+        if (c->level & 1) { c->r = r - w * (float)t; c->l = c->r - w; }   /* a right-to-left ligature breaks up from the right */
+        else { c->l = l + w * (float)t; c->r = c->l + w; }
+    }
+    out->n = n; out->cell = cells; out->width = line->width;
+    return true;
 }
 #endif
 
