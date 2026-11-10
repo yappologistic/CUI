@@ -337,19 +337,21 @@ static void cui__ed_type(cui__ed *E, const char *text, int n, int lang_kind) {
 
 /* Whether a block comment is open after s[i, e) when one was open before
  * (in): a quick scan that follows the tokenizer (strings end at the line
- * end; a line without a '/' cannot open one). */
+ * end; a line without the block opener's first byte cannot open one). */
 static bool cui__ed_scan_line(const cui__lang *L, const char *s, int i, int e, bool in) {
-    if (!in && !memchr(s + i, '/', (size_t)(e - i))) return false;
+    if (!L->block_open) return false;
+    if (!in && !memchr(s + i, L->block_open[0], (size_t)(e - i))) return false;
     size_t lc = L->line_comment ? strlen(L->line_comment) : 0;
     while (i < e) {
         if (in) {
-            while (i < e && !(s[i] == '*' && i + 1 < e && s[i + 1] == '/')) i++;
-            if (i < e) { i += 2; in = false; }
+            while (i < e && !cui__at(s, e, i, L->block_close)) i++;
+            if (i < e) { i += (int)strlen(L->block_close); in = false; }
             continue;
         }
         char c = s[i];
+        /* block open before line comment: a block opener may begin with the line marker */
+        if (cui__at(s, e, i, L->block_open)) { in = true; continue; }
         if (lc && (size_t)(e - i) >= lc && strncmp(s + i, L->line_comment, lc) == 0) break;
-        if (c == '/' && i + 1 < e && s[i + 1] == '*') { in = true; continue; }
         if (c == '"' || c == '\'' || (c == '`' && L->backtick)) {
             i++;
             while (i < e && s[i] != c) { if (s[i] == '\\' && i + 1 < e) i++; i++; }
@@ -363,7 +365,7 @@ static bool cui__ed_scan_line(const cui__lang *L, const char *s, int i, int e, b
 
 /* Block comment open at the start of line `upto`. */
 static bool cui__ed_block_state(const cui__ed *E, const cui__lang *L, int upto) {
-    if (!L->block_comments) return false;
+    if (!L->block_open) return false;
     bool in = false;
     for (int line = 0; line < upto; line++) in = cui__ed_scan_line(L, E->buf, E->ls[line], cui__ed_end(E, line), in);
     return in;
@@ -518,7 +520,7 @@ static void cui__paint_editor(cui_ctx *ui, cui_node *n, void *data) {
             cui__ed_run(ui, p, s, a, b, ca, x0, y + ty, p->colors[toks[t].kind]);
         }
         /* a block comment opened past the columns in view still carries on */
-        if (stop < le && p->lang.block_comments) block = cui__ed_scan_line(&p->lang, s, ls, le, was_block);
+        if (stop < le && p->lang.block_open) block = cui__ed_scan_line(&p->lang, s, ls, le, was_block);
     }
     /* placeholder */
     if (p->empty && p->placeholder)

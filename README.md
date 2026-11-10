@@ -254,6 +254,8 @@ Complete apps in [`examples/`](examples), each a single C file. They run in the 
 | [`notes`](examples/notes.c) | Split view, search, context menus, dialogs, shortcuts, file export |
 | [`settings`](examples/settings.c) | Forms, validation, preferences and a danger zone |
 | [`gallery`](examples/gallery_ui.c) | Every component, light and dark, all accents |
+| [`repl`](examples/repl.c) | Lua console: an editor field with a Run button and a console, running the scripts in [`examples/lua/`](examples/lua) (needs `-DCUI_LUA=ON`) |
+| [`hello`](examples/hello.c) | The smallest app |
 
 <table>
 <tr>
@@ -267,6 +269,18 @@ Complete apps in [`examples/`](examples), each a single C file. They run in the 
 </table>
 
 </details>
+
+## Lua examples
+
+[`examples/lua/`](examples/lua) holds worked scripts that draw their own screens and run in the [`repl`](examples/repl.c) app, the Lua console (it needs the build switched on with `-DCUI_LUA=ON`): a counter, a mixer, a drum pad, a step sequencer, a quiz, a sign-up form. Give `repl` a file and its code loads into the editor field and runs at once, so you can edit it and press **Run** again to see the results:
+
+```sh
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCUI_LUA=ON
+cmake --build build
+./build/examples/repl examples/lua/counter_example.lua
+```
+
+Without a file `repl` opens the same editor empty, above a console that shares its state: type `count = count + 1` or `toast("hello")` there, or write a script from scratch.
 
 ## Themes
 

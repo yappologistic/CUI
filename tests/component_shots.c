@@ -2151,6 +2151,60 @@ SCENE(terminal) {
         if (r.command && r.command[0]) cui_terminal_printf(&g_term, "%s: command not found\n", r.command);
     }
 }
+SCENE(repl) {
+#ifdef CUI_WITH_LUA
+    static cui_script *lua;
+    static char note[96] = "written by the app";
+    static int step;
+    if (!lua) {
+        lua = cui_script_new();
+        if (lua) cui_script_eval(lua, "hits = 3");
+    }
+    if (step >= 2 && step <= 4) {
+        static const char *typed[] = { "1 + 2 * 3", "print(\"ready\")", "for i = 1, 3 do" };
+        cui_input_text(ui, typed[step - 2]);
+        cui_input_key(ui, CUI_KEY_ENTER, true, 0);
+        cui_input_key(ui, CUI_KEY_ENTER, false, 0);
+    }
+    step++;
+    cui_column(ui, .gap = 10, .width = CUI_FILL, .max_width = 820) {
+        cui_row(ui, .gap = 12, .align = CUI_ALIGN_CENTER) {
+            cui_textf(ui, "hits: %d", (int)cui_script_get_number(lua, "hits"));
+            cui_muted(ui, note);
+        }
+        cui_repl(ui, "console", lua, .width = CUI_FILL, .height = 320, .autofocus = true);
+    }
+#endif
+}
+SCENE(live_widget) {
+#ifdef CUI_WITH_LUA
+    static cui_script *lua;
+    if (!lua) {
+        lua = cui_script_new();
+        if (lua) {
+            cui_script_set_number(lua, "hits", 3);
+            cui_script_eval(lua,
+                "function live(ui, self)\n"
+                "  ui.card({ gap = 8 }, function()\n"
+                "    ui.label('a card drawn from Lua')\n"
+                "    ui.muted('this switch, slider and button are ui.* calls in the script')\n"
+                "    self.loud = ui.switch('Loud', self.loud)\n"
+                "    self.v = ui.slider('v', self.v or 0.6, { min = 0, max = 1 })\n"
+                "    ui.progress(self.v, { tone = 'accent', show_value = true })\n"
+                "    if ui.button('Ping', { variant = 'primary' }) then hits = hits + 1 end\n"
+                "  end)\n"
+                "end");
+        }
+    }
+    cui_column(ui, .gap = 10, .width = CUI_FILL, .max_width = 560) {
+        cui_row(ui, .gap = 12, .align = CUI_ALIGN_CENTER) {
+            cui_textf(ui, "hits: %d", (int)cui_script_get_number(lua, "hits"));
+            cui_muted(ui, "the card below is drawn by a Lua function");
+        }
+        cui_script_widget(ui, "live", lua, "live");
+    }
+#endif
+}
 SCENE(emoji_picker) {
     static char recent[256] = "\xf0\x9f\x91\x8d \xf0\x9f\x8e\x89 \xe2\x9c\x85 \xf0\x9f\x98\x82 \xf0\x9f\x9a\x80 \xf0\x9f\x91\x80 \xe2\x9d\xa4\xef\xb8\x8f \xf0\x9f\x99\x8f";
     static int tone = 0;
@@ -3997,7 +4051,7 @@ int main(int argc, char **argv) {
         { "json-view", scene_json_view, 560, 330, true }, { "markdown", scene_markdown, 700, 850, true },
         { "code-editor", scene_code_editor, 760, 446, true },
         { "diff-view", scene_diff_view, 900, 480, true },
-        { "inspector", scene_inspector, 520, 640, true }, { "log-console", scene_log_console, 820, 440, true }, { "terminal", scene_terminal, 820, 420, true }, { "emoji-picker", scene_emoji_picker, 720, 470, true }, { "chat", scene_chat, 560, 440, true },
+        { "inspector", scene_inspector, 520, 640, true }, { "log-console", scene_log_console, 820, 440, true }, { "terminal", scene_terminal, 820, 420, true }, { "repl", scene_repl, 820, 460, true }, { "live-widget", scene_live_widget, 560, 420, true }, { "emoji-picker", scene_emoji_picker, 720, 470, true }, { "chat", scene_chat, 560, 440, true },
         { "hex-viewer", scene_hex_viewer, 760, 420, true },
         { "curve-editor", scene_curve_editor, 660, 400, true }, { "gradient-editor", scene_gradient_editor, 600, 210, true },
         { "timeline-editor", scene_timeline_editor, 960, 660, true },

@@ -26,6 +26,7 @@ jobs:
           - { cc: gcc, platform: sdl2, shaping: ON }
           - { cc: gcc, platform: glfw, shaping: OFF }
           - { cc: gcc, platform: glfw, shaping: ON }
+          - { cc: gcc, platform: x11, shaping: OFF, lua: ON }
     steps:
       - uses: actions/checkout@v4
       - name: Install dependencies
@@ -33,7 +34,7 @@ jobs:
           sudo apt-get update -q
           sudo apt-get install -y -q ninja-build libx11-dev libgl-dev xvfb mesa-utils libgl1-mesa-dri libsdl2-dev libglfw3-dev
       - name: Configure
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=${{ matrix.cc }} -DCUI_PLATFORM=${{ matrix.platform }} -DCUI_TEXT_SHAPING=${{ matrix.shaping }}
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=${{ matrix.cc }} -DCUI_PLATFORM=${{ matrix.platform }} -DCUI_TEXT_SHAPING=${{ matrix.shaping }} -DCUI_LUA=${{ matrix.lua || 'OFF' }}
       - name: Build
         run: cmake --build build
       - name: Unit and render tests

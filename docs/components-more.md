@@ -901,6 +901,47 @@ Long lines wrap at the panel width. Each line keeps its count of characters, so 
 
 Drag over the output to select, and press Ctrl+C (Cmd+C on macOS) to copy it without the color codes. With nothing selected, Ctrl+C clears the input, prints `^C` and sets `interrupt`. Ctrl+L clears the screen, Up and Down walk back through the last 32 commands, and clicking the output puts the caret at the prompt. `.no_input = true` leaves just the output. `.size` sets the text size (13 by default) and a `.height` of -1 fills the parent.
 
+### Lua console
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="images/components/repl-dark.png"><img src="images/components/repl.png" alt="Lua console"></picture>
+
+```c
+static cui_script *lua;
+if (!lua) {
+    lua = cui_script_new();                                  /* NULL without CUI_LUA=ON */
+    cui_script_set_fn(lua, "greet", greet_fn, NULL);         /* Lua calls greet("ada") */
+    cui_script_set_number(lua, "hits", 0);                   /* shared with the UI */
+}
+
+cui_repl_result r = cui_repl(ui, "console", lua, .height = 360, .autofocus = true);
+double hits = cui_script_get_number(lua, "hits");            /* read back what the user set */
+```
+
+A console the user can script your app with: a terminal-style output pane over a Lua-highlighted editor. Built when CUI is configured with `CUI_LUA=ON` (it vendors Lua 5.4); the component still renders without it and shows a note.
+
+Enter runs the text when the compiler says the chunk is complete, so functions span lines on their own; an unfinished chunk waits and the prompt becomes `>>`. Shift+Enter always adds a newline, Ctrl+Enter runs whatever is there, Up and Down with an empty input walk the history, Ctrl+L clears the pane. A single expression prints its value and a leading `=` prints it even when it is nil. `print()`, results and errors go to the pane, which keeps the last few thousand lines like the terminal.
+
+State crosses both ways: `cui_script_set_number`/`set_string` push values the script can read, `get_number`/`get_string` read back what the user assigned. `cui_script_set_fn` exposes an app function taking string arguments and returning a string; the standard libraries are there except `io` and `require`, and `os` loses `execute`, `exit`, `remove`, `rename` and `tmpname`, so a console left open cannot leave the program. `cui_script_lua` hands the `lua_State` to apps that link Lua themselves.
+
+**Script widgets.** `cui_script_widget` calls a Lua function once a frame through a curated `ui.*` table, so the user composes real components from the console:
+
+```lua
+-- typed into the console; the app calls cui_script_widget(ui, "panel", lua, "panel")
+function panel(ui, self)
+    ui.card({ gap = 8 }, function()
+        ui.label("a card drawn from Lua")
+        self.loud = ui.switch("Loud", self.loud)
+        self.v = ui.slider("v", self.v or 0.6, { min = 0, max = 1 })
+        ui.progress(self.v, { tone = "accent", show_value = true })
+        if ui.button("Ping", { variant = "primary" }) then hits = hits + 1 end
+    end)
+end
+```
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="images/components/live-widget-dark.png"><img src="images/components/live-widget.png" alt="Script widget"></picture>
+
+`self` is a table that survives between frames, one per widget instance, so controls keep their value there: `self.who = ui.textfield("who", self.who or "")`. `widget(f)` from the console replaces the drawing of any widget slot at once (and `widget(nil)` gives it back to the app), so a script can swap a demo in without knowing the function name the app picked. Inside the drawing function the global `__cui_slot` names the function the app asked for, so a script can wrap rather than replace: call `_G[__cui_slot](ui, self)` first and draw your own card after it, joining the app's card stack at the end. The surface: `row`, `column`, `box`, `card`, `scroll` (closures taking an options table and a function, plus the raw begin/end pairs), `text`, `heading`, `muted`, `label`, `secondary`, `code`, `kbd`, `icon`, `separator`, `spacer`, `gap`, `badge`, `progress`, `button`, `checkbox`, `switch`, `slider`, `rating`, `textfield`, `textarea`, `toast`, `line_chart`. Sizes are numbers in points or `"fill"`/`"fit"`; directions, alignments, tones and variants are strings. `ui.line_chart(id, series, opts)` draws real charts: `series` is an array of `{ name, values, color }` tables (`values` an array of numbers, `color` `{ r, g, b, a }` with components 0 to 1), and `opts` takes `height`, `labels` (an array of x-axis labels), `format`, `min`, `max`, `area`, `smooth` and `no_grid`. A Lua error, or a begin without its end, unwinds the node tree and the widget draws its message in red until it works again — a broken script cannot corrupt the frame. Calling `ui.*` from the console outside a widget, or `cui_script_eval` during one, is refused.
+
 ### Hex viewer
 
 The bytes of a file or of memory in hex and ASCII, for binary tools, emulators and debuggers.

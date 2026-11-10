@@ -1386,7 +1386,57 @@ static void devtools_trace(cui_ctx *ui) {
     }
 }
 
+static char rp_note[160] = "written by the app";
+
+static int rp_note_fn(void *ud, const char *const *args, int n, char *out, size_t cap) {
+    (void)ud;
+    if (n < 1) { snprintf(out, cap, "usage: note(text)"); return 1; }
+    snprintf(rp_note, sizeof rp_note, "%s", args[0]);
+    return 0;
+}
+
+static int rp_greet_fn(void *ud, const char *const *args, int n, char *out, size_t cap) {
+    (void)ud;
+    snprintf(out, cap, "hello, %s!", n >= 1 ? args[0] : "world");
+    return 1;
+}
+
+static void devtools_repl(cui_ctx *ui) {
+    static cui_script *lua;
+    if (!lua) {
+        lua = cui_script_new();
+        if (lua) {
+            cui_script_set_fn(lua, "note", rp_note_fn, NULL);
+            cui_script_set_fn(lua, "greet", rp_greet_fn, NULL);
+            cui_script_set_number(lua, "hits", 0);
+            cui_script_eval(lua,
+                "function live(ui, self)\n"
+                "  ui.card({ gap = 8 }, function()\n"
+                "    ui.label('a card drawn from Lua')\n"
+                "    ui.muted('this switch, slider and button are ui.* calls in the script')\n"
+                "    self.loud = ui.switch('Loud', self.loud)\n"
+                "    self.v = ui.slider('v', self.v or 0.4, { min = 0, max = 1 })\n"
+                "    ui.progress(self.v, { tone = 'accent', show_value = true })\n"
+                "    if ui.button('Ping', { variant = 'primary' }) then hits = hits + 1 end\n"
+                "  end)\n"
+                "end");
+            cui_script_printf(lua, "\x1b[2mtry: hits = hits + 1   note(\"hi\")   greet(\"ada\")\x1b[0m\n");
+        }
+    }
+    double hits = cui_script_get_number(lua, "hits");
+    cui_row(ui, .gap = 12, .align = CUI_ALIGN_CENTER) {
+        cui_textf(ui, "hits: %d", (int)hits);
+        float h = (float)hits;
+        if (cui_slider(ui, "hits", &h, 0, 50, .show_value = false)) cui_script_set_number(lua, "hits", h);
+        cui_muted(ui, rp_note);
+    }
+    cui_script_widget(ui, "live", lua, "live");
+    cui_repl(ui, "console", lua, .width = CUI_FILL, .height = 300);
+}
+
 static void page_devtools(cui_ctx *ui) {
+    section(ui, "Lua console", "The card above is drawn by a Lua function: ui.* calls over real components. State is shared with the widgets both ways.");
+    devtools_repl(ui);
     section(ui, "Trace viewer", "Wheel zooms, drag pans, Shift+drag measures, a lane's name folds it.");
     devtools_trace(ui);
     section(ui, "Network waterfall", "Hover a bar for its timing; Up and Down move the selection.");

@@ -1458,7 +1458,7 @@ CUI_API bool cui_file_picker_ex(cui_ctx *ui, const char *id, bool *open, char *o
 /* ------------------------------------------------------------------------ */
 
 /* Code block with syntax highlighting (lang: "c", "cpp", "js", "ts",
- * "python", "rust", "go", "json", "shell", or "text" for none), line numbers, a title bar and a
+ * "python", "rust", "go", "lua", "json", "shell", or "text" for none), line numbers, a title bar and a
  * copy button. Long lines scroll sideways. */
 typedef struct cui_code_opts {
     int _;
@@ -1571,7 +1571,7 @@ CUI_API bool cui_markdown_apply_task(char *text, const cui_markdown_result *resu
 typedef struct cui_text_mark { int start, end; int color; } cui_text_mark;
 typedef struct cui_code_editor_opts {
     int _;
-    const char *lang;          /* as cui_code_block: "c", "cpp", "js", "ts", "python", "rust", "go", "json", "shell"; "text" for none */
+    const char *lang;          /* as cui_code_block: "c", "cpp", "js", "ts", "python", "rust", "go", "lua", "json", "shell"; "text" for none */
     cui_size width;            /* default fill */
     float height;              /* default 320; negative fills the space */
     float size;                /* font size, default 13 */
@@ -1605,6 +1605,104 @@ CUI_API void cui_code_editor_find(cui_ctx *ui, const char *id, const char *query
 #ifndef __cplusplus
 #define cui_code_editor(ui, id, buf, cap, ...) cui_code_editor_ex((ui), (id), (buf), (cap), CUI__OPTS(cui_code_editor_opts, __VA_ARGS__))
 #endif
+
+/* ---- Lua console ---- */
+
+/* A Lua console: a colored output pane over a highlighted editor, for
+ * letting the user script the app. You keep the script (one per console, its
+ * own Lua state); the component keeps the input, the history and the pane.
+ * The console is built when CUI is configured with CUI_LUA=ON; otherwise
+ * cui_script_new returns NULL and the console shows a note instead.
+ *
+ *     static cui_script *lua;
+ *     if (!lua) {
+ *         lua = cui_script_new();
+ *         cui_script_set_fn(lua, "add", add_fn, NULL);   // Lua calls add(a, b)
+ *         cui_script_set_number(lua, "count", 0);        // count and count = count + 1 work in Lua
+ *     }
+ *     cui_repl_result r = cui_repl(ui, "console", lua, .height = 360, .autofocus = true);
+ *     double count = cui_script_get_number(lua, "count");   // read back what the user set
+ *
+ * Keys: Enter runs the text when it is a complete chunk (otherwise it adds a
+ * newline, so functions span lines); Shift+Enter always adds a newline;
+ * Ctrl+Enter runs whatever is there; Up and Down with an empty input walk the
+ * history; Ctrl+L clears the pane. A leading = prints the value of an
+ * expression even when it is nil. print(), errors and results all go to the
+ * pane; the standard libraries are all there, except io and require are
+ * removed whole and os loses execute, exit, remove, rename and tmpname. */
+typedef struct cui_script cui_script;
+
+/* A new Lua state, sandboxed for a console; NULL without CUI_LUA or on OOM. */
+CUI_API cui_script *cui_script_new(void);
+CUI_API void cui_script_free(cui_script *s);
+/* Run code now: a chunk of statements, or a single expression whose value is
+ * printed. print() and errors go to the console's pane. */
+CUI_API void cui_script_eval(cui_script *s, const char *code);
+/* Write a line to the pane (no Lua involved). */
+CUI_API void cui_script_printf(cui_script *s, const char *fmt, ...) CUI_PRINTF(2, 3);
+/* A function the console can call by name. The arguments arrive as strings
+ * (numbers are formatted for you); write the result to out and return 1, or
+ * return 0 for no result. ud is yours. */
+typedef int (*cui_script_fn)(void *ud, const char *const *args, int nargs, char *out, size_t out_cap);
+CUI_API void cui_script_set_fn(cui_script *s, const char *name, cui_script_fn fn, void *ud);
+/* Globals shared with the console. Set before the user reads them; get after
+ * they have run. get_string is valid until the next eval. */
+CUI_API void cui_script_set_number(cui_script *s, const char *name, double v);
+CUI_API double cui_script_get_number(cui_script *s, const char *name);
+CUI_API void cui_script_set_string(cui_script *s, const char *name, const char *v);
+CUI_API const char *cui_script_get_string(cui_script *s, const char *name);
+/* The lua_State, for apps that link Lua themselves (the engine is Lua 5.4);
+ * NULL without CUI_LUA. */
+CUI_API void *cui_script_lua(cui_script *s);
+
+typedef struct cui_repl_opts {
+    int _;
+    const char *prompt;          /* default ">" */
+    cui_size width;              /* default fill */
+    float height;                /* total height, default 360; negative fills the space */
+    float size;                  /* font size, default 13 */
+    const char *placeholder;     /* input placeholder, default "-- Lua" */
+    bool no_history;
+    bool autofocus;              /* take the keyboard when the console first appears */
+} cui_repl_opts;
+typedef struct cui_repl_result {
+    bool executed;               /* a chunk ran this frame */
+    bool refused;                /* an edit did not fit in the input and was dropped */
+} cui_repl_result;
+CUI_API cui_repl_result cui_repl_ex(cui_ctx *ui, const char *id, cui_script *s, const cui_repl_opts *opts);
+#ifndef __cplusplus
+#define cui_repl(ui, id, s, ...) cui_repl_ex((ui), (id), (s), CUI__OPTS(cui_repl_opts, __VA_ARGS__))
+#endif
+
+/* A live widget: calls the Lua global `fn` once a frame through a curated
+ * ui.* table, so the user composes real components from the console.
+ *
+ *     -- typed into the console:
+ *     function stats(ui, self)
+ *         ui.column({ gap = 8, pad = 12 }, function()
+ *             ui.heading("Stats", 3)
+ *             self.n = (self.n or 0) + (ui.button("tick") and 1 or 0)
+ *             ui.text("clicks: " .. self.n)
+ *             self.v = ui.slider("v", self.v or 0.5, { min = 0, max = 1 })
+ *         end)
+ *     end
+ *     -- in the app, where the widget should appear:
+ *     cui_script_widget(ui, "stats", lua, "stats");
+ *
+ * self is a table that survives between frames, per widget instance. The
+ * ui table: row, column, box, card, scroll (closures taking (opts, fn), plus
+ * the raw begin/end function pairs for advanced use), text, heading, muted,
+ * secondary, code, kbd, icon, separator, spacer, gap, badge, progress,
+ * button, checkbox, switch, slider, rating, textfield, textarea, toast.
+ * Sizes are numbers (points) or "fill"/"fit"; dirs and aligns are strings
+ * ("row", "center", ...). ui.textfield(id, value, opts) and ui.textarea
+ * return the (possibly typed-in) string plus a submitted flag: keep the
+ * value in self. Containers take opts tables; a Lua error, or a begin
+ * without its end, unwinds the node tree and the widget draws its message
+ * in red until it works again. Calling ui.* from the console (outside a
+ * widget), or cui_script_eval during a widget, is refused. */
+CUI_API void cui_script_widget(cui_ctx *ui, const char *id, cui_script *s, const char *fn);
+
 /* ---- Diff viewer ---- */
 
 /* Diff viewer: compares two versions of a text line by line, side by side or

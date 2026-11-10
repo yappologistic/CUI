@@ -19,6 +19,7 @@ option(CUI_WITH_APP "Include the app layer (windows, events)" ON)
 option(CUI_DEFAULT_FONTS "Embed Inter, Geist and Lucide" ON)
 option(CUI_STB_IMAGE "Image loading with stb_image" ON)
 option(CUI_IMAGE_ALL_FORMATS "Also decode BMP, GIF and TGA (PNG and JPEG are always on)" OFF)
+option(CUI_LUA "Lua REPL engine: the console component with a vendored Lua 5.4" OFF)
 set(CUI_PLATFORM "auto" CACHE STRING "Window backend: auto, win32, cocoa, x11, sdl2, glfw")
 set_property(CACHE CUI_PLATFORM PROPERTY STRINGS auto win32 cocoa x11 sdl2 glfw)
 
@@ -77,6 +78,7 @@ set(CUI_CORE_SOURCES
     src/cui_photo.c
     src/cui_files.c
     src/cui_terminal.c
+    src/cui_repl.c
     src/cui_emoji.c
     src/render/cui_render_sw.c
     src/render/cui_render_gl.c)
@@ -135,6 +137,19 @@ target_include_directories(cui PUBLIC
 if(CUI_TEXT_SHAPING)
     target_sources(cui PRIVATE src/cui_bidi.c src/cui_shape.c)
     target_compile_definitions(cui PRIVATE CUI_TEXT_SHAPING)
+endif()
+
+# The Lua REPL engine (cui_repl.c stays VM-agnostic; only this adds Lua)
+if(CUI_LUA)
+    file(GLOB CUI_LUA_SOURCES CONFIGURE_DEPENDS third_party/lua/*.c)
+    target_sources(cui PRIVATE src/cui_lua.c src/cui_lua_ui.c ${CUI_LUA_SOURCES})
+    target_include_directories(cui PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/third_party/lua>)
+    target_compile_definitions(cui PUBLIC CUI_WITH_LUA)
+    if(MSVC)
+        set_source_files_properties(${CUI_LUA_SOURCES} PROPERTIES COMPILE_OPTIONS "/w")
+    else()
+        set_source_files_properties(${CUI_LUA_SOURCES} PROPERTIES COMPILE_OPTIONS "-w")
+    endif()
 endif()
 
 if(NOT CUI_DEFAULT_FONTS)

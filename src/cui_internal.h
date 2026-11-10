@@ -22,6 +22,7 @@
  *   shared widget pieces             cui_widgets.c, cui_controls.c, cui_overlay.c...
  *   text editing primitives          cui_textedit.c (shared with the code editor)
  *   syntax highlighting              cui_code.c (code block, code editor, diff viewer)
+ *   Lua console                      cui_repl.c and cui_lua.c (the console and its engine)
  *
  * Naming: cui__ for internal functions, CUI__ for internal constants and macros, cui_ for
  * the public API in include/cui/. */
@@ -725,7 +726,9 @@ int cui__edit_word_left(const char *s, int pos);
 int cui__edit_word_right(const char *s, int len, int pos);
 
 /* ---- syntax highlighting (cui_code.c): the code block, the code editor and the diff viewer ---- */
-typedef struct { const char *const *kw; const char *const *types; const char *line_comment, *line_comment2; bool block_comments, hash_preproc, backtick, no_caps_types, plain; } cui__lang;
+typedef struct { const char *const *kw; const char *const *types; const char *line_comment, *line_comment2, *block_open, *block_close; bool hash_preproc, backtick, no_caps_types, plain; } cui__lang;
+/* True when the marker m occurs at i, wholly before e. */
+bool cui__at(const char *s, int e, int i, const char *m);
 typedef struct { int start, len; uint8_t kind; } cui__tok;
 #define CUI__TK_COUNT 10   /* token kinds; colors from cui__syntax_colors */
 cui__lang cui__lang_for(const char *lang);
@@ -737,5 +740,26 @@ void cui__syntax_colors(cui_ctx *ui, cui_color *c);   /* CUI__TK_COUNT colors, b
 /* One line of code in the mono font at (x, y), highlighted when lang is set, stopping past
  * max_x; *in_block carries a block comment to the next line. Returns the x after it. */
 float cui__draw_code_line(cui_ctx *ui, const char *lang, const char *s, int n, bool *in_block, float x, float y, float size, const cui_color *colors, float max_x);
+
+/* ---- Lua console (cui_repl.c, engine in cui_lua.c) ----
+ * cui_repl.c calls the engine only through these, and only where CUI_WITH_LUA is set, so a
+ * build without the engine links no Lua. The engine owns cui_script and its pane. */
+#ifdef CUI_WITH_LUA
+cui_script *cui__script_new(void);
+void cui__script_free(cui_script *s);
+cui_terminal_buffer *cui__script_term(cui_script *s);
+bool cui__script_wants_more(cui_script *s, const char *code);   /* the chunk is unfinished (prompt ">>") */
+void cui__script_exec(cui_script *s, const char *code, int print_result);   /* -1 auto, 0 statements, 1 value even nil */
+void cui__script_write(cui_script *s, const char *data, int len);           /* raw bytes to the pane */
+void cui__script_vprintf(cui_script *s, const char *fmt, va_list ap);
+void cui__script_set_fn(cui_script *s, const char *name, cui_script_fn fn, void *ud);
+void cui__script_set_number(cui_script *s, const char *name, double v);
+double cui__script_get_number(cui_script *s, const char *name);
+void cui__script_set_string(cui_script *s, const char *name, const char *v);
+const char *cui__script_get_string(cui_script *s, const char *name);
+void *cui__script_lua_impl(cui_script *s);
+void cui__lua_ui_install(cui_script *s);   /* the ui.* table and its bootstrap (cui_lua_ui.c) */
+bool cui__lw_in_widget(void);              /* nested eval guard (cui_lua_ui.c) */
+#endif
 
 #endif /* CUI_INTERNAL_H */

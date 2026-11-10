@@ -6795,6 +6795,297 @@ static void build_em(cui_ctx *ui, void *u) {
     cui_pop_id(ui);
     cui_pop_id(ui);
 }
+/* Lua console --------------------------------------------------------------- */
+
+#ifdef CUI_WITH_LUA
+cui_terminal_buffer *cui__script_term(cui_script *s);
+
+static void rp_pane(cui_script *s, char *out, size_t cap) {   /* the tail of the pane, newest last */
+    cui_terminal_buffer *t = cui__script_term(s);
+    out[0] = 0;
+    char tmp[4200];
+    size_t n = 0;
+    for (int i = t->count - 1; i >= 0; i--) {
+        cui_terminal_line *L = &t->lines[(t->first + i) % t->line_cap];
+        snprintf(tmp, sizeof tmp, "%.*s\n", (int)L->len, t->text + L->offset);
+        size_t l = strlen(tmp);
+        if (n + l >= cap - 1) break;
+        memmove(out + l, out, n + 1);
+        memcpy(out, tmp, l);
+        n += l;
+    }
+}
+static bool rp_has(cui_script *s, const char *needle) {
+    static char buf[16384];
+    rp_pane(s, buf, sizeof buf);
+    return strstr(buf, needle) != NULL;
+}
+static int rp_count(cui_script *s, const char *needle) {
+    static char buf[16384];
+    rp_pane(s, buf, sizeof buf);
+    int n = 0;
+    for (char *p = strstr(buf, needle); p; p = strstr(p + strlen(needle), needle)) n++;
+    return n;
+}
+static int rp_add(void *ud, const char *const *args, int n, char *out, size_t cap) {
+    (void)ud;
+    if (n < 2) { snprintf(out, cap, "usage: add(a, b)"); return 1; }
+    snprintf(out, cap, "%g", atof(args[0]) + atof(args[1]));
+    return 1;
+}
+typedef struct { cui_script *s; cui_repl_result r; bool autofocus; cui_id ed; } rp_ctx;
+static void build_rp(cui_ctx *ui, void *u) {
+    rp_ctx *c = u;
+    cui_column(ui, .pad = 16) {
+        c->r = cui_repl(ui, "repl", c->s, .width = CUI_PX(600), .height = 300, .autofocus = c->autofocus);
+        if (!c->ed) { cui_push_id(ui, "repl"); c->ed = cui_make_id(ui, "in"); cui_pop_id(ui); }
+    }
+}
+/* move the caret with the editor's own request, so typing behaves like a user typing */
+static void rp_goto(cui_ctx *ui, rp_ctx *c, int line, int col) {
+    cui_push_id(ui, "repl");
+    cui_code_editor_goto(ui, "in", line, col);
+    cui_pop_id(ui);
+    run(ui, build_rp, c, 1);
+}
+#endif
+
+static void test_repl(void) {
+#ifdef CUI_WITH_LUA
+    printf("repl: evaluation, continuation, history, sandbox, app functions\n");
+    cui_ctx *ui = new_ctx();
+    static cui_script *s;
+    if (!s) s = cui_script_new();
+    CHECK(s != NULL);
+    cui_script_set_fn(s, "add", rp_add, NULL);
+    rp_ctx c;
+    memset(&c, 0, sizeof c);
+    c.s = s; c.autofocus = true;
+    run(ui, build_rp, &c, 3);
+    CHECK(c.r.executed == false);
+    /* the editor needs a click or a request to take the caret; autofocus only fired once */
+    rp_goto(ui, &c, 1, 1);
+
+    /* an expression runs on Enter and prints its value */
+    type(ui, build_rp, &c, "1+1");
+    key(ui, build_rp, &c, CUI_KEY_ENTER, 0);
+    CHECK(c.r.executed);
+    CHECK(rp_has(s, "1+1") && rp_has(s, "\n2\n"));
+
+    /* Enter on an empty buffer is a no-op */
+    key(ui, build_rp, &c, CUI_KEY_ENTER, 0);
+    CHECK(!c.r.executed);
+
+    /* a chunk spans lines until the compiler is satisfied */
+    type(ui, build_rp, &c, "function f()");
+    key(ui, build_rp, &c, CUI_KEY_ENTER, 0);
+    CHECK(!c.r.executed);
+    type(ui, build_rp, &c, "return 42");
+    key(ui, build_rp, &c, CUI_KEY_ENTER, 0);
+    CHECK(!c.r.executed);
+    type(ui, build_rp, &c, "end");
+    key(ui, build_rp, &c, CUI_KEY_ENTER, 0);
+    CHECK(c.r.executed);
+    CHECK(rp_has(s, ">> "));                      /* the continuation echoed */
+    type(ui, build_rp, &c, "f()");
+    key(ui, build_rp, &c, CUI_KEY_ENTER, 0);
+    CHECK(rp_has(s, "\n42\n"));
+
+    /* print() goes to the pane, separated by a tab (which the terminal sets at column 8) */
+    type(ui, build_rp, &c, "print(\"hi\", 3)");
+    key(ui, build_rp, &c, CUI_KEY_ENTER, 0);
+    CHECK(rp_has(s, "hi      3"));
+
+    /* = prints even a nil */
+    type(ui, build_rp, &c, "=nil");
+    key(ui, build_rp, &c, CUI_KEY_ENTER, 0);
+    CHECK(rp_has(s, "\nnil\n"));
+
+    /* a broken chunk run with Ctrl+Enter reports the error in red */
+    type(ui, build_rp, &c, "1 +");
+    key(ui, build_rp, &c, CUI_KEY_ENTER, CUI_MOD_CTRL);
+    CHECK(c.r.executed);
+    CHECK(rp_has(s, "\x1b[31m"));
+
+    /* the app's function: two numbers in, their sum out */
+    type(ui, build_rp, &c, "add(2, 3)");
+    key(ui, build_rp, &c, CUI_KEY_ENTER, 0);
+    CHECK(rp_has(s, "\n5\n"));
+    type(ui, build_rp, &c, "add(1)");
+    key(ui, build_rp, &c, CUI_KEY_ENTER, 0);
+    CHECK(rp_has(s, "usage: add(a, b)"));
+
+    /* globals cross both ways */
+    cui_script_set_number(s, "x", 5);
+    cui_script_eval(s, "x * 2");
+    CHECK(rp_has(s, "\n10\n"));
+    cui_script_eval(s, "y = 7");
+    CHECK(cui_script_get_number(s, "y") == 7);
+    cui_script_set_string(s, "who", "lua");
+    cui_script_eval(s, "who");
+    CHECK(rp_has(s, "\nlua\n"));
+    CHECK(cui_script_get_string(s, "who") && strcmp(cui_script_get_string(s, "who"), "lua") == 0);
+    CHECK(cui_script_get_string(s, "nobody_here") == NULL);
+
+    /* the sandbox: no shell, no files, no exit */
+    cui_script_eval(s, "assert(io == nil and require == nil and os.execute == nil and os.exit == nil)");
+    CHECK(!rp_has(s, "assertion failed"));
+
+    /* history: Up with an empty input recalls the last command, Enter runs it again */
+    type(ui, build_rp, &c, "print('zz')");
+    key(ui, build_rp, &c, CUI_KEY_ENTER, 0);
+    int nzz = rp_count(s, "\nzz\n");
+    key(ui, build_rp, &c, CUI_KEY_UP, 0);
+    key(ui, build_rp, &c, CUI_KEY_ENTER, 0);
+    CHECK(c.r.executed && rp_count(s, "\nzz\n") == nzz + 1);
+
+    /* Ctrl+L empties the pane */
+    key(ui, build_rp, &c, CUI_KEY_L, CUI_MOD_CTRL);
+    run(ui, build_rp, &c, 1);
+    CHECK(!rp_has(s, "42"));
+
+    /* long output stays inside the ring */
+    cui_script_eval(s, "for i = 1, 5000 do print(string.rep('x', 80)) end");
+    CHECK(cui_script_get_number(s, "x") == 5);   /* the state still answers */
+    cui_script_eval(s, "1 + 1");
+    CHECK(rp_has(s, "\n2\n"));
+#else
+    printf("repl: skipped (built without CUI_LUA)\n");
+#endif
+}
+
+/* Lua widgets ------------------------------------------------------------ */
+
+#ifdef CUI_WITH_LUA
+typedef struct { cui_script *s; const char *fn; const char *wid; } lw_ctx;
+static void build_lw(cui_ctx *ui, void *u) {
+    lw_ctx *c = u;
+    cui_column(ui, .pad = 12) {
+        cui_script_widget(ui, c->wid, c->s, c->fn);
+    }
+}
+static int lw_eval_fn(void *ud, const char *const *args, int n, char *out, size_t cap) {
+    (void)out; (void)cap;
+    if (n >= 1) cui_script_eval((cui_script *)ud, args[0]);   /* must be refused inside a widget */
+    return 0;
+}
+#endif
+
+static void test_lua_widget(void) {
+#ifdef CUI_WITH_LUA
+    printf("lua widgets: bindings, self, unwinding, fields, guards\n");
+    cui_ctx *ui = new_ctx();
+    static cui_script *s;
+    if (!s) s = cui_script_new();
+    CHECK(s != NULL);
+    lw_ctx c = { s, "stats", "w" };
+
+    /* a function the console has not defined: reported, the frame still completes */
+    run(ui, build_lw, &c, 2);
+    CHECK(true);
+
+    /* counter: self survives frames, the button reports its click */
+    cui_script_eval(s, "function stats(ui, self)"
+        " ui.column({ gap = 4 }, function()"
+        " self.n = (self.n or 0) + (ui.button('tick') and 1 or 0)"
+        " count = self.n end) end");
+    run(ui, build_lw, &c, 2);
+    cui_push_id(ui, "w"); cui_id bid = cui_make_id(ui, "tick"); cui_pop_id(ui);
+    cui_rect r = rect_of(ui, bid);
+    CHECK(r.w > 0 && r.h > 0);
+    click_at(ui, build_lw, &c, r.x + 2, r.y + 2);
+    CHECK(cui_script_get_number(s, "count") == 1);
+    click_at(ui, build_lw, &c, r.x + 2, r.y + 2);
+    CHECK(cui_script_get_number(s, "count") == 2);   /* the same button keeps its identity */
+
+    /* raw begin/end, and the closure sugar over the same pair */
+    cui_script_eval(s, "function stats(ui, self)"
+        " ui.row_begin() ui.text('raw') ui.row_end()"
+        " ui.row({ gap = 2 }, function() ui.label('sugar') ui.kbd('Ctrl K') end)"
+        " ui.card({ id = 'cb', hoverable = true }, function() ui.text('card') end)"
+        " count = self.n or 0 end");
+    run(ui, build_lw, &c, 3);
+    CHECK(cui_script_get_number(s, "count") == 2);   /* self kept across the rewrite */
+
+    /* a Lua error mid-widget unwinds its containers; fixing the code recovers */
+    cui_script_eval(s, "function stats(ui, self) ui.column({}, function() boom() end) end");
+    run(ui, build_lw, &c, 2);
+    cui_script_eval(s, "function boom() end");        /* defining it makes the call work */
+    run(ui, build_lw, &c, 2);
+    CHECK(true);
+
+    /* a begin without its end is caught and unwound, later frames keep working */
+    cui_script_eval(s, "function stats(ui) ui.row_begin() ui.text('leak') end");
+    run(ui, build_lw, &c, 2);
+    cui_script_eval(s, "function stats(ui, self) self.m = (self.m or 5) count = self.m end");
+    run(ui, build_lw, &c, 2);
+    CHECK(cui_script_get_number(s, "count") == 5);   /* self survived the broken frames */
+
+    /* an end without its begin is refused */
+    cui_script_eval(s, "function stats(ui) ui.text('x') ui.row_end() end");
+    run(ui, build_lw, &c, 2);
+    CHECK(true);
+
+    /* ui.* from the console (outside any widget) is refused, the state survives */
+    cui_script_eval(s, "ui.text('sneaky')");
+    CHECK(rp_has(s, "cui_script_widget"));
+    cui_script_eval(s, "1 + 1");
+    CHECK(rp_has(s, "\n2\n"));
+
+    /* eval from inside a widget is refused too (try_eval is an app function) */
+    cui_script_set_fn(s, "try_eval", lw_eval_fn, s);
+    cui_script_eval(s, "function stats(ui) try_eval('x = 9') end");
+    run(ui, build_lw, &c, 2);
+    CHECK(cui_script_get_number(s, "x") == 0);
+
+    /* the text field: typed text lands in self, external assignment overwrites */
+    cui_script_eval(s, "function stats(ui, self)"
+        " self.who = ui.textfield('who', ext or self.who or '') who = self.who end");
+    run(ui, build_lw, &c, 2);
+    cui_push_id(ui, "w"); cui_id fid = cui_make_id(ui, "who"); cui_pop_id(ui);
+    cui_rect fr = rect_of(ui, fid);
+    CHECK(fr.w > 0 && fr.h > 0);
+    click_at(ui, build_lw, &c, fr.x + 6, fr.y + fr.h / 2);        /* focus */
+    cui_input_text(ui, "ada");
+    run(ui, build_lw, &c, 2);
+    const char *who = cui_script_get_string(s, "who");
+    CHECK(who && strcmp(who, "ada") == 0);
+    cui_script_eval(s, "ext = 'grace'");
+    run(ui, build_lw, &c, 2);
+    who = cui_script_get_string(s, "who");
+    CHECK(who && strcmp(who, "grace") == 0);
+    cui_script_eval(s, "ext = nil");
+
+    /* a widget with a different id gets its own self table */
+    cui_script_eval(s, "function other(ui, self) if not self.v then self.v = 42 end count = self.v end");
+    c.fn = "other"; c.wid = "w2";
+    run(ui, build_lw, &c, 2);
+    CHECK(cui_script_get_number(s, "count") == 42);
+    c.fn = "stats"; c.wid = "w";                                    /* the first self is untouched */
+
+    /* widget(f) takes over the slot from the console; widget(nil) gives it back */
+    cui_script_eval(s, "function stats(ui, self) count = (count or 0) - 100 end");
+    cui_script_eval(s, "widget(function(ui, self) count = (count or 0) + 100 end)");
+    cui_script_eval(s, "count = 0");
+    run(ui, build_lw, &c, 2);
+    CHECK(cui_script_get_number(s, "count") == 200);
+    cui_script_eval(s, "widget(nil)");
+    run(ui, build_lw, &c, 1);
+    CHECK(cui_script_get_number(s, "count") == 100);                /* stats runs again, same self */
+    cui_script_eval(s, "widget(3)");
+    CHECK(rp_has(s, "wants a function"));
+
+    /* a swapped function can wrap the app's own through _G[__cui_slot] */
+    cui_script_eval(s, "function stats(ui, self) count = (count or 0) + 1 end");
+    cui_script_eval(s, "count = 0");
+    cui_script_eval(s, "widget(function(ui, self) local f = _G[__cui_slot] if f == stats then f(ui, self) end end)");
+    run(ui, build_lw, &c, 2);
+    CHECK(cui_script_get_number(s, "count") == 2);   /* the app's function ran via the wrapper */
+#else
+    printf("lua widgets: skipped (built without CUI_LUA)\n");
+#endif
+}
+
 static void test_emoji(void) {
     printf("emoji: list, search, tones, recent, keys, clicks, font tables\n");
     cui_ctx *ui = new_ctx();
@@ -7116,6 +7407,8 @@ int main(void) {
     test_photo();
     test_files();
     test_terminal();
+    test_repl();
+    test_lua_widget();
     test_emoji();
     test_atlas_shrink();
     test_sw_incremental();
