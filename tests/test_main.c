@@ -802,6 +802,39 @@ static void build_more_inputs(cui_ctx *ui, void *u) {
     }
 }
 
+typedef struct { int ancestor, page; } navigation_focus_ctx;
+
+static void build_navigation_focus(cui_ctx *ui, void *user) {
+    navigation_focus_ctx *n = user;
+    const char *path[] = { "Home", "Projects", "Settings" };
+    n->ancestor = cui_breadcrumb(ui, path, 3);
+    cui_pagination(ui, "pages", &n->page, 3);
+}
+
+/** Render the exact links that Tab focuses and Enter can activate. */
+static void test_navigation_focus_visible(void) {
+    printf("breadcrumb and pagination: visible keyboard focus\n");
+    enum { width = 400, height = 120, stride = width * 4 };
+    unsigned char initial[height * stride], focused[height * stride];
+    navigation_focus_ctx n = { -1, 0 };
+    cui_ctx *ui = new_ctx();
+    cui_set_viewport(ui, width, height, 1);
+    cui_input_mouse_leave(ui);
+    run(ui, build_navigation_focus, &n, 1);
+    cui_sw_render(g_sw, cui_get_draw_data(ui), initial, width, height, stride, CUI_SW_RGBA);
+    key(ui, build_navigation_focus, &n, CUI_KEY_TAB, 0);
+    cui_sw_render(g_sw, cui_get_draw_data(ui), focused, width, height, stride, CUI_SW_RGBA);
+    CHECK(memcmp(initial, focused, sizeof initial) != 0);
+    key(ui, build_navigation_focus, &n, CUI_KEY_ENTER, 0);
+    CHECK(n.ancestor == 0);
+    for (int i = 0; i < 3; i++) key(ui, build_navigation_focus, &n, CUI_KEY_TAB, 0);
+    cui_sw_render(g_sw, cui_get_draw_data(ui), focused, width, height, stride, CUI_SW_RGBA);
+    CHECK(memcmp(initial, focused, sizeof initial) != 0);
+    key(ui, build_navigation_focus, &n, CUI_KEY_ENTER, 0);
+    CHECK(n.page == 1);
+    cui_destroy(ui);
+}
+
 static void test_more_inputs(void) {
     printf("inputs: inline edit, scrub, money, shortcut recorder\n");
     cui_ctx *ui = new_ctx();
@@ -7254,6 +7287,7 @@ int main(void) {
     test_textarea_and_clear();
     test_more_actions();
     test_more_inputs();
+    test_navigation_focus_visible();
     test_swipe();
     test_date_math();
     test_strings();
