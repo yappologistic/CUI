@@ -802,6 +802,34 @@ static void build_more_inputs(cui_ctx *ui, void *u) {
     }
 }
 
+typedef struct { int page; cui_size width; } unnamed_pager_ctx;
+
+static void build_unnamed_pager(cui_ctx *ui, void *user) {
+    unnamed_pager_ctx *p = user;
+    cui_box(ui, .width = p->width, .pad = 24) {
+        cui_pagination(ui, "pages", &p->page, 12);
+    }
+}
+
+/** A constrained pager fits, while an unconstrained pager keeps its pages. */
+static void test_pagination_unnamed_width(void) {
+    printf("pagination: stays inside an unnamed padded parent\n");
+    cui_ctx *ui = new_ctx();
+    cui_set_viewport(ui, 360, 160, 1);
+    unnamed_pager_ctx p = { 5, CUI_PX(328) };
+    run(ui, build_unnamed_pager, &p, 3);
+    cui_rect next = cui_last_rect(ui);
+    CHECK(next.w > 0 && next.x + next.w <= 304.5f);
+    cui_destroy(ui);
+
+    ui = new_ctx();
+    p.width = CUI_FIT;
+    run(ui, build_unnamed_pager, &p, 3);
+    next = cui_last_rect(ui);
+    CHECK(next.x + next.w > 304.5f);
+    cui_destroy(ui);
+}
+
 static void test_more_inputs(void) {
     printf("inputs: inline edit, scrub, money, shortcut recorder\n");
     cui_ctx *ui = new_ctx();
@@ -7254,6 +7282,7 @@ int main(void) {
     test_textarea_and_clear();
     test_more_actions();
     test_more_inputs();
+    test_pagination_unnamed_width();
     test_swipe();
     test_date_math();
     test_strings();
