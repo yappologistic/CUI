@@ -197,7 +197,8 @@ CUI_API void cui_set_viewport(cui_ctx *ui, float width, float height, float scal
 CUI_API cui_vec2 cui_viewport_size(cui_ctx *ui);
 CUI_API float cui_dpi_scale(cui_ctx *ui);
 
-/* dt is the time since the previous frame in seconds. */
+/* dt is the elapsed time since the previous frame in seconds.
+ * Timers use the full interval. Animation steps are capped after idle. */
 CUI_API void cui_begin_frame(cui_ctx *ui, float dt);
 CUI_API void cui_end_frame(cui_ctx *ui);
 
@@ -776,7 +777,8 @@ CUI_API bool cui_menu_item_ex(cui_ctx *ui, const char *label, const cui_menu_ite
 CUI_API void cui_menu_separator(cui_ctx *ui);
 CUI_API void cui_menu_label(cui_ctx *ui, const char *text);
 
-/* Tooltip for the previous component, shown after a short hover delay. */
+/* Tooltip for the previous component. The first hover waits for the delay,
+ * measured in elapsed time even when the app sleeps between frames. */
 CUI_API void cui_tooltip(cui_ctx *ui, const char *text);
 
 /* ------------------------------------------------------------------------ */
