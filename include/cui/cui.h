@@ -697,6 +697,7 @@ CUI_API void cui_nav_section(cui_ctx *ui, const char *title);
 
 CUI_API int cui_breadcrumb(cui_ctx *ui, const char *const *items, int count);   /* returns clicked index or -1 */
 CUI_API bool cui_pagination(cui_ctx *ui, const char *id, int *page, int page_count);  /* page is 0 based */
+/* Process steps that collapse labels to fit the width of their own row. */
 CUI_API void cui_stepper(cui_ctx *ui, const char *const *steps, int count, int current);
 
 /* ------------------------------------------------------------------------ */

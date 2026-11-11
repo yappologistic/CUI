@@ -350,7 +350,7 @@ cui_stepper(ui, steps, 4, current);
 
 `cui_pagination` returns true on the frame the page changes. `page` is your `int`, counted from 0 while the buttons show numbers from 1, and it is kept between 0 and `page_count` - 1. With seven pages or fewer, all are shown. Beyond that the first, the last and the pages around the current one stay, with an ellipsis for each gap.
 
-`cui_stepper` returns nothing. `current` is the index of the step in progress, from 0: the steps before it are marked done, and passing the number of steps marks them all done. In a narrow row only the current step keeps its label.
+`cui_stepper` returns nothing. `current` is the index of the step in progress, from 0: the steps before it are marked done, and passing the number of steps marks them all done. Each stepper adapts to the width of its own row. In a narrow row only the current step keeps its label.
 
 Keyboard: Tab moves through the breadcrumb's links and the pagination's page buttons, and Enter or Space follows or presses the focused one. The stepper only displays.
 
