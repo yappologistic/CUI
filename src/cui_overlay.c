@@ -808,6 +808,14 @@ bool cui_dialog_begin(cui_ctx *ui, const char *title, bool *open, const cui_dial
 void cui_dialog_end(cui_ctx *ui) { cui__modal_end(ui, 0); }
 
 void cui_dialog_footer_begin(cui_ctx *ui) {
+    /* a dialog resized taller than its content keeps the footer at the bottom edge */
+    if (ui->dialog_depth > 0) {
+        cui__modal_state *st = cui_state(ui, ui->dialog_stack[ui->dialog_depth - 1], sizeof *st);
+        if (st->h > 0) {
+            int fill = cui__node_new(ui, 0);
+            ui->nodes[fill].h = CUI_FILL;
+        }
+    }
     int row = cui__node_new(ui, 0);
     cui_node *n = &ui->nodes[row];
     n->dir = CUI_ROW; n->gap = 8; n->justify = CUI_JUSTIFY_END;
