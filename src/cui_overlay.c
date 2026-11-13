@@ -599,7 +599,7 @@ static void cui__dialog_follow(cui_ctx *ui, cui__modal_state *st) {
     /* the panel is centred, so moving one edge by d moves the centre by d / 2 */
     if (st->grab & (CUI__GRAB_LEFT | CUI__GRAB_RIGHT)) {
         float sign = (st->grab & CUI__GRAB_RIGHT) ? 1.0f : -1.0f;
-        st->w = cui__clampf(st->w0 + sign * ddx, CUI__DIALOG_MIN_W, CUI_MAX(CUI__DIALOG_MIN_W, ui->vw - 32));
+        st->w = cui__clampf(st->w0 + sign * ddx, CUI_MIN(CUI__DIALOG_MIN_W, ui->vw - 32), ui->vw - 32);
         st->dx = st->x0 + sign * (st->w - st->w0) * 0.5f;
     }
     if (st->grab & (CUI__GRAB_TOP | CUI__GRAB_BOTTOM)) {
@@ -642,12 +642,17 @@ static void cui__dialog_grip(cui_ctx *ui, cui__modal_state *st, cui_id id, cui_i
         }
     }
     bool held = (ui->active == edge || ui->active == head) && ui->mdown[CUI_MOUSE_LEFT];
-    if (!held) st->grab = 0;
+    if (!held) {
+        st->grab = 0;
+        if (ui->active == edge) ui->active = 0;   /* the edge id has no control to clear it */
+    }
     if (st->grab) cui__dialog_follow(ui, st);
     if (zone || (st->grab && !(st->grab & CUI__GRAB_MOVE))) {
         int g = st->grab ? st->grab : zone;
         cui__set_cursor(ui, (g & (CUI__GRAB_LEFT | CUI__GRAB_RIGHT)) ? CUI_CURSOR_RESIZE_EW : CUI_CURSOR_RESIZE_NS);
     }
+    /* keep the stored width inside the window, even after the window shrinks */
+    if (st->w > 0) st->w = cui__clampf(st->w, CUI_MIN(CUI__DIALOG_MIN_W, ui->vw - 32), ui->vw - 32);
     /* keep the panel inside the window */
     float sw = st->w > 0 ? st->w : pr.w, sh = st->h > 0 ? st->h : pr.h;
     float mx = CUI_MAX(0, (ui->vw - sw) * 0.5f), my = CUI_MAX(0, (ui->vh - sh) * 0.5f);
