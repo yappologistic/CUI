@@ -31,6 +31,10 @@ add_test(NAME cui_screenshots COMMAND cui_screenshots ${CMAKE_CURRENT_BINARY_DIR
 if(CUI_WITH_APP)
     add_executable(cui_app_smoke app_smoke.c ../examples/gallery_ui.c ../examples/gallery_more.c)
     target_link_libraries(cui_app_smoke PRIVATE cui::cui)
+
+    add_executable(cui_test_maximize test_maximize.c)
+    target_link_libraries(cui_test_maximize PRIVATE cui::cui)
+    add_test(NAME cui_test_maximize COMMAND cui_test_maximize)
     if(APPLE)
         target_link_libraries(cui_app_smoke PRIVATE objc)   # sends terminate: as the Dock does
     endif()
