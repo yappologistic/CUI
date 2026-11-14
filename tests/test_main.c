@@ -2969,6 +2969,37 @@ static void test_reorder(void) {
     cui_destroy(ui);
 }
 
+/* a press on a row the list no longer has must not start a drag: the drag used
+ * slot geometry this frame never measured, and a later frame could commit it */
+typedef struct { int order[4]; int count; int changed; } reorder_n_ctx;
+static void build_reorder_n(cui_ctx *ui, void *u) {
+    reorder_n_ctx *r = u;
+    cui_column(ui, .pad = 20, .width = CUI_PX(300)) {
+        cui_reorder_begin(ui, "list", r->order, r->count);
+        for (int i = 0; i < r->count; i++) cui_reorder_item(ui, i) { cui_textf(ui, "Item %d", r->order[i]); }
+        if (cui_reorder_end(ui)) r->changed++;
+    }
+}
+static void test_reorder_shrink(void) {
+    printf("data: a reorder list that shrinks under a press starts no drag\n");
+    cui_ctx *ui = new_ctx();
+    reorder_n_ctx r = { { 0, 1, 2, 3 }, 4, 0 };
+    run(ui, build_reorder_n, &r, 3);
+    cui_input_mouse_move(ui, 150, 160);   /* the last row */
+    run(ui, build_reorder_n, &r, 1);
+    cui_input_mouse_button(ui, CUI_MOUSE_LEFT, true);
+    run(ui, build_reorder_n, &r, 1);
+    r.count = 2;                          /* the pressed row is gone */
+    cui_input_mouse_move(ui, 150, 170);
+    run(ui, build_reorder_n, &r, 1);
+    r.count = 4;
+    cui_input_mouse_button(ui, CUI_MOUSE_LEFT, false);
+    run(ui, build_reorder_n, &r, 3);
+    CHECK(r.changed == 0);
+    CHECK(r.order[0] == 0 && r.order[1] == 1 && r.order[2] == 2 && r.order[3] == 3);
+    cui_destroy(ui);
+}
+
 /* app chrome ------------------------------------------------------------- */
 
 static cui_id scoped_id(cui_ctx *ui, const char *scope, const char *name) {
@@ -8817,6 +8848,7 @@ int main(void) {
     test_extras();
     test_toast_deadline();
     test_reorder();
+    test_reorder_shrink();
     test_chrome();
     test_dock();
     test_virtual_list();
