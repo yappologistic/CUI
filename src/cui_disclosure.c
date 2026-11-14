@@ -7,8 +7,9 @@
 /* Hover card                                                               */
 /* ------------------------------------------------------------------------ */
 
-typedef struct { double enter_t, leave_t; cui_id anchor; } cui__hc_state;
+typedef struct { double enter_t, leave_t; cui_id anchor; bool dismissed; } cui__hc_state;
 
+/** Keep a dismissed card closed until the pointer leaves its anchor. */
 bool cui_hover_card_begin(cui_ctx *ui, const char *id_str, const cui_hover_card_opts *o) {
     cui_hover_card_opts d;
     memset(&d, 0, sizeof d);
@@ -21,6 +22,7 @@ bool cui_hover_card_begin(cui_ctx *ui, const char *id_str, const cui_hover_card_
     if (!p) return false;
     bool on_anchor = anchor && ui->hot == anchor;
     bool on_card = p->open && (ui->hot_layer == pid);
+    if (!on_anchor) st->dismissed = false;
     if (on_anchor || on_card) {
         if (st->enter_t == 0) st->enter_t = ui->time;
         st->leave_t = 0;
@@ -28,7 +30,7 @@ bool cui_hover_card_begin(cui_ctx *ui, const char *id_str, const cui_hover_card_
         st->enter_t = 0;
         if (st->leave_t == 0) st->leave_t = ui->time;
     }
-    if (!p->open && on_anchor) {
+    if (!p->open && on_anchor && !st->dismissed) {
         double waited = ui->time - st->enter_t;
         if (waited >= delay && !ui->mdown[0]) { cui__popup_set(ui, pid, true); p->at_mouse = false; }
         else cui__wakeup_after(ui, (float)(delay - waited) + 0.01f);
@@ -38,8 +40,11 @@ bool cui_hover_card_begin(cui_ctx *ui, const char *id_str, const cui_hover_card_
         if (gone > 0.2) p->open = false;   /* a short grace period lets the pointer cross the gap */
         else cui__wakeup_after(ui, (float)(0.2 - gone) + 0.01f);
     }
+    bool was_open = p->open;
     if (p->open && on_anchor && ui->mpressed[0]) p->open = false;   /* clicking the anchor means something else */
-    return cui__popup_begin(ui, pid, anchor, o->placement, o->width > 0 ? o->width : 300, 16, 10, false);
+    bool built = cui__popup_begin(ui, pid, anchor, o->placement, o->width > 0 ? o->width : 300, 16, 10, false);
+    if (on_anchor && was_open && !p->open) st->dismissed = true;
+    return built;
 }
 
 void cui_hover_card_end(cui_ctx *ui) { cui__popup_end(ui); }
@@ -110,6 +115,7 @@ static void cui__paint_text_fade(cui_ctx *ui, cui_node *n, void *data) {
     cui_draw_rect_gradient(ui, (cui_rect){ r.x, r.y + r.h - h, r.w, h }, CUI_CORNERS(0), clear, cui_alpha(p->c, p->fade * 0.82f));
 }
 
+/** Draw expandable text with a toggle that keeps its identity when its label changes. */
 bool cui_expandable_text_ex(cui_ctx *ui, const char *id_str, const char *text, const cui_expandable_text_opts *o) {
     cui_expandable_text_opts d;
     memset(&d, 0, sizeof d);
@@ -152,7 +158,7 @@ bool cui_expandable_text_ex(cui_ctx *ui, const char *id_str, const char *text, c
     cui__close(ui);
     if (expandable) {
         cui_push_id(ui, id_str);
-        if (cui_link(ui, st->open ? "Show less" : "Show more")) { st->open = !st->open; toggled = true; }
+        if (cui_link(ui, st->open ? "Show less###expand" : "Show more###expand")) { st->open = !st->open; toggled = true; }
         cui_pop_id(ui);
     }
     cui__close(ui);

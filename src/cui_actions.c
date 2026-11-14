@@ -444,6 +444,7 @@ int cui_reactions(cui_ctx *ui, const char *id_str, cui_reaction *items, int coun
 typedef struct { bool open; cui_spring t, press; float hover; int z; } cui__dial_state;
 typedef struct { float hover[16]; } cui__dial_items;
 
+/** Balance the action scope even if an action closes the dial during the build. */
 int cui_speed_dial_ex(cui_ctx *ui, const char *id_str, const cui_speed_action *actions, int count, const cui_speed_dial_opts *o) {
     cui_speed_dial_opts d;
     memset(&d, 0, sizeof d);
@@ -493,7 +494,8 @@ int cui_speed_dial_ex(cui_ctx *ui, const char *id_str, const cui_speed_action *a
         cui_node *rn = &ui->nodes[root];
         rn->gap = 10; rn->align = CUI_ALIGN_END;
         rn->pad[1] = (size - 42) * 0.5f;
-        if (!st->open) cui_push_disabled(ui, true);
+        bool closing = !st->open;
+        if (closing) cui_push_disabled(ui, true);
         for (int j = 0; j < count; j++) {
             int k = below ? j : count - 1 - j;          /* k counts outward from the button */
             int dist = below ? j : count - 1 - j;
@@ -538,7 +540,7 @@ int cui_speed_dial_ex(cui_ctx *ui, const char *id_str, const cui_speed_action *a
             cui__close(ui);
             cui__focus_ring(ui, rb, ar.focus_visible ? 1.0f : 0.0f);
         }
-        if (!st->open) cui_pop_disabled(ui);
+        if (closing) cui_pop_disabled(ui);
         cui__float_end(ui);
     }
     ui->last_id = id;

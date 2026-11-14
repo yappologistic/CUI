@@ -1165,6 +1165,45 @@ static void test_more_actions(void) {
     cui_destroy(ui);
 }
 
+typedef struct { int chosen; bool caller_scope_intact; } dial_scope_case;
+
+/** Use a false scope around the dial, leaving enough room to probe the stack. */
+static void build_dial_scope(cui_ctx *ui, void *user) {
+    dial_scope_case *c = user;
+    static const cui_speed_action action = { CUI_ICON_PLUS, "Add" };
+    cui_column(ui, .pad = 25) {
+        cui_push_disabled(ui, false);
+        c->chosen = cui_speed_dial(ui, "scope dial", &action, 1, .placement = CUI_PLACE_BOTTOM_START);
+        /* A full false stack cannot record the extra false push. The first
+           pop must remove the true entry if the dial kept our first one. */
+        if (c->chosen == 0) {
+            cui_push_disabled(ui, true);
+            for (int i = 0; i < 31; i++) cui_push_disabled(ui, false);
+            for (int i = 0; i < 30; i++) cui_pop_disabled(ui);
+            cui_pop_disabled(ui);
+            c->caller_scope_intact = !cui_is_disabled(ui);
+        }
+        cui_pop_disabled(ui);
+    }
+}
+
+/** The scope depth is unchanged when keyboard activation closes the dial. */
+static void test_dial_scope(void) {
+    printf("speed dial: action preserves the caller scope\n");
+    cui_ctx *ui = new_ctx();
+    cui_set_reduced_motion(ui, false);
+    dial_scope_case c = {0};
+    run(ui, build_dial_scope, &c, 3);
+    key(ui, build_dial_scope, &c, CUI_KEY_TAB, 0);
+    key(ui, build_dial_scope, &c, CUI_KEY_ENTER, 0);
+    run(ui, build_dial_scope, &c, 40);
+    key(ui, build_dial_scope, &c, CUI_KEY_TAB, 0);
+    key(ui, build_dial_scope, &c, CUI_KEY_ENTER, 0);
+    CHECK(c.chosen == 0);
+    CHECK(c.caller_scope_intact);
+    cui_destroy(ui);
+}
+
 typedef struct { char title[64]; float v; double money; cui_key_combo combo; int edit_flags; cui_id title_id, scrub_id, money_id, rec_id, other_id; char other[16]; } inp_ctx;
 static void build_more_inputs(cui_ctx *ui, void *u) {
     inp_ctx *a = u;
@@ -1710,6 +1749,59 @@ static void test_confirm_popover_keyboard(void) {
     cui_destroy(ui);
 }
 
+/** Draw just the expandable text so Tab reaches its toggle. */
+static void build_expandable_focus(cui_ctx *ui, void *user) {
+    bool *toggled = user;
+    cui_column(ui, .width = CUI_PX(240)) {
+        *toggled = cui_expandable_text(ui, "expandable", "First line\nSecond line\nThird line", .lines = 1);
+    }
+}
+
+/** Both activation keys still work when the toggle's label changes. */
+static void test_expandable_focus(void) {
+    printf("expandable text: preserve focus after toggling\n");
+    cui_ctx *ui = new_ctx();
+    bool toggled = false;
+    run(ui, build_expandable_focus, &toggled, 3);
+    key(ui, build_expandable_focus, &toggled, CUI_KEY_TAB, 0);
+    key(ui, build_expandable_focus, &toggled, CUI_KEY_ENTER, 0);
+    CHECK(toggled);
+    run(ui, build_expandable_focus, &toggled, 1);
+    key(ui, build_expandable_focus, &toggled, CUI_KEY_SPACE, 0);
+    CHECK(toggled);
+    run(ui, build_expandable_focus, &toggled, 1);
+    key(ui, build_expandable_focus, &toggled, CUI_KEY_ENTER, 0);
+    CHECK(toggled);
+    cui_destroy(ui);
+}
+
+typedef struct { bool open, enter_available; int selected; } palette_close_case;
+
+/** Record both the command and whether the palette consumed Enter. */
+static void build_palette_close(cui_ctx *ui, void *user) {
+    palette_close_case *c = user;
+    static const cui_command command = { .title = "Open" };
+    c->selected = cui_command_palette(ui, &c->open, &command, 1);
+    c->enter_available = cui_key_pressed(ui, CUI_KEY_ENTER);
+}
+
+/** A closing palette stays visible for its transition without accepting keys. */
+static void test_palette_close(void) {
+    printf("command palette: closing animation does not activate\n");
+    cui_ctx *ui = new_ctx();
+    cui_set_reduced_motion(ui, false);
+    palette_close_case c = { .open = true };
+    run(ui, build_palette_close, &c, 50);
+    c.open = false;
+    key(ui, build_palette_close, &c, CUI_KEY_ENTER, 0);
+    CHECK(c.selected == -1 && c.enter_available);
+    c.open = true;
+    run(ui, build_palette_close, &c, 3);
+    key(ui, build_palette_close, &c, CUI_KEY_ENTER, 0);
+    CHECK(c.selected == 0 && !c.open && !c.enter_available);
+    cui_destroy(ui);
+}
+
 static void test_disclosure(void) {
     printf("disclosure: hover card, confirm popover, expandables, toc, banner, checklist\n");
     cui_ctx *ui = new_ctx();
@@ -1728,9 +1820,17 @@ static void test_disclosure(void) {
     CHECK(!a.card_built);
     run(ui, build_disclosure, &a, 40);
     CHECK(a.card_built);
+    key(ui, build_disclosure, &a, CUI_KEY_ESCAPE, 0);
+    run(ui, build_disclosure, &a, 40);
+    CHECK(!a.card_built);
     cui_input_mouse_move(ui, 990, 1090);
     run(ui, build_disclosure, &a, 40);
     CHECK(!a.card_built);
+    cui_input_mouse_move(ui, l.x, l.y);
+    run(ui, build_disclosure, &a, 40);
+    CHECK(a.card_built);
+    cui_input_mouse_move(ui, 990, 1090);
+    run(ui, build_disclosure, &a, 40);
     /* confirm popover */
     cui_vec2 dl = center(rect_of(ui, a.del_id));
     click_at(ui, build_disclosure, &a, dl.x, dl.y);
@@ -5231,6 +5331,38 @@ static void build_motion(cui_ctx *ui, void *u) {
     }
 }
 
+/** Four tabs make it possible to distinguish a single step from a cascade. */
+static void build_tab_step(cui_ctx *ui, void *user) {
+    static const cui_tab_bar_item tabs[] = { { NULL, "Home", 0 }, { NULL, "Search", 0 },
+                                             { NULL, "Inbox", 0 }, { NULL, "Profile", 0 } };
+    cui_tab_bar(ui, "tabs", tabs, 4, user);
+}
+
+/** Each arrow moves one tab unless a mouse press takes focus in that frame. */
+static void test_tab_step(void) {
+    printf("tab bar: one step per arrow press\n");
+    cui_ctx *ui = new_ctx();
+    int selected = 0;
+    run(ui, build_tab_step, &selected, 3);
+    key(ui, build_tab_step, &selected, CUI_KEY_TAB, 0);
+    key(ui, build_tab_step, &selected, CUI_KEY_RIGHT, 0);
+    CHECK(selected == 1);
+    key(ui, build_tab_step, &selected, CUI_KEY_LEFT, 0);
+    CHECK(selected == 0);
+    cui_rect bar = cui_last_rect(ui);
+    cui_input_mouse_move(ui, bar.x + bar.w * 0.875f, bar.y + bar.h / 2);
+    run(ui, build_tab_step, &selected, 1);
+    cui_input_key(ui, CUI_KEY_RIGHT, true, 0);
+    cui_input_mouse_button(ui, CUI_MOUSE_LEFT, true);
+    run(ui, build_tab_step, &selected, 1);
+    CHECK(selected == 0);
+    cui_input_key(ui, CUI_KEY_RIGHT, false, 0);
+    cui_input_mouse_button(ui, CUI_MOUSE_LEFT, false);
+    run(ui, build_tab_step, &selected, 1);
+    CHECK(selected == 3);
+    cui_destroy(ui);
+}
+
 static void test_motion(void) {
     printf("motion: typewriter streams and restarts, tiles, tab bar, waveform seek, player, dock\n");
     cui_ctx *ui = new_ctx();
@@ -8305,6 +8437,7 @@ int main(void) {
     test_searchable_select_reopen();
     test_more_actions();
     test_toggle_group_arrows();
+    test_dial_scope();
     test_more_inputs();
     test_range_slider_keyboard();
     test_range_slider_context_menu();
@@ -8316,6 +8449,8 @@ int main(void) {
     test_date_picker_reopens_on_days();
     test_pickers();
     test_disclosure();
+    test_expandable_focus();
+    test_palette_close();
     test_confirm_popover_keyboard();
     test_checklist();
     test_data_grid();
@@ -8346,6 +8481,7 @@ int main(void) {
     test_media();
     test_viz();
     test_motion();
+    test_tab_step();
     test_ai();
     test_text_capacity();
     test_dialog();

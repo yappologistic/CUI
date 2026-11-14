@@ -1481,6 +1481,7 @@ static int cui__fuzzy(const char *text, const char *q) {
     return score;
 }
 
+/** Keep the exit transition visible without accepting commands from it. */
 int cui_command_palette(cui_ctx *ui, bool *open, const cui_command *cmds, int count) {
     cui_id id = cui_make_id(ui, "#command-palette");
     cui__palette_state *st = cui_state(ui, id, sizeof *st);
@@ -1497,6 +1498,7 @@ int cui_command_palette(cui_ctx *ui, bool *open, const cui_command *cmds, int co
         if (cui_key_pressed(ui, CUI_KEY_ESCAPE)) { *open = false; ui->kpressed[CUI_KEY_ESCAPE] = 0; }
         if (ui->mreleased[0] && ui->hot == scrim_id && ui->active == scrim_id) *open = false;
     }
+    is_open = open && *open && !cui_is_disabled(ui);
     cui__interact(ui, scrim_id, 0);
     if (is_open) { ui->modal_layer = id; ui->modal_z = 0x7FFF0000; }
     int root = cui__float_begin(ui, id, 0x7FFF0000, 0, CUI__PLACE_FULL, 0);
@@ -1552,7 +1554,7 @@ int cui_command_palette(cui_ctx *ui, bool *open, const cui_command *cmds, int co
             order[b + 1] = o2; scores[b + 1] = s2;
         }
     }
-    if (n > 0) {
+    if (is_open && n > 0) {
         if (cui_key_pressed(ui, CUI_KEY_DOWN)) st->highlight = (st->highlight + 1) % n;
         if (cui_key_pressed(ui, CUI_KEY_UP)) st->highlight = (st->highlight + n - 1) % n;
         if (st->highlight >= n) st->highlight = n - 1;
@@ -1595,7 +1597,7 @@ int cui_command_palette(cui_ctx *ui, bool *open, const cui_command *cmds, int co
         ui->nodes[tt].w = CUI_FILL;
         if (c->shortcut) cui_kbd(ui, c->shortcut);
         cui__close(ui);
-        if (hl && cui__has_prev_rect(ui, cid)) {
+        if (is_open && hl && cui__has_prev_rect(ui, cid)) {
             /* keep the highlighted row visible */
             cui_scroll_state *ss = cui_state(ui, list_id, sizeof *ss);
             cui_rect rr = cui__prev_rect(ui, cid), lr = cui__prev_rect(ui, list_id);
@@ -1604,7 +1606,7 @@ int cui_command_palette(cui_ctx *ui, bool *open, const cui_command *cmds, int co
                 if (rr.y < lr.y) ss->ty -= lr.y - rr.y + 6;
             }
         }
-        if (r.clicked || (hl && cui_key_pressed(ui, CUI_KEY_ENTER))) chosen = order[j];
+        if (is_open && (r.clicked || (hl && cui_key_pressed(ui, CUI_KEY_ENTER)))) chosen = order[j];
     }
     if (n == 0) {
         int e = cui__node_new(ui, 0);

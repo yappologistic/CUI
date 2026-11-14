@@ -731,6 +731,7 @@ static void cui__paint_tab_bar(cui_ctx *ui, cui_node *n, void *data) {
     cui_draw_rect(ui, (cui_rect){ p->x, r.y + 6, p->w, r.h - 12 }, CUI_CORNERS((r.h - 12) * 0.5f), p->c);
 }
 
+/** Move one tab per arrow press, keeping the move tied to the original focus. */
 bool cui_tab_bar_ex(cui_ctx *ui, const char *id_str, const cui_tab_bar_item *items, int count, int *selected, const cui_tab_bar_opts *o) {
     cui_tab_bar_opts d;
     memset(&d, 0, sizeof d);
@@ -739,6 +740,8 @@ bool cui_tab_bar_ex(cui_ctx *ui, const char *id_str, const cui_tab_bar_item *ite
     cui__tb_state *st = cui_state(ui, id, sizeof *st);
     int sel = selected ? *selected : 0;
     bool changed = false;
+    cui_id move_from = 0, next_focus = 0;
+    int next_tab = -1;
     int n = cui__node_new(ui, id);
     cui_node *nd = &ui->nodes[n];
     nd->dir = CUI_ROW; nd->pad[0] = nd->pad[1] = nd->pad[2] = nd->pad[3] = 6; nd->gap = 4;
@@ -759,9 +762,15 @@ bool cui_tab_bar_ex(cui_ctx *ui, const char *id_str, const cui_tab_bar_item *ite
         cui_id iid = cui__hash(&k, sizeof k, id ^ 0x7AB);
         cui_interact r = cui__interact(ui, iid, CUI_IF_FOCUSABLE);
         if ((r.clicked || r.keyboard_activate) && sel != k) { sel = k; changed = true; }
-        if (r.focused) {
-            if (cui_key_pressed(ui, CUI_KEY_RIGHT) && k + 1 < count) { sel = k + 1; changed = true; ui->focus = cui__hash(&sel, sizeof sel, id ^ 0x7AB); }
-            if (cui_key_pressed(ui, CUI_KEY_LEFT) && k > 0) { sel = k - 1; changed = true; ui->focus = cui__hash(&sel, sizeof sel, id ^ 0x7AB); }
+        if (r.keyboard_focused) {
+            int to = k;
+            if (cui_key_pressed(ui, CUI_KEY_RIGHT) && k + 1 < count) to = k + 1;
+            if (cui_key_pressed(ui, CUI_KEY_LEFT) && k > 0) to = k - 1;
+            if (to != k) {
+                move_from = iid;
+                next_tab = to;
+                next_focus = cui__hash(&to, sizeof to, id ^ 0x7AB);
+            }
         }
         bool on = k == sel;
         float *hv = cui_state(ui, iid, sizeof(float) * 2);
@@ -809,6 +818,12 @@ bool cui_tab_bar_ex(cui_ctx *ui, const char *id_str, const cui_tab_bar_item *ite
                 p->x = st->x.x; p->w = st->w.x;
             }
         }
+    }
+    if (next_focus && ui->focus == move_from) {
+        ui->focus = next_focus;
+        sel = next_tab;
+        changed = true;
+        ui->animating = true;
     }
     cui_pop_id(ui);
     cui__close(ui);

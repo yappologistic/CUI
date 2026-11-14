@@ -57,6 +57,11 @@ What changed in CUI, newest first. Every component mentioned here runs live in t
 
 ### Fixed
 
+- Expandable text keeps keyboard focus when its toggle changes label.
+- A dismissed hover card stays closed until the pointer leaves its anchor.
+- A closing command palette leaves keyboard input available and cannot activate a command.
+- An arrow press moves the tab bar by one tab.
+- Choosing a speed dial action preserves the caller's disabled scope.
 - The wheel scrolls a text area before its enclosing scroll view, then reaches the outer view at the text area's edges. Diagonal input can scroll the text vertically and the outer view horizontally ([#58](https://github.com/yappologistic/CUI/issues/58)).
 - Tag input enforces its tag limit for every tag in a batch ([#58](https://github.com/yappologistic/CUI/issues/58)).
 - Pasting a different complete one-time code emits another completion event ([#58](https://github.com/yappologistic/CUI/issues/58)).
