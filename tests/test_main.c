@@ -3568,19 +3568,21 @@ static void test_split_minimums(void) {
 
 /* virtual list ---------------------------------------------------------- */
 
-typedef struct { int first, last, built; } vl_ctx;
+typedef struct { int first, last, built, count; } vl_ctx;
+/** Build only the range returned by the virtual list for the current row count. */
 static void build_vlist(cui_ctx *ui, void *u) {
     vl_ctx *v = u;
     v->built = 0;
-    cui_virtual_list(ui, "vl", 100000, 20, CUI_PX(200), &v->first, &v->last) {
+    cui_virtual_list(ui, "vl", v->count, 20, CUI_PX(200), &v->first, &v->last) {
         for (int i = v->first; i < v->last; i++) { cui_row(ui, .height = CUI_PX(20)) { cui_textf(ui, "Row %d", i); } v->built++; }
     }
 }
 
+/** Verify the visible range after scrolling and immediately after removing rows. */
 static void test_virtual_list(void) {
     printf("data: virtual list builds only visible rows\n");
     cui_ctx *ui = new_ctx();
-    vl_ctx v = { 0, 0, 0 };
+    vl_ctx v = { .count = 100000 };
     run(ui, build_vlist, &v, 3);
     CHECK(v.first == 0);
     CHECK(v.built > 5 && v.built < 30);
@@ -3590,6 +3592,12 @@ static void test_virtual_list(void) {
     run(ui, build_vlist, &v, 5);
     CHECK(v.first > 300);
     CHECK(v.built < 30);
+    v.count = 1;
+    run(ui, build_vlist, &v, 1);
+    CHECK(v.first == 0 && v.last == 1 && v.built == 1);
+    v.count = 0;
+    run(ui, build_vlist, &v, 1);
+    CHECK(v.first == 0 && v.last == 0 && v.built == 0);
     cui_destroy(ui);
 }
 
