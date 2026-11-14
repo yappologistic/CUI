@@ -255,7 +255,7 @@ static void cui__paint_code(cui_ctx *ui, cui_node *n, void *data) {
             const char *s = p->code + i + toks[nt - 1].start + toks[nt - 1].len;
             int len = (int)(e - i) - (int)(s - (p->code + i));
             while (len > 0 && s[0] == '\t') { x += cui__text_width(ui, CUI_FONT_MONO, p->size, "    ", 4, true); s++; len--; }
-            if (len > 0 && s[0] != ' ')
+            if (len > 0)   /* a space after the tokens must not hide the visible text that follows it */
                 cui__draw_text_line(ui, CUI_FONT_MONO, p->size, x, ty, p->colors[TK_TEXT], s, len, true);
             x += cui__text_width(ui, CUI_FONT_MONO, p->size, s, len, true);
         }
