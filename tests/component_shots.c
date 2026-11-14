@@ -1319,6 +1319,11 @@ static void body_code_editor(cui_ctx *ui) {
         }
     }
 }
+/* Plain text keeps indentation visible without syntax highlighting. */
+SCENE(code_editor_text) {
+    static char text[] = "build:\n\tcc -o app main.c\n\nnotes:\n    spaces work too\n\t\ttwo tab stops\n";
+    cui_code_editor(ui, "plain-editor", text, sizeof text, .lang = "text", .read_only = true, .height = 220);
+}
 /* ---- tool panels ---- */
 SCENE(inspector) {
     static float pos[3] = { 12.5f, 0.0f, -4.25f }, rot[3] = { 0, 45, 0 }, scale[3] = { 1, 1, 1 };
@@ -4609,6 +4614,7 @@ int main(int argc, char **argv) {
         { "tree-table", scene_tree_table, 760, 576, true }, { "path-bar", scene_path_bar, 680, 330, true },
         { "json-view", scene_json_view, 560, 330, true }, { "markdown", scene_markdown, 700, 850, true },
         { "code-editor", scene_code_editor, 760, 446, true },
+        { "code-editor-text", scene_code_editor_text, 620, 264, true },
         { "diff-view", scene_diff_view, 900, 480, true },
         { "inspector", scene_inspector, 520, 640, true }, { "log-console", scene_log_console, 820, 440, true }, { "terminal", scene_terminal, 820, 420, true }, { "emoji-picker", scene_emoji_picker, 720, 470, true }, { "chat", scene_chat, 560, 440, true },
         { "hex-viewer", scene_hex_viewer, 760, 420, true },
