@@ -3409,6 +3409,37 @@ static void test_dock(void) {
     cui_destroy(ui);
 }
 
+typedef struct { float width, ratio; } split_range_case;
+
+/** A horizontal split containing two measurable panes. */
+static void build_split_range(cui_ctx *ui, void *user) {
+    split_range_case *split = user;
+    cui_split(ui, "short split", &split->ratio, .width = CUI_PX(split->width), .height = CUI_PX(120)) {
+        cui_box(ui, .id = "first pane", .width = CUI_FILL, .height = CUI_FILL) {}
+        cui_split_next(ui);
+        cui_box(ui, .id = "second pane", .width = CUI_FILL, .height = CUI_FILL) {}
+    }
+}
+
+/** An undersized split fits both panes and reports a bounded drag ratio. */
+static void test_split_minimums(void) {
+    printf("split view: pane minimums at small widths\n");
+    cui_ctx *ui = new_ctx();
+    split_range_case split = { 100, 0.5f };
+    run(ui, build_split_range, &split, 4);
+    cui_rect first = rect_of(ui, cui_make_id(ui, "first pane"));
+    cui_rect second = rect_of(ui, cui_make_id(ui, "second pane"));
+    CHECK(first.w + second.w <= split.width);
+    drag(ui, build_split_range, &split, first.x + first.w, first.y + 50, 20, 4);
+    CHECK(split.ratio >= 0 && split.ratio <= 1);
+    split.width = 380;
+    run(ui, build_split_range, &split, 4);
+    first = rect_of(ui, cui_make_id(ui, "first pane"));
+    drag(ui, build_split_range, &split, first.x + first.w, first.y + 50, 245, 4);
+    CHECK(split.ratio > 0.6f && split.ratio < 0.7f);
+    cui_destroy(ui);
+}
+
 /* virtual list ---------------------------------------------------------- */
 
 typedef struct { int first, last, built; } vl_ctx;
@@ -8451,6 +8482,7 @@ int main(void) {
     test_chrome();
     test_dock();
     test_virtual_list();
+    test_split_minimums();
     test_theme();
     test_series_palette();
     test_radial_gauge_styles();

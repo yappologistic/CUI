@@ -262,7 +262,7 @@ cui_split(ui, "main", &ratio, .min_first = 220, .min_second = 360) {
 }
 ```
 
-The divider highlights on hover and can be dragged. Use `.vertical = true` to split top and bottom.
+The divider highlights on hover and can be dragged. Use `.vertical = true` to split top and bottom. When the pane minimums cannot both fit, they share the space in proportion to their requested sizes.
 
 ## Reading layout results
 

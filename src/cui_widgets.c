@@ -1346,6 +1346,7 @@ static void cui__paint_split(cui_ctx *ui, cui_node *n, void *data) {
     ((cui__split_state *)data)->rtl = n->rtl;
 }
 
+/** Open a split with pane minimums that can fit the available main axis. */
 void cui_split_begin(cui_ctx *ui, const char *id_str, float *ratio, const cui_split_opts *o) {
     cui_split_opts d;
     memset(&d, 0, sizeof d);
@@ -1362,10 +1363,18 @@ void cui_split_begin(cui_ctx *ui, const char *id_str, float *ratio, const cui_sp
     cui_interact r = cui__interact(ui, hid, CUI_IF_DRAG);
     cui__split_state *st = cui_state(ui, hid, sizeof *st);
     float total = o->vertical ? pr.h : pr.w;
-    if (r.active && ui->mdown[0] && total > 0) {
+    cui_size extent = o->vertical ? o->height : o->width;
+    if (extent.kind == CUI_SIZE_FIXED) total = extent.value;
+    float available = CUI_MAX(0, total - 1);   /* the divider takes one point */
+    if ((total > 0 || extent.kind == CUI_SIZE_FIXED) && b->min1 + b->min2 > available) {
+        float fraction = b->min1 / (b->min1 + b->min2);
+        b->min1 = available * fraction;
+        b->min2 = available - b->min1;
+    }
+    if (r.active && ui->mdown[0] && available > 0) {
         float pos = o->vertical ? ui->my - pr.y : st->rtl ? pr.x + pr.w - ui->mx : ui->mx - pr.x;
-        pos = cui__clampf(pos, b->min1, total - b->min2);
-        *ratio = pos / total;
+        pos = cui__clampf(pos, b->min1, CUI_MAX(b->min1, available - b->min2));
+        *ratio = pos / available;
     }
     if (r.hovered || r.active) cui__set_cursor(ui, o->vertical ? CUI_CURSOR_RESIZE_NS : CUI_CURSOR_RESIZE_EW);
     cui__tween(ui, &st->hover, (r.hovered || r.active) ? 1.0f : 0.0f, CUI__T_HOVER);
