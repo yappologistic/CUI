@@ -471,7 +471,7 @@ typedef struct cui_toast_item {
 /* Scope stacks used while building one frame (kept per context). */
 typedef struct cui__popup_build { cui_id id; bool disabled_pushed; bool menu; int item_index; } cui__popup_build;
 typedef struct cui__modal_build { cui_id id; bool disabled_pushed; } cui__modal_build;
-typedef struct cui__vlist_build { int count; float row_h; int first; } cui__vlist_build;
+typedef struct cui__vlist_build { int count; float row_h; int first; struct cui__vlist_build *next; } cui__vlist_build;
 
 #define CUI_MAX_TOASTS 16
 #define CUI_ID_STACK 64
@@ -618,7 +618,7 @@ struct cui_ctx {
     cui__popup_build pb_stack[16]; int pb_depth;
     cui__modal_build mb_stack[8]; int mb_depth;
     cui__vlist_build vl_stack[8]; int vl_depth;
-    int vl_over;                 /* virtual lists nested deeper than the stack holds */
+    cui__vlist_build *vl_ov;     /* records for lists nested deeper than the stack holds, chained from the frame arena */
     bool acc_dis[32]; int acc_depth;
     int tree_depth;
     int button_group_depth;

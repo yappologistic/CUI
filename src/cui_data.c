@@ -268,12 +268,17 @@ void cui_virtual_list_begin(cui_ctx *ui, const char *id_str, int count, float ro
     *last = l;
     /* spacer above */
     if (f > 0) cui__leaf(ui, 0, CUI_FILL, CUI_PX(f * row_h));
+    cui__vlist_build *vb;
     if (ui->vl_depth < 8) {
-        cui__vlist_build *vb = &ui->vl_stack[ui->vl_depth++];
-        vb->count = count; vb->row_h = row_h; vb->first = f;
+        vb = &ui->vl_stack[ui->vl_depth++];
     } else {
-        ui->vl_over++;   /* deeper than the stack holds: tracked separately, so the outer lists' records stay intact */
+        /* deeper than the stack holds: chain the record from the frame arena,
+           so the outer lists' records stay intact and this list keeps its trailing spacer */
+        vb = cui__frame_alloc(ui, sizeof *vb);
+        vb->next = ui->vl_ov;
+        ui->vl_ov = vb;
     }
+    vb->count = count; vb->row_h = row_h; vb->first = f;
     /* rows are placed in a column of fixed-height rows */
     int rows = cui__node_new(ui, 0);
     ui->nodes[rows].w = CUI_FILL;
@@ -284,15 +289,18 @@ void cui_virtual_list_begin(cui_ctx *ui, const char *id_str, int count, float ro
 
 void cui_virtual_list_end(cui_ctx *ui) {
     cui__close(ui);
-    if (ui->vl_over > 0) ui->vl_over--;   /* an overflow-level list: no record was stored, and the outer records are untouched */
-    else if (ui->vl_depth > 0) {
-        cui__vlist_build *vb = &ui->vl_stack[--ui->vl_depth];
-        if (vb->count >= 0) {
-            int rows = ui->nodes[cui__current(ui)].last;
-            float shown = rows >= 0 ? ui->nodes[rows].h.value : 0;
-            float rest = vb->count * vb->row_h - vb->first * vb->row_h - shown;
-            if (rest > 0) cui__leaf(ui, 0, CUI_FILL, CUI_PX(rest));
-        }
+    cui__vlist_build *vb = NULL;
+    if (ui->vl_ov) {   /* overflow records sit above the stack ones: the innermost list pops first */
+        vb = ui->vl_ov;
+        ui->vl_ov = vb->next;
+    } else if (ui->vl_depth > 0) {
+        vb = &ui->vl_stack[--ui->vl_depth];
+    }
+    if (vb && vb->count >= 0) {
+        int rows = ui->nodes[cui__current(ui)].last;
+        float shown = rows >= 0 ? ui->nodes[rows].h.value : 0;
+        float rest = vb->count * vb->row_h - vb->first * vb->row_h - shown;
+        if (rest > 0) cui__leaf(ui, 0, CUI_FILL, CUI_PX(rest));
     }
     cui__scroll_end_ex(ui);
 }

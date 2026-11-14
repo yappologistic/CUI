@@ -165,6 +165,50 @@ static void test_grid_cursor_clamp(void) {
 }
 
 /* ------------------------------------------------------------------------ */
+/* Virtual list: a ninth nested list kept no record and lost its trailing    */
+/* spacer, so its scroll range stopped after the visible rows                */
+/* ------------------------------------------------------------------------ */
+
+static int g_vl_first[9], g_vl_last[9];
+
+static void vlist_rows(cui_ctx *ui, int depth, int first, int last) {
+    for (int r = first; r < last; r++) {
+        if (depth == 8 || r != first) { cui_text(ui, "row"); continue; }
+        char id[32];
+        snprintf(id, sizeof id, "vl%d", depth + 1);
+        int f2 = -1, l2 = -1;
+        cui_virtual_list_begin(ui, id, 1000, 36, CUI_FIT, &f2, &l2);
+        g_vl_first[depth + 1] = f2;
+        g_vl_last[depth + 1] = l2;
+        vlist_rows(ui, depth + 1, f2, l2);
+        cui_virtual_list_end(ui);
+    }
+}
+
+static void vlist_deep_build(cui_ctx *ui, void *user) {
+    (void)user;
+    cui_column(ui, .pad = 10) {
+        int f0 = -1, l0 = -1;
+        cui_virtual_list_begin(ui, "vl0", 1000, 36, CUI_FIT, &f0, &l0);
+        g_vl_first[0] = f0;
+        g_vl_last[0] = l0;
+        vlist_rows(ui, 0, f0, l0);
+        cui_virtual_list_end(ui);
+    }
+}
+
+static void test_vlist_deep_scroll(void) {
+    printf("virtual list: a 9th nested list keeps its scroll range\n");
+    cui_ctx *ui = new_ctx();
+    run(ui, vlist_deep_build, NULL, 1);
+    cui_scroll_to(ui, "vl8", 100000);
+    run(ui, vlist_deep_build, NULL, 1);
+    CHECK(g_vl_first[8] >= 900);   /* the innermost list scrolled near its end */
+    CHECK(g_vl_last[8] == 1000);
+    cui_destroy(ui);
+}
+
+/* ------------------------------------------------------------------------ */
 /* Instruments: an axis at a magnitude where the tick step rounds back to    */
 /* the same double used to loop forever, allocating labels without end       */
 /* ------------------------------------------------------------------------ */
@@ -427,6 +471,7 @@ int main(void) {
     test_dot_axis_huge();
     test_dot_axis_negative();
     test_grid_cursor_clamp();
+    test_vlist_deep_scroll();
     test_histogram_guards();
     test_accordion_depth();
     test_knob_disabled();
