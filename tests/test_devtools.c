@@ -1053,11 +1053,38 @@ static void test_uptime(void) {
 }
 
 static float th_a[48], th_b[48];
-typedef struct { double s0, s1; cui_time_histogram_result r; } th_ctx;
+typedef struct { double s0, s1; cui_time_histogram_result r; bool disabled; } th_ctx;
+/** Build the histogram with the current enabled state. */
 static void build_th(cui_ctx *ui, void *u) {
     th_ctx *c = u;
     const cui_histogram_series se[] = { { "info", th_a, CUI_TONE_INFO }, { "error", th_b, CUI_TONE_DANGER } };
+    cui_push_disabled(ui, c->disabled);
     c->r = cui_time_histogram(ui, "hist", 1794240000, 600, 48, se, 2, &c->s0, &c->s1, .utc = true);
+    cui_pop_disabled(ui);
+}
+
+/** Disabling during a drag cancels it even if the widget becomes enabled again. */
+static void test_histogram_disable(void) {
+    printf("time histogram: disabling cancels a drag\n");
+    cui_ctx *ui = new_ctx(800, 400);
+    th_ctx c = {0};
+    run(ui, build_th, &c, 3);
+    cui_rect r = cui_get_rect(ui, cui_make_id(ui, "hist"));
+    move(ui, build_th, &c, r.x + r.w * 0.3f, r.y + 40);
+    cui_input_mouse_button(ui, CUI_MOUSE_LEFT, true);
+    run(ui, build_th, &c, 1);
+    move(ui, build_th, &c, r.x + r.w * 0.5f, r.y + 40);
+    CHECK(c.r.selection_changed && c.s1 > c.s0);
+    double lo = c.s0, hi = c.s1;
+    c.disabled = true;
+    move(ui, build_th, &c, r.x + r.w * 0.7f, r.y + 40);
+    CHECK(!c.r.selection_changed && c.s0 == lo && c.s1 == hi);
+    c.disabled = false;
+    move(ui, build_th, &c, r.x + r.w * 0.8f, r.y + 40);
+    CHECK(!c.r.selection_changed && c.s0 == lo && c.s1 == hi);
+    cui_input_mouse_button(ui, CUI_MOUSE_LEFT, false);
+    run(ui, build_th, &c, 1);
+    cui_destroy(ui);
 }
 static void test_histogram(void) {
     printf("time histogram: hover, drag selects whole buckets, click clears\n");
@@ -1288,6 +1315,7 @@ int main(void) {
     test_request();
     test_uptime();
     test_histogram();
+    test_histogram_disable();
     test_coverage();
     test_blame();
     test_flags();

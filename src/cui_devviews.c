@@ -264,10 +264,12 @@ cui_time_histogram_result cui_time_histogram_ex(cui_ctx *ui, const char *id_str,
     cui_rect plot = { R.x + CUI__TH_AXIS_W, R.y + 6, CUI_MAX(1.0f, R.w - CUI__TH_AXIS_W - 4), CUI_MAX(1.0f, R.h - CUI__TH_AXIS_H - 6) };
     double t0 = start, t1 = start + bucket * buckets;
     cui_interact bi = cui__interact(ui, id, CUI_IF_DRAG);
+    bool disabled = cui_is_disabled(ui);
+    if (disabled) st->mode = 0;   /* a drag cannot continue into a disabled scope */
     double b0 = *sel_start, b1 = *sel_end;
     double tm = known && buckets > 0 ? t0 + CUI_CLAMP((ui->mx - plot.x) / plot.w, 0.0f, 1.0f) * (t1 - t0) : t0;
     /* drag selects a range of whole buckets; a click clears it */
-    if (known && buckets > 0) {
+    if (!disabled && known && buckets > 0) {
         if (bi.hovered && ui->mpressed[0] && ui->mx >= plot.x - 2) { st->mode = 1; st->press_x = ui->mx; st->press_t = tm; }
         if (st->mode == 1 && ui->mdown[0] && fabsf(ui->mx - st->press_x) > 3) st->mode = 2;
         if (st->mode == 2) {
