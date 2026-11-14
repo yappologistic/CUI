@@ -1489,7 +1489,7 @@ cui_chat_message(ui, "It did. 2,000 rows scroll at 60 fps on my laptop.", .mine 
 cui_typing_indicator(ui, "Jonas");
 ```
 
-Grouped messages stack tightly with the avatar on the last bubble and tighter inner corners. Your own messages sit on the right in the primary color. The typing dots bounce in sequence. With `.markdown = true` a message renders its text with the markdown view, so an assistant's reply can carry lists, code and links.
+Grouped messages stack tightly with the avatar on the last bubble and tighter inner corners. Your own messages sit on the right in the primary color. The typing dots bounce in sequence and hold still with reduced motion. With `.markdown = true` a message renders its text with the markdown view, so an assistant's reply can carry lists, code and links.
 
 ### Comments
 

@@ -1860,7 +1860,7 @@ typedef struct cui_chat_opts {
 } cui_chat_opts;
 CUI_API void cui_chat_message_ex(cui_ctx *ui, const char *text, const cui_chat_opts *opts);
 CUI_API void cui_chat_divider(cui_ctx *ui, const char *label);       /* "Today" */
-CUI_API void cui_typing_indicator(cui_ctx *ui, const char *name);    /* bouncing dots */
+CUI_API void cui_typing_indicator(cui_ctx *ui, const char *name);    /* bouncing dots, still with reduced motion */
 
 /* Comment with replies. depth indents replies under a connector line.
  * Returns CUI_COMMENT_LIKE or CUI_COMMENT_REPLY flags for what was clicked;
