@@ -379,13 +379,28 @@ typedef struct { const char *s; int n, i; cui__jnode *nodes; int count, cap; con
 static void cui__jws(cui__jparse *p) { while (p->i < p->n && (p->s[p->i] == ' ' || p->s[p->i] == '\t' || p->s[p->i] == '\n' || p->s[p->i] == '\r')) p->i++; }
 static bool cui__jfail(cui__jparse *p, const char *msg) { if (!p->err) { p->err = msg; p->err_at = p->i; } return false; }
 
+static bool cui__jescape(cui__jparse *p) {   /* one escape sequence, incl. the four digits of \u */
+    if (++p->i >= p->n) return cui__jfail(p, "incomplete string escape");
+    char esc = p->s[p->i];
+    if (esc != 'u' && !strchr("\"\\/bfnrt", esc)) return cui__jfail(p, "invalid string escape");
+    p->i++;
+    if (esc == 'u') {
+        for (int k = 0; k < 4; k++, p->i++)
+            if (p->i >= p->n || !strchr("0123456789abcdefABCDEF", p->s[p->i]))
+                return cui__jfail(p, "expected four hex digits in \\u escape");
+    }
+    return true;
+}
+
 static bool cui__jstring(cui__jparse *p, int *start, int *len) {
     if (p->i >= p->n || p->s[p->i] != '"') return cui__jfail(p, "expected a string");
     int st = ++p->i;
     while (p->i < p->n && p->s[p->i] != '"') {
-        if (p->s[p->i] == '\\') p->i++;
-        else if ((unsigned char)p->s[p->i] < 0x20) return cui__jfail(p, "control character in string");
-        p->i++;
+        if (p->s[p->i] == '\\') { if (!cui__jescape(p)) return false; }
+        else {
+            if ((unsigned char)p->s[p->i] < 0x20) return cui__jfail(p, "control character in string");
+            p->i++;
+        }
     }
     if (p->i >= p->n) return cui__jfail(p, "unterminated string");
     *start = st; *len = p->i - st;
@@ -394,6 +409,31 @@ static bool cui__jstring(cui__jparse *p, int *start, int *len) {
 }
 
 static int cui__jvalue(cui__jparse *p, int parent, int depth, int key_start, int key_len);
+
+static bool cui__jdigit(const cui__jparse *p) { return p->i < p->n && p->s[p->i] >= '0' && p->s[p->i] <= '9'; }
+
+static bool cui__jnumber(cui__jparse *p) {   /* JSON grammar: -?(0|[1-9]\d*)(\.\d+)?([eE][+-]?\d+)? */
+    if (p->s[p->i] == '-') p->i++;
+    if (!cui__jdigit(p)) return cui__jfail(p, "expected an integer digit");
+    if (p->s[p->i] == '0') {
+        p->i++;
+        if (cui__jdigit(p)) return cui__jfail(p, "leading zero in number");
+    } else {
+        do p->i++; while (cui__jdigit(p));
+    }
+    if (p->i < p->n && p->s[p->i] == '.') {
+        p->i++;
+        if (!cui__jdigit(p)) return cui__jfail(p, "expected a fractional digit");
+        do p->i++; while (cui__jdigit(p));
+    }
+    if (p->i < p->n && (p->s[p->i] == 'e' || p->s[p->i] == 'E')) {
+        p->i++;
+        if (p->i < p->n && (p->s[p->i] == '+' || p->s[p->i] == '-')) p->i++;
+        if (!cui__jdigit(p)) return cui__jfail(p, "expected an exponent digit");
+        do p->i++; while (cui__jdigit(p));
+    }
+    return true;
+}
 
 static int cui__jnew(cui__jparse *p, int parent, int depth, int key_start, int key_len) {
     if (p->count >= p->cap) { cui__jfail(p, "too large"); return -1; }
@@ -449,9 +489,7 @@ static int cui__jvalue(cui__jparse *p, int parent, int depth, int key_start, int
         return me;
     }
     if (c == '-' || (c >= '0' && c <= '9')) {
-        p->i++;
-        while (p->i < p->n && ((p->s[p->i] >= '0' && p->s[p->i] <= '9') || p->s[p->i] == '.' || p->s[p->i] == 'e' || p->s[p->i] == 'E' ||
-                               p->s[p->i] == '+' || p->s[p->i] == '-')) p->i++;
+        if (!cui__jnumber(p)) return -1;
         p->nodes[me].type = JV_NUM;
     } else if (!strncmp(p->s + p->i, "true", 4) || !strncmp(p->s + p->i, "null", 4)) {
         p->nodes[me].type = p->s[p->i] == 't' ? JV_BOOL : JV_NULL;
