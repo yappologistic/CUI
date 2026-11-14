@@ -167,10 +167,27 @@ static const cui_query_field qb_fields[] = {
     { "Status", CUI_QUERY_CHOICE, qb_status, 3 }, { "Assignee", CUI_QUERY_TEXT }, { "Priority", CUI_QUERY_NUMBER }, { "Has PR", CUI_QUERY_BOOL },
 };
 
-typedef struct { cui_query_node nodes[16]; int n; bool changed; cui_size w; } qb_ctx;
+typedef struct { cui_query_node nodes[16]; int n; bool changed, read_only; cui_size w; } qb_ctx;
+/** Build the same query in editable and read-only modes. */
 static void build_qb(cui_ctx *ui, void *u) {
     qb_ctx *c = u;
-    c->changed = cui_query_builder(ui, "filter", qb_fields, 4, c->nodes, &c->n, 16);
+    c->changed = cui_query_builder(ui, "filter", qb_fields, 4, c->nodes, &c->n, 16, .read_only = c->read_only);
+}
+
+/** Rendering a read-only query does not initialize or normalize caller storage. */
+static void test_query_read_only(void) {
+    printf("query builder: read-only preserves caller rules\n");
+    cui_ctx *ui = new_ctx(800, 600);
+    qb_ctx empty = { .read_only = true };
+    run(ui, build_qb, &empty, 1);
+    CHECK(empty.n == 0 && !empty.nodes[0].group && !empty.changed);
+    qb_ctx rules = { .nodes = {{ .group = true }, { .depth = 1 }}, .n = 2, .read_only = true };
+    run(ui, build_qb, &rules, 1);
+    CHECK(rules.n == 2 && rules.nodes[1].value[0] == '\0' && !rules.changed);
+    empty.read_only = false;
+    run(ui, build_qb, &empty, 1);
+    CHECK(empty.n == 1 && empty.nodes[0].group && empty.changed);
+    cui_destroy(ui);
 }
 
 static void test_query(void) {
@@ -1271,6 +1288,7 @@ int main(void) {
     test_cron();
     test_schedule();
     test_query();
+    test_query_read_only();
     test_kv();
     test_problems();
     test_pipeline();
