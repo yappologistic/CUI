@@ -39,10 +39,12 @@ static int cui__cp_count(const char *s, int len) {
 
 static float cui__x_at(cui_ctx *ui, const cui__edit_paint *p, const char *line, int line_len, int off) {
     if (p->password) {
-        char tmp[1024];
+        /* the painted mask is one bullet per code point and every bullet has the
+         * same advance, so measure arithmetically: a fixed mask buffer would
+         * truncate around 340 characters and desync caret from glyphs */
         int cps = cui__cp_count(line, off);
-        int n = cui__edit_mask(tmp, sizeof tmp, cps);
-        return cui__text_width(ui, p->font, p->size, tmp, n, false);
+        float one = cui__text_width(ui, p->font, p->size, "\xE2\x80\xA2", 3, false);
+        return one * (float)cps;
     }
     (void)line_len;
     return cui__text_width(ui, p->font, p->size, line, off, false);
@@ -154,20 +156,6 @@ static void cui__paint_scrollable_edit(cui_ctx *ui, cui_node *n, void *data) {
         const cui_rect field = cui__xform_rect(ui, ui->nodes[n->parent].rect);
         cui__paint_add_hit(ui, n->id, cui__rect_intersect(field, visible), wheel);
     }
-}
-
-/** Take this editor's vertical delta after the enclosing view has handled X. */
-static float cui__textarea_wheel_delta(cui_ctx *ui, cui_id area) {
-    if (ui->scroll_target == area) {
-        float delta = ui->scroll_dy;
-        ui->scroll_dy = 0;
-        return delta;
-    }
-    cui__vertical_wheel *vertical = cui__state_lazy(ui, area ^ CUI__VERTICAL_WHEEL_STATE, sizeof *vertical, false);
-    if (!vertical || vertical->frame != ui->frame) return 0;
-    float delta = vertical->delta;
-    vertical->delta = 0;
-    return delta;
 }
 
 /* ---- editing primitives ---- */
@@ -659,7 +647,7 @@ int cui__text_field(cui_ctx *ui, cui_id id, char *buf, size_t cap, const cui_inp
     bool password = o->password && !e->show_password;
     cui__edit_result er = cui__edit_logic(ui, id, e, buf, cap, multiline, password, o->read_only || disabled, area,
                                           font, size, line_h, rf);
-    float wheel = multiline && !disabled && area.h > 0 ? cui__textarea_wheel_delta(ui, area_id) : 0;
+    float wheel = multiline && !disabled && area.h > 0 ? cui__take_vertical_wheel(ui, area_id) : 0;
     if (wheel != 0) {
         /* wheel scrolls the text whether or not the field has focus */
         cui_text_layout_line *wl = NULL;

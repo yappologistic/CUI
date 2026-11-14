@@ -42,6 +42,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stddef.h>
 
 #define CUI_PI 3.14159265358979323846f
 
@@ -421,6 +422,7 @@ typedef char cui__hit_flags_above_node_flags[(unsigned)CUI_HIT_WHEEL_UP > (unsig
 /* A vertical delta reserved for one hit while the normal route handles X. */
 enum { CUI__VERTICAL_WHEEL_STATE = 0x57484559u };
 typedef struct { uint64_t frame; float delta; } cui__vertical_wheel;
+float cui__take_vertical_wheel(cui_ctx *ui, cui_id id);
 
 typedef struct cui_interact {
     bool hovered, pressed, clicked, right_clicked, double_clicked, focused, active, released, keyboard_activate;
@@ -470,7 +472,7 @@ typedef struct cui_toast_item {
 /* Scope stacks used while building one frame (kept per context). */
 typedef struct cui__popup_build { cui_id id; bool disabled_pushed; bool menu; int item_index; } cui__popup_build;
 typedef struct cui__modal_build { cui_id id; bool disabled_pushed; } cui__modal_build;
-typedef struct cui__vlist_build { int count; float row_h; int first; } cui__vlist_build;
+typedef struct cui__vlist_build { int count; float row_h; int first; struct cui__vlist_build *next; } cui__vlist_build;
 
 #define CUI_MAX_TOASTS 16
 #define CUI_ID_STACK 64
@@ -617,6 +619,7 @@ struct cui_ctx {
     cui__popup_build pb_stack[16]; int pb_depth;
     cui__modal_build mb_stack[8]; int mb_depth;
     cui__vlist_build vl_stack[8]; int vl_depth;
+    cui__vlist_build *vl_ov;     /* records for lists nested deeper than the stack holds, chained from the frame arena */
     bool acc_dis[32]; int acc_depth;
     int tree_depth;
     int button_group_depth;

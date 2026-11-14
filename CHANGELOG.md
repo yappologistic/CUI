@@ -1,15 +1,17 @@
-# Changelog
+﻿# Changelog
 
 What changed in CUI, newest first. Every component mentioned here runs live in the docs.
 
 ## Unreleased
 
 ### Added
+- `cui_regex_replace(pattern, flags, text, len, replacement, out, out_cap, error)`: replace every match of a pattern with a template in which `$0` to `$9` stand for the whole match and the capture groups, as in JavaScript. snprintf-style return (the length the result needs; a return of `out_cap` or more means truncated), measures with `out` NULL, copies the text unchanged when nothing matches, and an empty match advances one character so `a*` terminates. Empty matches follow the JavaScript rule (Python 3.7's `re.sub` behaves differently here). The regex engine itself also gained two fixes below; see `tests/test_fixes.c`.
+- `tests/test_fixes.c`, a regression suite for the fixes in this release: the non-capturing group crash, `[\b]`, the flat-series chart range, the stale grid cursor, bad histogram bin lists, accordion nesting past 32, the disabled knob, the unset calendar month, blame without commits, theme customization through a retarget, and malformed UTF-8 in the emoji scanner.
 
 - SQL syntax colors: `.lang = "sql"` in the code block, the code editor and the diff viewer. Keywords, types and `NULL`, `TRUE` and `FALSE` match in any case, as SQL does; `--` starts a comment and `/* */` comments run across lines. The keywords cover standard SQL and common extensions such as `ilike`, `qualify`, `pivot` and `pragma` ([#33](https://github.com/yappologistic/CUI/issues/33)).
 - `cui_set_clipboard_text` and `cui_get_clipboard_text`: copy from a menu item or a status bar ("Copy path") and read the clipboard for a Paste item, through the same platform hooks the copy button and text fields use ([#32](https://github.com/yappologistic/CUI/issues/32)).
 - `cui_app_follow_system_theme(app, follow)` starts or stops following the system's light or dark setting while the app runs, for a theme switcher with Light, Dark and System. Stopping keeps the current theme, so a `cui_set_theme` after it lasts (on macOS the system setting used to undo it every frame); starting applies the system setting at once ([#34](https://github.com/yappologistic/CUI/issues/34)).
-- **Dither**, four components drawn in dots on an 8×8 ordered dither, in theme colors, the same in the OpenGL and the software renderer. A dot is the color or nothing, never blended, so fills stay crisp and lower densities are always a subset of higher ones.
+- **Dither**, four components drawn in dots on an 8├ù8 ordered dither, in theme colors, the same in the OpenGL and the software renderer. A dot is the color or nothing, never blended, so fills stay crisp and lower densities are always a subset of higher ones.
   - **Dither progress** (`cui_progress(..., .dither = true)`): solid up to the value, then dots that thin out over 60 points past the edge, drifting slowly forward; indeterminate, a soft band of dots sweeps the track. The drift asks for a frame only when it moves a dot, and reduced motion holds it still. See [Progress](docs/components.md#progress-meter-spinner-and-skeleton).
   - **Pattern meter** (`cui_pattern_meter`): a stacked usage bar whose parts differ in color and in density, with one dot between parts, free space in the track color and a legend of dithered swatches. Hovering a part or its legend entry, or stepping with Left and Right, steps the others back and shows its name, value and share. `.grayscale` tells the parts apart by density alone, for print and color blindness. See [Pattern meter](docs/components.md#pattern-meter).
   - **Dither area chart** (`cui_line_chart(..., .dither = true)`): every series filled with dots that thin out from its line to the bottom of its band; with `.stacked` (new for line charts) each band fades within itself and bands never mix into a third color. Lines, crosshair and tooltip stay as they are. See [Charts](docs/components.md#charts).
@@ -56,6 +58,45 @@ What changed in CUI, newest first. Every component mentioned here runs live in t
 - The voice orb (`cui_voice_orb`) is deprecated in favor of the voice components. It keeps working, but it has left the gallery and the docs site.
 
 ### Fixed
+- Regex: a non-capturing group `(?: )` indexed the capture array with -1, which overwrote the matcher's text pointer and length ΓÇö a crash on any pattern that used one, and the group's body then matched against freed stack memory. `(?: )` now compiles and matches like a plain sequence, and capture offsets stay correct around it.
+- Regex: `[\b]` matched the letter `b`; it now matches the backspace control (U+0008), as in JavaScript, PCRE and Python, and `[\B]` is an unknown-escape error as in PCRE.
+- Terminal: the SGR parser accumulated parameter digits into an `int` without a bound, so a long digit run in escape output was signed overflow (undefined); the value now clamps.
+- Code block: a tab measured as three spaces but painted as four, so tab-indented code under a scrollbar could clip at its right edge; both use four now. A line that tokenizes into more than 256 tokens (minified code) drew only its first 256 tokens; the rest of the line now draws as plain text.
+- Line, bar and scatter charts: an axis whose data was all one value at a large magnitude (about 3.4e7 and up, where a float's ULP is 1) widened the range by 1, which rounds back to the same number, and the scale then divided 0/0: every point and label became NaN and the chart never stopped redrawing. The range now widens relative to the magnitude, and a zero step falls back to 1.
+- Data grid: a caller `cursor` or `anchor` past the last row (rows deleted elsewhere) was adopted verbatim, written back, and used to index the selection array out of bounds on Space. Stale indexes now clamp to the last row (or clear on an empty grid).
+- Data grid and table: `cui_data_grid_cell_text` and `cui_table_cell_text` read the previous column's alignment when no cell had been opened yet (`col == 0`), reading four bytes before the column array.
+- Histogram slider: a negative `bin_count` cast to a huge `size_t` and memcpy'd off the heap; a NULL `bins` with a positive count crashed. Both are rejected now.
+- Accordion: nesting deeper than 32 pushed "disabled" without recording it, so the matching pop never ran and the rest of the frame stayed inert. Push and pop now stay paired at any depth.
+- Virtual list: the ninth nested list stole the eighth's stack slot, so the inner list's bottom spacer came from the outer list's numbers. Deeper lists now skip the spacer instead.
+- Knob and fader: the value was quantized to `step` and written back every frame even when disabled or untouched, so a disabled knob rewrote the app's value and reported a change. The write-back now happens only when an input path ran.
+- Calendar: a `cui_date` with month 0 (an unset value) seeded the view month, which indexed the month-length and weekday tables at -1. The view now falls back to today.
+- Week calendar: the day headers showed the k-th weekday name instead of the weekday of each column's date, so any `week_start` that was not a Monday had every header wrong.
+- Week calendar: an event time like 9.99 hours showed "9:60"; minutes now carry into the hour ("10:00").
+- Blame view: a file without blame data (`line_commit` NULL) dereferenced it on every row after the first and crashed.
+- Coverage view: a folder with more than 512 direct children silently dropped the rest; they now appear after the first 512, in folder order.
+- Text edit: the password mask measured caret and selection positions through a fixed 1 KB buffer, which truncated at about 340 characters and desynced the caret from the glyphs; the mask width is now computed arithmetically.
+- Emoji: the scanner's private UTF-8 decoder accepted invalid lead bytes (0x80ΓÇô0xC1, 0xF5ΓÇô0xFF) and swallowed malformed continuations, so one bad byte could turn a following emoji into different code points. It now decodes like the core: one U+FFFD per bad byte, and valid emoji still work.
+- Rolling number: a value with more than 24 digit characters aliased the last digit spring and made the leading digits fight each other; digits beyond the springs now render statically.
+- Card stack: an item opened outside a `cui_card_stack` popped one id more than it pushed, shifting every later widget id for the rest of the frame.
+- Reorderable list: a drag started from a position captured before the list shrank read the slot geometry and the order array out of bounds; the position is re-checked when the drag starts.
+- Tag input: a buffer with more than 64 tags deleted every tag past 64 when one chip was removed, and the rebuild truncated at 2 KB. The split now sizes itself from the buffer.
+- Popup: the 17th nested popup aliased the 16th's build record and mismatched its disabled push/pop; deeper nesting is refused cleanly now.
+- Popovers and menus: the topmost check ended in `return dialog_depth == 0 || true`, dead code that suggested popups yield to dialogs; popups sit above dialogs by design (dialogs defer to open popups), and the comment now says so.
+- Glyph atlas: a glyph whose bitmap was as wide as the whole atlas skipped the horizontal fit check after the row wrap and rasterized past the row end; the atlas now grows for such a glyph, and a pathological outline (a corrupt font) is rejected instead of overflowing the glyph record's 16-bit fields.
+- Spring: a zero or negative duration (with motion scaling applied) produced NaN that stuck in the animation state and redrew forever; it snaps now, and very short durations clamp to the integrator's stable floor.
+- State store: a freshly grown entry was linked by the rehash before it was zeroed, so the entry could sit in two buckets or loop a bucket chain; the slot is zeroed before the rehash now.
+- Theme: switching mode or accent restored only some of the non-color fields (radii, motion, font scale, one shadow) and silently reverted the rest of an app's customizations ΓÇö the control heights, text sizes, headings and the other shadows. The whole non-color tail is kept now.
+- Paint: a paint callback that built UI (reallocating the node array) left the painter's cached node pointer dangling for the rest of the function; it refetches after every callback now.
+- Checkbox and other check marks: a zero-sized rect sent NaN into the polyline mesh, where it defeated the clip test; degenerate rects return early.
+- Sliders: a track narrower than its two 9-point pads (18 points) divided by zero and poisoned the value with NaN through the clamp; the drag mapping guards the denominator.
+- Software renderer: a texture created with width or height 0 sampled at index -1 (the clamp degenerates) and read before the buffer; such textures are 1├ù1 now, and texture updates clip to the texture instead of writing past an edge.
+- File dialogs, Linux: kdialog's filter list accumulated snprintf would-be lengths into an offset that could pass the buffer's end, and the final append then wrote past it; macOS AppleScript had the same overflow in its type list. Both clamp the offset before the last append.
+- File browser, Windows: when the name space filled exactly, `WideCharToMultiByte` ran in size-query mode (a zero-size buffer returns a length and writes nothing), leaving an entry pointing one past the buffer; the branch now checks for room first, like the POSIX one.
+- File browser: the local time-zone offset read `struct tm` without checking `localtime_r`/`gmtime_r`, so an out-of-range mtime rendered garbage; failures fall back to UTC now.
+- X11: a SelectionRequest was answered for any selection and any target, so another client asking for PRIMARY received the CLIPBOARD text; the handler now answers only for the clipboard, names the property after the target when the requestor left it unset (ICCCM), and an INCR-sized transfer reports empty instead of interpreting the announced byte count as text.
+- Charts and instruments: a caller-supplied axis step far finer than the span (0.001 over 1000) looped for hours and flooded the frame arena; the step clamps to at most 1024 ticks.
+- OpenType shaping: mark-to-base attachment indexes computed in `int` could overflow with a crafted font; they compute in unsigned now.
+- Examples and the tester aside, every fix above is covered by `tests/test_fixes.c` or the main suite.
 
 - The wheel scrolls a text area before its enclosing scroll view, then reaches the outer view at the text area's edges. Diagonal input can scroll the text vertically and the outer view horizontally ([#58](https://github.com/yappologistic/CUI/issues/58)).
 - Tag input enforces its tag limit for every tag in a batch ([#58](https://github.com/yappologistic/CUI/issues/58)).
@@ -81,7 +122,7 @@ What changed in CUI, newest first. Every component mentioned here runs live in t
 - **SDL2: the IME candidate window follows the caret.** The SDL2 backend now implements `cui_platform_iface.set_text_input_rect` (`SDL_SetTextInputRect`) and asks for the system candidate list with `SDL_HINT_IME_SHOW_UI`. Before, the candidate window never moved with the caret ([#56](https://github.com/yappologistic/CUI/issues/56)).
 - **An empty text field showed no caret.** At offset 0 the caret bar stands in the field's padding, left of the text, and the text's clip rectangle cut all of it away: an empty focused field looked dead and never blinked. The bar is now drawn against the field's clip, so it shows and blinks like anywhere else, with or without a placeholder (`tests/test_main.c` covers it).
 
-## 2026-11-11 · 1.4: instruments
+## 2026-11-11 ┬╖ 1.4: instruments
 
 Five components that read like an instrument, a new example that puts them together, three guides and a reference of every function. Linux desktops can now match a window to its app, and fixes cover the single file after `windows.h` and the keyboard in three components.
 
@@ -126,7 +167,7 @@ Five components that read like an instrument, a new example that puts them toget
 - The values of an enum on a component page's "Data and results" section showed as `[object HTMLElement]` (17 pages).
 - Eight component pages said things their component does not do: the icon button's icon swap (it animates on `cui_button`, not on `cui_icon_button`), a tooltip placed after a badge, a hover card on an avatar, Tab inside the time picker and the color picker, and the keys of the onboarding checklist, comments and JSON viewer. The pages now say what the code does, and the README lists the time picker and color picker among the parts that still need a pointer.
 
-## 2026-11-09 · 1.3.1: first steps, a tutorial and ready-to-run examples
+## 2026-11-09 ┬╖ 1.3.1: first steps, a tutorial and ready-to-run examples
 
 A release for people starting out. Every step of the getting-started guide was followed as written, and what did not work is fixed.
 
@@ -153,7 +194,7 @@ A release for people starting out. Every step of the getting-started guide was f
 - With the single-file distribution, the guide's first window did not compile: it needs `#include "cui.h"`, which the guide now says. The guide's one-line build also gave a 1.6 MB program; it now shows the two commands that give about 265 KB.
 - The Windows link line in the guide and in `cui.pc` lacked `comdlg32` and `ole32`.
 
-## 2026-11-09 · 1.3: developer tools
+## 2026-11-09 ┬╖ 1.3: developer tools
 
 ### Added
 
@@ -186,7 +227,7 @@ A release for people starting out. Every step of the getting-started guide was f
 
 - `CUI_VERSION_STRING` said "1.1.0" in 1.2. It now matches `CUI_VERSION_MAJOR`, `MINOR` and `PATCH`, and the gallery shows the version from them.
 
-## 2026-11-09 · 1.2: phones, tablets, right to left and performance
+## 2026-11-09 ┬╖ 1.2: phones, tablets, right to left and performance
 
 ### Added
 
@@ -211,7 +252,7 @@ A release for people starting out. Every step of the getting-started guide was f
 
 - **`CUI_TEXT_LEFT` is now 3** (`CUI_TEXT_START` is 0 and means left in a left-to-right box, so the default look is the same). Code that uses the names only needs a rebuild; code that stores alignments as numbers changes meaning. `cui_ctx_desc`, `cui_box` and `cui_text_opts` gained a `direction` field.
 - **Animation runs at the display's rate.** An animating window used to draw as fast as it could whenever the swap did not wait for the display: under software OpenGL or with vsync forced off by a driver, an always-animating app drew 150 frames a second on three cores, and the software renderer was capped at 120. Frames now come at the display's refresh rate (asked from the system, 60 when it cannot tell). OpenGL notices a swap that does not wait and paces by the clock, and pointer events no longer start frames early. A mixer panel on the software renderer went from 68 frames a second at 10.6% of a core to a steady 60 at 6.8%. On Windows, timed waits use a high-resolution timer, and a raw-input flag that Wine leaves set no longer wakes every wait.
-- **Dialogs, sheets and soft shadows paint about twice as fast in software.** A dialog or sheet animating over a dimmed window repaints the whole window each frame, and most of that went into its shadow and the dim layer. The inside of a shadow, where it is a flat color, is now drawn as one run; long runs of one translucent color use a per-channel table that gives the same bytes; the shadow falloff comes from a table instead of `erf` for every pixel; and the blend is inlined. The Mail example's worst frame went from 318 ms to 60 ms (one thread at 2560 × 1600), and the Assistant's sheet from 93 ms to 61 ms. Screenshots are unchanged except for 123 shadow pixels that moved by one level out of 255.
+- **Dialogs, sheets and soft shadows paint about twice as fast in software.** A dialog or sheet animating over a dimmed window repaints the whole window each frame, and most of that went into its shadow and the dim layer. The inside of a shadow, where it is a flat color, is now drawn as one run; long runs of one translucent color use a per-channel table that gives the same bytes; the shadow falloff comes from a table instead of `erf` for every pixel; and the blend is inlined. The Mail example's worst frame went from 318 ms to 60 ms (one thread at 2560 ├ù 1600), and the Assistant's sheet from 93 ms to 61 ms. Screenshots are unchanged except for 123 shadow pixels that moved by one level out of 255.
 - **Smaller builds.** MinGW's linker keeps whole files (it cannot drop a function with an unwind record), so release builds of CUI now also carry link-time optimization data and the examples link with `-flto=auto`: `assistant.exe` went from 740 KB to 420 KB and `hello.exe` from 418 KB to 300 KB. Apps that do not use LTO link as before. Release builds on Linux and BSD leave out unwind tables, 6 to 7% of an app (`hello` 254 KB to 242 KB); `-DCUI_KEEP_UNWIND_TABLES=ON` keeps them.
 - **Smaller Windows builds.** The core called into the emoji code to release its texture, and Windows linkers keep a whole file once anything in it is used, so every Windows app carried the emoji picker and the PNG decoder. The core now reaches emoji through a hook set when they are first used: `hello.exe` went from 478 KB to 407 KB.
 - **No GPU, no OpenGL.** When the OpenGL driver draws on the CPU (Mesa llvmpipe, SwiftShader and the like, common in virtual machines and remote sessions), X11 and Win32 apps on the Auto renderer use CUI's software renderer instead, which redraws only what changed. Notes under llvmpipe went from 27% of a core to 4%. `cui_gl_is_software` tells, and `CUI_RENDERER=opengl` keeps OpenGL.
@@ -246,7 +287,7 @@ A release for people starting out. Every step of the getting-started guide was f
 - Integration explains what a window costs in memory with each renderer, measured, and how much of it is the graphics driver rather than CUI: a bare OpenGL window takes 76 MB on its own on the test machine, CUI's own memory is 2 MB or so (issue #9).
 - Getting started lists what to install on Windows, macOS and three Linux families, builds and runs an example from a fresh checkout, explains running in the browser and where Android and iOS stand, and has a troubleshooting table for the common build and startup problems (issue #3).
 
-## 2026-11-07 · 1.1: text, code and workspace
+## 2026-11-07 ┬╖ 1.1: text, code and workspace
 
 ### Added
 
@@ -272,7 +313,7 @@ A release for people starting out. Every step of the getting-started guide was f
 - The data grid's sticky header no longer disappears once the rows scroll past it.
 - A scroll area squeezed to zero width no longer produces invalid values in its edge fade.
 
-## 2026-11-06 · Tools and a new landing page
+## 2026-11-06 ┬╖ Tools and a new landing page
 
 ### Added
 
@@ -291,7 +332,7 @@ A release for people starting out. Every step of the getting-started guide was f
 - A truncated label no longer shows its tooltip through a menu, popover or dialog open above it.
 - The smallest complete app now measures about 250 KB stripped.
 
-## 2026-11-05 · A calmer design and the live docs
+## 2026-11-05 ┬╖ A calmer design and the live docs
 
 ### Changed
 
@@ -305,7 +346,7 @@ A release for people starting out. Every step of the getting-started guide was f
 - A shorter, code-first README.
 - A contributing guide with disclosure and evidence rules for people and AI agents, and issue and pull request forms.
 
-## 2026-11-05 · 1.0
+## 2026-11-05 ┬╖ 1.0
 
 The first public version.
 

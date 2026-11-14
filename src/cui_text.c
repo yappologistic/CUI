@@ -723,6 +723,11 @@ static void cui__atlas_grow(cui_ctx *ui) {
 static bool cui__atlas_pack(cui_ctx *ui, int w, int h, int *ox, int *oy) {
     for (;;) {
         if (ui->pack_x + w + 1 > ui->atlas_w) { ui->pack_x = 1; ui->pack_y += ui->pack_row_h + 1; ui->pack_row_h = 0; }
+        if (ui->pack_x + w + 1 > ui->atlas_w) {   /* a single glyph wider than the atlas must grow it too, or the row below overflows */
+            if (ui->atlas_w >= CUI_ATLAS_MAX) return false;
+            cui__atlas_grow(ui);
+            continue;
+        }
         if (ui->pack_y + h + 1 <= ui->atlas_h) break;
         if (ui->atlas_w >= CUI_ATLAS_MAX) return false;
         cui__atlas_grow(ui);
@@ -751,6 +756,7 @@ static cui_glyph *cui__glyph_get(cui_ctx *ui, cui_font font, int gi, float px_si
     int x0, y0, x1, y1;
     stbtt_GetGlyphBitmapBoxSubpixel(&fd->info, gi, scale, scale, shift, 0, &x0, &y0, &x1, &y1);
     int w = x1 - x0, hgt = y1 - y0;
+    if (w > CUI_ATLAS_MAX - 2 || hgt > CUI_ATLAS_MAX - 2) return NULL;   /* a pathological outline must not overflow the int16/uint16 glyph fields; resetting the atlas cannot make it fit */
     int ax = 0, ay = 0;
     if (w > 0 && hgt > 0) {
         if (!cui__atlas_pack(ui, w, hgt, &ax, &ay)) { ui->atlas_reset_pending = true; return NULL; }
@@ -793,16 +799,18 @@ static int cui__glyph_ord_cmp(const void *a, const void *b) {
 static void cui__atlas_compact(cui_ctx *ui) {
     uint32_t now = (uint32_t)ui->frame;
     size_t area = 0;
-    int live = 0;
+    int live = 0, maxw = 0;
     for (int i = 0; i < ui->glyph_count; i++) {
         cui_glyph *g = &ui->glyphs[i];
         if (now - g->stamp > CUI__ATLAS_KEEP) continue;
         area += (size_t)(g->w + 1) * (size_t)(g->h + 1);
+        if (g->w > maxw) maxw = g->w;
         live++;
     }
     int nw = ui->atlas_w;
     while (nw > CUI_ATLAS_MIN && area * 2 <= (size_t)(nw / 2) * (size_t)(nw / 2)) nw /= 2;
-    if (nw == ui->atlas_w) return;
+    while (nw < maxw + 2) nw *= 2;   /* every retained glyph must fit a row of the compacted atlas */
+    if (nw >= ui->atlas_w) return;
     cui__glyph_ord *ord = cui__alloc(ui, sizeof *ord * (size_t)CUI_MAX(live, 1));
     cui_glyph *ng = cui__alloc(ui, sizeof *ng * (size_t)CUI_MAX(live, 1));
     uint8_t *na = cui__alloc(ui, (size_t)nw * (size_t)nw);
@@ -1062,7 +1070,8 @@ static void cui__draw_run(cui_ctx *ui, cui_font font, float size, float x, float
     float baseline = y + base->ascent * size;
     if (base->is_icon) baseline = y + size;
     float by_px = roundf(baseline * s);
-    float inv_w = 1.0f / (float)ui->atlas_w, inv_h = 1.0f / (float)ui->atlas_h;
+    int aw = ui->atlas_w, ah = ui->atlas_h;
+    float inv_w = 1.0f / (float)aw, inv_h = 1.0f / (float)ah;
     cui__glyph_iter it;
     cui__iter_init(&it, ui, font, size, text, len, tabular);
     while (cui__iter_next(&it)) {
@@ -1092,6 +1101,10 @@ static void cui__draw_run(cui_ctx *ui, cui_font font, float size, float x, float
         }
         cui_glyph *g = cui__glyph_get(ui, it.gfont, it.gi, gs_px, subpx);
         if (!g || !g->w) continue;
+        if (ui->atlas_w != aw || ui->atlas_h != ah) {   /* the lookup can grow the atlas: recompute the UV scale */
+            aw = ui->atlas_w; ah = ui->atlas_h;
+            inv_w = 1.0f / (float)aw; inv_h = 1.0f / (float)ah;
+        }
         float qx0 = fl + g->x0, qy0 = gy + g->y0;
         cui__draw_glyph_quad(ui, qx0, qy0, qx0 + g->w, qy0 + g->h,
                              g->ax * inv_w, g->ay * inv_h, (g->ax + g->w) * inv_w, (g->ay + g->h) * inv_h, gc);

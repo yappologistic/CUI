@@ -760,6 +760,7 @@ bool cui_veil_begin_ex(cui_ctx *ui, const char *id_str, bool *revealed, const cu
     if (!o) o = &d;
     cui_id id = cui_make_id(ui, id_str);
     cui_interact r = cui__interact(ui, id, CUI_IF_FOCUSABLE);
+    bool disabled = cui_is_disabled(ui);
     cui__veil_state *st = cui_state(ui, id, sizeof *st);
     bool shown = revealed && *revealed, changed = false;
     if (!st->init) { st->q = shown ? 1.0f : 0.0f; st->init = true; }
@@ -778,11 +779,11 @@ bool cui_veil_begin_ex(cui_ctx *ui, const char *id_str, bool *revealed, const cu
     if (o->width.kind) nd->w = o->width;
     nd->self_align = CUI__ALIGN_NOSTRETCH;
     nd->flags |= CUI_NF_PAINT_AFTER;
-    cui__mark_interactive(ui, n, CUI_IF_FOCUSABLE);
+    if (!disabled) cui__mark_interactive(ui, n, CUI_IF_FOCUSABLE);   /* the cover still draws, it just yields the clicks */
     cui__veil_paint *p = cui__frame_alloc(ui, sizeof *p);
     p->id = id;
     p->q = st->q;
-    p->catch_clicks = !shown || st->q < 1;
+    p->catch_clicks = !disabled && (!shown || st->q < 1);
     p->radius = o->radius;
     p->focus = r.focus_visible ? 1.0f : 0.0f;
     p->ground = cui__color_set(o->color) ? cui_color_of(ui, o->color) : CUI_C(ui, SURFACE_MUTED);

@@ -354,7 +354,7 @@ void cui_card_stack_begin(cui_ctx *ui, const char *id_str, int count, const cui_
 
 void cui_card_stack_item_begin(cui_ctx *ui, int depth) {
     struct cui_stack_build *b = (struct cui_stack_build *)ui->building.card_stack;
-    if (!b) { int n = cui__node_new(ui, 0); cui__open(ui, n); return; }
+    if (!b) { int n = cui__node_new(ui, 0); cui__open(ui, n); cui_push_id_int(ui, depth); return; }   /* id kept balanced with item_end outside a stack */
     cui__stack_state *st = b->st;
     bool top = depth == 0;
     float dd = (float)depth + st->promote.x;   /* deeper cards slide forward after a throw */
@@ -484,8 +484,12 @@ static void cui__counter_ex_body(cui_ctx *ui, const char *id_str, double value, 
         char c = s[k];
         if (c >= '0' && c <= '9') {
             pos_from_right--;
-            int slot = CUI_CLAMP(pos_from_right, 0, 23);
-            cui_spring *sp = &st->d[slot];
+            if (pos_from_right < 0 || pos_from_right >= 24) {   /* beyond the spring slots: render statically instead of aliasing slot 23 */
+                int t = cui__text_node(ui, cui__frame_strdup(ui, &s[k], 1), 1, font, size, color, false);
+                ui->nodes[t].line_height = lh / size;
+                continue;
+            }
+            cui_spring *sp = &st->d[pos_from_right];
             /* keep counting in the same direction: the spring target is the digit
              * plus whole turns, so 9 to 0 rolls forward through one step */
             float target = (float)(c - '0');

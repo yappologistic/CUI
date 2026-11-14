@@ -297,8 +297,8 @@ static int subtable(shape *s,off p,unsigned type,int i,unsigned flags,off lookup
             off attach=rel(f,bases,u16(f,bases+2+2*bi));
             int n=u16(f,attach),component=s->g[i].component?s->g[i].component-1:n-1;
             if (component<0 || component>=n) return 0;
-            a=rel(f,attach,u16(f,attach+2+2*(component*classes+mc)));
-        } else a=rel(f,bases,u16(f,bases+2+2*(bi*classes+mc)));
+            a=rel(f,attach,u16(f,attach+2+2*((unsigned)component*classes+mc)));
+        } else a=rel(f,bases,u16(f,bases+2+2*((unsigned)bi*classes+mc)));
         int mx,my,bx,by;
         if (!anchor(s,rel(f,marks,u16(f,marks+4+4*ci)),&mx,&my) || !anchor(s,a,&bx,&by)) return 0;
         int distance=0;

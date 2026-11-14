@@ -37,6 +37,55 @@ CUI is an immediate-mode UI library written in C99. You describe the screen with
 - **Small.** A complete app, window, fonts and all, is about 250 KB. There is no browser or runtime inside.
 - **MIT licensed.**
 
+## What's fixed: a full code review
+
+A line-by-line review of the library sources — about 52,000 lines of C, seven
+independent passes, every finding verified against the surrounding code before
+fixing — has fixed **40 distinct defects across 29 files** and added one public
+function. No feature changed shape and no behaviour moved: these are the bugs
+the existing tests do not reach. [FIXES.md](FIXES.md) carries the full report,
+one entry per defect with the file, the bug and the fix. The highlights:
+
+- **Crashes and memory safety.** The worst: any pattern with a non-capturing
+  group `(?:...)` corrupted memory — the matcher indexed the capture array with
+  -1 and overwrote its own text pointer and length, a segfault on
+  `cui_regex_search("(?:a)b", ...)`. Also: a negative `bin_count` memcpy'd off
+  the heap on the histogram slider; file-dialog filter lists (kdialog on Linux,
+  the AppleScript on macOS) appending past their buffer; a freshly grown
+  state-store entry rehashed before it was zeroed, so state could come back for
+  the wrong widget; a glyph as wide as the atlas rasterizing past the row end;
+  a texture with a zero dimension sampled at index -1; a data grid keeping a
+  cursor past the last row and indexing its selection out of bounds; a
+  reorderable-list drag reusing a position captured before the list shrank;
+  `localtime_r` failures rendering garbage dates; mark-to-base shaping indexes
+  overflowing in `int` on a crafted font.
+- **Wrong behaviour.** An all-one-value chart series at |v| ≥ 3.4e7 made the
+  axis step 0/0 = NaN, so every label was NaN and the chart redrew forever.
+  Week-calendar headers showed the wrong weekday for any `week_start` but
+  Monday. A disabled knob rewrote the app's value and reported a change every
+  frame. An unset month-0 calendar date indexed the month tables at -1. The
+  17th nested popup aliased the 16th's build record. Tab-indented code measured
+  three spaces and painted four. The password mask desynced its caret past
+  ~340 characters. The emoji scanner accepted invalid UTF-8 lead bytes. A
+  theme switch silently reverted part of an app's non-color customizations.
+  The tag input deleted every tag past 64 when one chip was removed.
+- **Protocol and robustness.** The X11 SelectionRequest handler answered for
+  any selection — another client asking for PRIMARY received the CLIPBOARD
+  text; it follows ICCCM now. A paint callback that built UI dangled the
+  painter's node pointer for the rest of the function. A zero or negative
+  spring duration poisoned the animation with NaN forever.
+- **Added: `cui_regex_replace`.** Replace every match with a template in which
+  `$0`–`$9` stand for the whole match and the capture groups, as in JavaScript,
+  with a snprintf-style return; an empty match advances one character, as in
+  JavaScript (unlike Python 3.7's `re.sub`).
+
+Every fix is locked in by a regression test where headless testing is possible:
+`tests/test_fixes.c`, 174 checks. The suite passes 18/18 — also under
+AddressSanitizer and UndefinedBehaviorSanitizer — and 28,000 frames of extended
+fuzzing are clean. One limitation is left open deliberately and documented: full
+ICCM INCR clipboard transfer on X11 (the garbage-paste half is fixed by
+returning empty; a complete implementation needs an event-loop rework).
+
 ## Try it first
 
 - **In your browser:** the [live site](https://yappologistic.github.io/CUI/) runs every component and the example apps. It is the same C code, compiled to WebAssembly.

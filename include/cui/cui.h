@@ -1098,7 +1098,7 @@ CUI_API int cui_pattern_meter_ex(cui_ctx *ui, const char *id, const cui_meter_pa
 
 /* Images */
 CUI_API cui_texture cui_image_create(cui_ctx *ui, int w, int h, const void *rgba);
-CUI_API cui_texture cui_image_load(cui_ctx *ui, const char *path, int *w, int *h);   /* PNG/JPEG via stb_image */
+CUI_API cui_texture cui_image_load(cui_ctx *ui, const char *path, int *w, int *h);   /* UTF-8 path, PNG/JPEG via stb_image */
 CUI_API void cui_image_destroy(cui_ctx *ui, cui_texture tex);
 typedef struct cui_image_opts {
     int _;
@@ -2602,6 +2602,7 @@ typedef struct cui_week_opts {
     cui_size height;
     bool read_only;
 } cui_week_opts;
+/* Returns the activated event index or -1. Read-only events still activate. */
 CUI_API int cui_week_calendar_ex(cui_ctx *ui, const char *id, cui_date week_start, cui_cal_event *events, int count, const cui_week_opts *opts);
 
 /* Month calendar: a month grid with events. All-day and multi-day events
@@ -2673,6 +2674,7 @@ typedef struct cui_gantt_opts {
     int today;                 /* day to mark as today, counted from `origin`, with an accent line and a "Today" chip; 0 marks none */
     bool read_only;
 } cui_gantt_opts;
+/* Returns the activated task index or -1. Read-only tasks still activate. */
 CUI_API int cui_gantt_ex(cui_ctx *ui, const char *id, cui_gantt_task *tasks, int count, cui_date origin, int days, const cui_gantt_opts *opts);
 
 /* ------------------------------------------------------------------------ */
@@ -4148,6 +4150,7 @@ typedef struct cui_query_opts {
     int max_depth;             /* how deep groups may nest, default 3 */
     bool read_only;
 } cui_query_opts;
+/* Read-only and disabled builders preserve the input rules and count. */
 CUI_API bool cui_query_builder_ex(cui_ctx *ui, const char *id, const cui_query_field *fields, int field_count,
                                   cui_query_node *nodes, int *count, int capacity, const cui_query_opts *opts);
 /* the operators of a type: text "is", "is not", "contains", "does not contain",
@@ -4363,6 +4366,18 @@ typedef struct cui_regex_match {
     char group_name[CUI_REGEX_GROUPS][24];   /* the name of each `(?<name> )` group, indexed like `group_start`; "" when unnamed */
 } cui_regex_match;
 CUI_API int cui_regex_search(const char *pattern, int flags, const char *text, int len, int from, cui_regex_match *m, const char **error);
+
+/* Replace every match of the pattern in text with a template. In the template,
+ * "$0" to "$9" stand for the whole match and the capture groups, as in
+ * JavaScript ($1 is the first group; a group that took no part contributes
+ * nothing), and everything else is copied literally. The result is written to
+ * out, at most out_cap bytes, always NUL terminated, and the return value is
+ * the number of bytes the whole result needs, snprintf style: a return of
+ * out_cap or more means it was truncated. With out NULL the length is measured
+ * without writing. Text with no match is copied unchanged. Returns -1 when the
+ * pattern does not compile, with *error set. An empty match advances one
+ * character, so "x*" replaces every character once, not forever. */
+CUI_API int cui_regex_replace(const char *pattern, int flags, const char *text, int len, const char *replacement, char *out, size_t out_cap, const char **error);
 
 /* A pattern field with flags over a test text: every match is highlighted in
  * the text and its groups in their own colors, and the list below shows each
@@ -4649,7 +4664,7 @@ typedef struct cui_dot_chart_opts {
 } cui_dot_chart_opts;
 
 typedef struct cui_dot_chart_result {
-    int hovered;               /* the sample under the pointer or the keyboard cursor, or -1 */
+    int hovered;               /* pointer or keyboard sample, middle on first keyboard activation, else -1 */
     double x;                  /* that sample's x, in x units */
     float value;               /* the stacked value there */
     bool clicked;              /* the plot was clicked, or Enter was pressed on it, this frame: `x` is where */

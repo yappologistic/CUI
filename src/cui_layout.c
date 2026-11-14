@@ -1025,6 +1025,7 @@ static void cui__paint_node(cui_ctx *ui, int i, cui_rect clip) {
     else if (n->bg.a || (n->border > 0 && n->border_color.a)) cui_draw_rect_border(ui, r, n->radius, n->bg, n->border_color, n->border);
     if (n->elevation && n->bg.a > 200 && ui->mode == CUI_THEME_DARK) cui__draw_top_light(ui, r, n->radius, n->elevation == CUI_ELEVATION_RESTING ? 0.045f : 0.085f);
     if (n->paint && !(n->flags & CUI_NF_PAINT_AFTER)) n->paint(ui, n, n->paint_data);
+    n = &ui->nodes[i];   /* the paint callback may have built UI and grown the node array */
     if (n->flags & CUI_NF_TEXT) {
         const char *text = n->text;
         if (n->rtl && n->font == CUI_FONT_ICONS) {
@@ -1048,25 +1049,26 @@ static void cui__paint_node(cui_ctx *ui, int i, cui_rect clip) {
         child_clip = cui__rect_intersect(clip, cui__xform_rect(ui, r));
     }
     bool any_overlay = false;
-    for (int c = n->abs_first; c >= 0; c = ui->nodes[c].next) {
+    for (int c = ui->nodes[i].abs_first; c >= 0; c = ui->nodes[c].next) {
         if (ui->nodes[c].flags & CUI_NF_OVERLAY) { any_overlay = true; continue; }
         cui__paint_node(ui, c, child_clip);
     }
     bool any_top = false;
-    for (int c = n->first; c >= 0; c = ui->nodes[c].next) {
+    for (int c = ui->nodes[i].first; c >= 0; c = ui->nodes[c].next) {
         if (ui->nodes[c].flags & CUI_NF_ON_TOP) { any_top = true; continue; }
         cui__paint_node(ui, c, child_clip);
     }
     if (any_top)
-        for (int c = n->first; c >= 0; c = ui->nodes[c].next)
+        for (int c = ui->nodes[i].first; c >= 0; c = ui->nodes[c].next)
             if (ui->nodes[c].flags & CUI_NF_ON_TOP) cui__paint_node(ui, c, child_clip);
     if (any_overlay)
-        for (int c = n->abs_first; c >= 0; c = ui->nodes[c].next)
+        for (int c = ui->nodes[i].abs_first; c >= 0; c = ui->nodes[c].next)
             if (ui->nodes[c].flags & CUI_NF_OVERLAY) cui__paint_node(ui, c, child_clip);
     if (clips) cui_pop_clip(ui);
     n = &ui->nodes[i];
     if (border_after) cui_draw_rect_border(ui, r, n->radius, cui__rgba(0, 0, 0, 0), n->border_color, n->border);
     if (n->paint && (n->flags & CUI_NF_PAINT_AFTER)) n->paint(ui, n, n->paint_data);
+    n = &ui->nodes[i];   /* the paint callback may have built UI and grown the node array */
     if (n->flags & (CUI_NF_SCROLL_X | CUI_NF_SCROLL_Y)) cui__paint_scrollbars(ui, n, clip);
     if (xf) cui__pop_xform(ui);
 }

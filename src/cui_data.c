@@ -96,9 +96,13 @@ bool cui_accordion_begin(cui_ctx *ui, const char *title, bool *open) {
     ct->w = CUI_FILL;
     cui__open(ui, content);
     bool closing = !*open;
-    if (ui->acc_depth < 32) ui->acc_dis[ui->acc_depth] = closing;
-    ui->acc_depth++;
-    if (closing) cui_push_disabled(ui, true);
+    if (ui->acc_depth < 32) {
+        ui->acc_dis[ui->acc_depth] = closing;
+        ui->acc_depth++;
+        if (closing) cui_push_disabled(ui, true);   /* push and pop must stay paired at any depth */
+    } else {
+        ui->acc_depth++;   /* beyond the tracked depth nothing is pushed, so end() must not pop either */
+    }
     return true;
 }
 
@@ -251,21 +255,34 @@ void cui_virtual_list_begin(cui_ctx *ui, const char *id_str, int count, float ro
     b.height = height.kind == CUI_SIZE_FIT ? CUI_FILL : height;
     b.width = CUI_FILL;
     if (row_h <= 0) row_h = 36;
+    count = CUI_MAX(0, count);
     float view_h = st->view_h > 0 ? st->view_h : 400;
-    /* figure out the visible window from the target offset so fast scrolls do not flash */
+    /* Clamp both offsets before opening the viewport so deleted rows cannot leave it empty. */
+    st->content_h = count * row_h;
+    float max_y = CUI_MAX(0, st->content_h - st->view_h);
+    st->y = CUI_MIN(st->y, max_y);
+    st->ty = CUI_MIN(st->ty, max_y);
     cui__scroll_begin_ex(ui, id, &b, false);
     float y = ui->nodes[cui__current(ui)].scroll_y;
     int f = (int)floorf(y / row_h) - 2;
     int l = (int)ceilf((y + view_h) / row_h) + 2;
     if (f < 0) f = 0;
     if (l > count) l = count;
-    if (l < f) l = f;
+    if (f > l) f = l;
     *first = f;
     *last = l;
     /* spacer above */
     if (f > 0) cui__leaf(ui, 0, CUI_FILL, CUI_PX(f * row_h));
-    cui__vlist_build *vb = &ui->vl_stack[ui->vl_depth < 8 ? ui->vl_depth : 7];
-    if (ui->vl_depth < 8) ui->vl_depth++;
+    cui__vlist_build *vb;
+    if (ui->vl_depth < 8) {
+        vb = &ui->vl_stack[ui->vl_depth++];
+    } else {
+        /* deeper than the stack holds: chain the record from the frame arena,
+           so the outer lists' records stay intact and this list keeps its trailing spacer */
+        vb = cui__frame_alloc(ui, sizeof *vb);
+        vb->next = ui->vl_ov;
+        ui->vl_ov = vb;
+    }
     vb->count = count; vb->row_h = row_h; vb->first = f;
     /* rows are placed in a column of fixed-height rows */
     int rows = cui__node_new(ui, 0);
@@ -277,8 +294,14 @@ void cui_virtual_list_begin(cui_ctx *ui, const char *id_str, int count, float ro
 
 void cui_virtual_list_end(cui_ctx *ui) {
     cui__close(ui);
-    if (ui->vl_depth > 0) {
-        cui__vlist_build *vb = &ui->vl_stack[--ui->vl_depth];
+    cui__vlist_build *vb = NULL;
+    if (ui->vl_ov) {   /* overflow records sit above the stack ones: the innermost list pops first */
+        vb = ui->vl_ov;
+        ui->vl_ov = vb->next;
+    } else if (ui->vl_depth > 0) {
+        vb = &ui->vl_stack[--ui->vl_depth];
+    }
+    if (vb && vb->count >= 0) {
         int rows = ui->nodes[cui__current(ui)].last;
         float shown = rows >= 0 ? ui->nodes[rows].h.value : 0;
         float rest = vb->count * vb->row_h - vb->first * vb->row_h - shown;
@@ -315,6 +338,13 @@ static void cui__table_close_row(cui_ctx *ui, struct cui_table_build *t) {
     }
     cui__close(ui);   /* row */
     t->in_row = false;
+}
+
+/** Paint the ring inside the cell so the scrolling table does not clip it. */
+static void cui__paint_table_focus(cui_ctx *ui, cui_node *n, void *unused) {
+    (void)unused;
+    cui_draw_rect_border(ui, cui__rect_inset(n->rect, 2), CUI_CORNERS(3),
+                         CUI_TRANSPARENT, CUI_C(ui, FOCUS_RING), 2);
 }
 
 bool cui_table_begin_ex(cui_ctx *ui, const char *id_str, const cui_table_column *cols, int ncols, const cui_table_opts *o) {
@@ -384,6 +414,10 @@ bool cui_table_begin_ex(cui_ctx *ui, const char *id_str, const cui_table_column 
         cn->h = CUI_FILL;
         cn->pad[1] = cn->pad[3] = 8;
         cn->text_align = (uint8_t)c->align;
+        if (r.focus_visible) {
+            cn->paint = cui__paint_table_focus;
+            cn->flags |= CUI_NF_PAINT_AFTER;
+        }
         if (c->sortable && o->sort) {
             cui__mark_interactive(ui, cell, CUI_IF_FOCUSABLE);
             if (r.hovered) cui__set_cursor(ui, CUI_CURSOR_HAND);
@@ -435,6 +469,10 @@ bool cui_table_row(cui_ctx *ui, bool selected) {
     if (selected) bg = CUI_C(ui, ACCENT_SUBTLE);
     else bg = cui_mix(bg, CUI_C(ui, HOVER), *hv);
     n->bg = bg;
+    if (r.focus_visible) {
+        n->paint = cui__paint_table_focus;
+        n->flags |= CUI_NF_PAINT_AFTER;
+    }
     cui__mark_interactive(ui, row, t->selectable ? CUI_IF_FOCUSABLE : 0);
     if (r.hovered && t->selectable) cui__set_cursor(ui, CUI_CURSOR_HAND);
     cui__open(ui, row);
@@ -464,7 +502,7 @@ void cui_table_cell(cui_ctx *ui) {
 void cui_table_cell_text(cui_ctx *ui, const char *text) {
     cui_table_cell(ui);
     struct cui_table_build *t = ui->building.table;
-    bool right = t && t->col - 1 < t->ncols && t->cols[t->col - 1].align == CUI_TEXT_RIGHT;
+    bool right = t && t->col >= 1 && t->col - 1 < t->ncols && t->cols[t->col - 1].align == CUI_TEXT_RIGHT;
     int tx = cui__text_node(ui, text, -1, CUI_FONT_BODY, cui__fs(ui, ui->theme.text_body), CUI_C(ui, FOREGROUND), false);
     ui->nodes[tx].line_height = 1.3f;
     if (right) ui->nodes[tx].flags |= CUI_NF_TABULAR;

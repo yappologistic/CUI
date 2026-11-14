@@ -657,7 +657,7 @@ cui_table(ui, "orders", cols, 3, .sort = &sort, .selectable = true, .height = CU
 
 Cells hold any components. Clicking a sortable header updates `sort` (column and direction); you sort your data. With `height` the body scrolls under a fixed header. When the container is narrower than the fixed columns plus 96 points for each flexible one, the table scrolls sideways instead of squeezing cells. Options: `sort`, `height`, `striped`, `compact`, `selectable`.
 
-Keyboard: Tab reaches the headers of sortable columns, and Enter or Space sorts by the focused one. Rows are selected with the pointer; for arrow keys through rows use the [data grid](#data-grid-and-filter-bar).
+Keyboard: Tab reaches the headers of sortable columns, and Enter or Space sorts by the focused one. Rows are selected with the pointer; for arrow keys through rows use the [data grid](components-more.md#data-grid-and-filter-bar).
 
 ## List and tree
 
@@ -744,7 +744,7 @@ cui_image_destroy(ui, tex);
 
 `cui_image_load` returns a `cui_texture`, or 0 when the file cannot be read or decoded. Call it once, not on every frame, keep the texture for as long as you draw it, and free it with `cui_image_destroy`. `cui_image_create` takes `w * h` pixels of four bytes each, red, green, blue and alpha, and copies them. `cui_image` returns nothing and stretches the texture over the box given by `width` and `height`, 64 by 64 points when they are not set, so work the height out from the pixel size to keep the proportions.
 
-PNG and JPEG are decoded out of the box. Configure with `-DCUI_IMAGE_ALL_FORMATS=ON` to add BMP, GIF and TGA, or `-DCUI_STB_IMAGE=OFF` to leave decoding out and upload your own pixels with `cui_image_create`.
+PNG and JPEG are decoded out of the box. Image paths are UTF-8, including on Windows. Configure with `-DCUI_IMAGE_ALL_FORMATS=ON` to add BMP, GIF and TGA, or `-DCUI_STB_IMAGE=OFF` to leave decoding out and upload your own pixels with `cui_image_create`.
 
 ## Radio cards
 

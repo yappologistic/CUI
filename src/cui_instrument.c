@@ -53,12 +53,16 @@ static void cui__ins_draw_axis(cui_ctx *ui, const cui__ins_axis *a, float px, fl
     if (!(a->x1 > a->x0)) return;
     double step = a->step > 0 ? a->step : cui__ins_step(a->units, a->x1 - a->x0, pw, a->units == CUI_AXIS_HOURS ? 34 : 56);
     if (!(step > 0)) return;
+    if (step * 1024.0 < a->x1 - a->x0) step = (a->x1 - a->x0) / 1024.0;   /* a caller step that is far too fine would loop for hours and flood the frame arena */
     float fs = cui__fs(ui, ui->theme.text_xs);
     double first = ceil(a->x0 / step - 1e-9) * step;
     float last_end = -1e9f;
-    for (double v = first; v <= a->x1 + step * 1e-6; v += step) {
+    int guard = 0;
+    for (double v = first; v <= a->x1 + step * 1e-6 && guard < 1030; v += step, guard++) {
         float x = px + (float)((v - a->x0) / (a->x1 - a->x0)) * pw;
         if (ticks) cui_draw_rect(ui, (cui_rect){ floorf(x), y - 6, 1, 3 }, CUI_CORNERS(0), CUI_C(ui, BORDER_STRONG));
+        double next = v + step;
+        if (!(next > v)) break;   /* at this magnitude the tick no longer advances: stop instead of looping forever */
         const char *lbl = cui__ins_label(ui, a->units, a->fmt, v, true);
         float lw = cui__text_width(ui, CUI_FONT_MONO, fs, lbl, -1, true);
         float lx = CUI_CLAMP(x - lw * 0.5f, clip.x, clip.x + clip.w - lw);
@@ -344,6 +348,10 @@ cui_dot_chart_result cui_dot_chart_ex(cui_ctx *ui, const char *id_str, const cui
             cursor = (int)lround(t * (count - 1));
             st->keyed = false;
         } else if (st->keyed) cursor = CUI_CLAMP(st->cursor, 0, count - 1);
+        if (r.keyboard_activate && cursor < 0) {
+            st->keyed = true;
+            st->cursor = cursor = count / 2;
+        }
     }
     /* copies of the data, for the paint callback, and the value range */
     cui__dm_paint *p = cui__frame_alloc(ui, sizeof *p);

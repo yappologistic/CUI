@@ -1,5 +1,8 @@
 add_executable(cui_tests test_main.c)
 target_link_libraries(cui_tests PRIVATE cui::cui)
+if(WIN32 AND CUI_STB_IMAGE)
+    target_compile_definitions(cui_tests PRIVATE CUI_TEST_WINDOWS_IMAGE_PATH)
+endif()
 add_test(NAME cui_tests COMMAND cui_tests)
 
 add_executable(cui_test_devtools test_devtools.c)
@@ -74,6 +77,11 @@ add_test(NAME cui_fuzz COMMAND cui_fuzz 3000)
 add_executable(cui_test_inflate test_inflate.c)
 target_include_directories(cui_test_inflate PRIVATE ../include)
 add_test(NAME cui_test_inflate COMMAND cui_test_inflate)
+
+# Regressions for fixed bugs: every test here failed or crashed before its fix
+add_executable(cui_test_fixes test_fixes.c)
+target_link_libraries(cui_test_fixes PRIVATE cui::cui)
+add_test(NAME cui_test_fixes COMMAND cui_test_fixes)
 
 # Random input against the example apps (their sources are included directly)
 if(CUI_WITH_APP)

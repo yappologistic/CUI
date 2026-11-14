@@ -167,10 +167,27 @@ static const cui_query_field qb_fields[] = {
     { "Status", CUI_QUERY_CHOICE, qb_status, 3 }, { "Assignee", CUI_QUERY_TEXT }, { "Priority", CUI_QUERY_NUMBER }, { "Has PR", CUI_QUERY_BOOL },
 };
 
-typedef struct { cui_query_node nodes[16]; int n; bool changed; cui_size w; } qb_ctx;
+typedef struct { cui_query_node nodes[16]; int n; bool changed, read_only; cui_size w; } qb_ctx;
+/** Build the same query in editable and read-only modes. */
 static void build_qb(cui_ctx *ui, void *u) {
     qb_ctx *c = u;
-    c->changed = cui_query_builder(ui, "filter", qb_fields, 4, c->nodes, &c->n, 16);
+    c->changed = cui_query_builder(ui, "filter", qb_fields, 4, c->nodes, &c->n, 16, .read_only = c->read_only);
+}
+
+/** Rendering a read-only query does not initialize or normalize caller storage. */
+static void test_query_read_only(void) {
+    printf("query builder: read-only preserves caller rules\n");
+    cui_ctx *ui = new_ctx(800, 600);
+    qb_ctx empty = { .read_only = true };
+    run(ui, build_qb, &empty, 1);
+    CHECK(empty.n == 0 && !empty.nodes[0].group && !empty.changed);
+    qb_ctx rules = { .nodes = {{ .group = true }, { .depth = 1 }}, .n = 2, .read_only = true };
+    run(ui, build_qb, &rules, 1);
+    CHECK(rules.n == 2 && rules.nodes[1].value[0] == '\0' && !rules.changed);
+    empty.read_only = false;
+    run(ui, build_qb, &empty, 1);
+    CHECK(empty.n == 1 && empty.nodes[0].group && empty.changed);
+    cui_destroy(ui);
 }
 
 static void test_query(void) {
@@ -646,16 +663,25 @@ static void test_trace(void) {
     run(ui, build_tr, &c, 2);
     CHECK(fabs(c.view.end - c.view.start - 0.018) < 1e-9);
     /* Shift+drag measures */
+    double mark0 = c.view.mark_start, mark1 = c.view.mark_end;
     cui_input_mouse_move(ui, r.x + r.w * 0.4f, y); run(ui, build_tr, &c, 1);
     cui_input_key(ui, CUI_KEY_NONE, false, CUI_MOD_SHIFT);
     cui_input_mouse_button(ui, CUI_MOUSE_LEFT, true); run(ui, build_tr, &c, 1);
-    for (int k = 1; k <= 4; k++) { cui_input_mouse_move(ui, r.x + r.w * (0.4f + 0.05f * k), y); run(ui, build_tr, &c, 1); }
+    for (int k = 1; k <= 4; k++) {
+        cui_input_mouse_move(ui, r.x + r.w * (0.4f + 0.05f * k), y);
+        run(ui, build_tr, &c, 1);
+        CHECK(c.view.mark_start != mark0 || c.view.mark_end != mark1);
+        CHECK(c.r.view_changed);
+        mark0 = c.view.mark_start; mark1 = c.view.mark_end;
+    }
     cui_input_mouse_button(ui, CUI_MOUSE_LEFT, false); run(ui, build_tr, &c, 1);
+    CHECK(!c.r.view_changed);
     cui_input_key(ui, CUI_KEY_NONE, false, 0);
     CHECK(c.view.mark_end > c.view.mark_start);
     CHECK(fabs(c.view.end - c.view.start - 0.018) < 1e-9);   /* measuring does not pan */
     key(ui, build_tr, &c, CUI_KEY_ESCAPE, 0);
     CHECK(!(c.view.mark_end > c.view.mark_start));
+    CHECK(c.r.view_changed);
     /* a plain drag pans */
     cui_input_scroll(ui, 0, 4); run(ui, build_tr, &c, 1);
     double s0 = c.view.start;
@@ -1053,11 +1079,38 @@ static void test_uptime(void) {
 }
 
 static float th_a[48], th_b[48];
-typedef struct { double s0, s1; cui_time_histogram_result r; } th_ctx;
+typedef struct { double s0, s1; cui_time_histogram_result r; bool disabled; } th_ctx;
+/** Build the histogram with the current enabled state. */
 static void build_th(cui_ctx *ui, void *u) {
     th_ctx *c = u;
     const cui_histogram_series se[] = { { "info", th_a, CUI_TONE_INFO }, { "error", th_b, CUI_TONE_DANGER } };
+    cui_push_disabled(ui, c->disabled);
     c->r = cui_time_histogram(ui, "hist", 1794240000, 600, 48, se, 2, &c->s0, &c->s1, .utc = true);
+    cui_pop_disabled(ui);
+}
+
+/** Disabling during a drag cancels it even if the widget becomes enabled again. */
+static void test_histogram_disable(void) {
+    printf("time histogram: disabling cancels a drag\n");
+    cui_ctx *ui = new_ctx(800, 400);
+    th_ctx c = {0};
+    run(ui, build_th, &c, 3);
+    cui_rect r = cui_get_rect(ui, cui_make_id(ui, "hist"));
+    move(ui, build_th, &c, r.x + r.w * 0.3f, r.y + 40);
+    cui_input_mouse_button(ui, CUI_MOUSE_LEFT, true);
+    run(ui, build_th, &c, 1);
+    move(ui, build_th, &c, r.x + r.w * 0.5f, r.y + 40);
+    CHECK(c.r.selection_changed && c.s1 > c.s0);
+    double lo = c.s0, hi = c.s1;
+    c.disabled = true;
+    move(ui, build_th, &c, r.x + r.w * 0.7f, r.y + 40);
+    CHECK(!c.r.selection_changed && c.s0 == lo && c.s1 == hi);
+    c.disabled = false;
+    move(ui, build_th, &c, r.x + r.w * 0.8f, r.y + 40);
+    CHECK(!c.r.selection_changed && c.s0 == lo && c.s1 == hi);
+    cui_input_mouse_button(ui, CUI_MOUSE_LEFT, false);
+    run(ui, build_th, &c, 1);
+    cui_destroy(ui);
 }
 static void test_histogram(void) {
     printf("time histogram: hover, drag selects whole buckets, click clears\n");
@@ -1271,6 +1324,7 @@ int main(void) {
     test_cron();
     test_schedule();
     test_query();
+    test_query_read_only();
     test_kv();
     test_problems();
     test_pipeline();
@@ -1288,6 +1342,7 @@ int main(void) {
     test_request();
     test_uptime();
     test_histogram();
+    test_histogram_disable();
     test_coverage();
     test_blame();
     test_flags();

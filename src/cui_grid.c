@@ -93,10 +93,11 @@ bool cui_data_grid_begin_ex(cui_ctx *ui, const char *id_str, const cui_grid_colu
         st->resizing = -1; st->edit_row = st->edit_col = -1; st->cursor = -1; st->anchor = -1;
         st->init = true;
     }
-    /* a cursor moved by the caller is scrolled into view below */
+    /* a cursor moved by the caller is scrolled into view below; clamp stale indexes
+     * (rows may have been removed since the caller saved the value) */
     bool cursor_set = o->cursor && *o->cursor >= 0 && *o->cursor < nrows && st->cursor >= 0 && *o->cursor != st->cursor;
-    if (o->cursor && *o->cursor >= 0) st->cursor = *o->cursor;
-    if (o->anchor && *o->anchor >= 0) st->anchor = *o->anchor;
+    if (o->cursor && *o->cursor >= 0) st->cursor = nrows > 0 ? CUI_MIN(*o->cursor, nrows - 1) : -1;
+    if (o->anchor && *o->anchor >= 0) st->anchor = nrows > 0 ? CUI_MIN(*o->anchor, nrows - 1) : -1;
     cui_scroll_state *ss = cui_state(ui, b->sid, sizeof *ss);
     b->checks = o->selected && !o->hide_checkboxes;
     float total = b->checks ? CUI__GRID_CHECK : 0;
@@ -117,13 +118,11 @@ bool cui_data_grid_begin_ex(cui_ctx *ui, const char *id_str, const cui_grid_colu
     total += b->extra;
     b->total_w = total;
     float view_h = ss->view_h > 0 ? ss->view_h : 400;
-    int f = (int)floorf((ss->y - CUI__GRID_HEAD) / b->row_h) - 2;
-    if (f < 0) f = 0;
-    int l = f + (int)ceilf(view_h / b->row_h) + 5;
-    if (l > nrows) l = nrows;
-    if (f > l) f = l;
-    b->first = f; b->last = l;
-    *first = f; *last = l;
+    /* Keep the scroll position in the new row range before choosing which rows to build. */
+    ss->content_h = CUI__GRID_HEAD + nrows * b->row_h;
+    float max_y = CUI_MAX(0, ss->content_h - ss->view_h);
+    ss->y = CUI_MIN(ss->y, max_y);
+    ss->ty = CUI_MIN(ss->ty, max_y);
     if (cursor_set) {
         float top = CUI__GRID_HEAD + st->cursor * b->row_h, bottom = top + b->row_h;
         if (top - CUI__GRID_HEAD < ss->ty) ss->ty = top - CUI__GRID_HEAD;
@@ -156,7 +155,7 @@ bool cui_data_grid_begin_ex(cui_ctx *ui, const char *id_str, const cui_grid_colu
             if (bottom > ss->ty + view_h) ss->ty = bottom - view_h;
             ui->animating = true;
         }
-        if (o->selected && cui_key_pressed(ui, CUI_KEY_SPACE) && st->cursor >= 0) o->selected[st->cursor] = !o->selected[st->cursor];
+        if (o->selected && cui_key_pressed(ui, CUI_KEY_SPACE) && st->cursor >= 0 && st->cursor < nrows) o->selected[st->cursor] = !o->selected[st->cursor];
         if (o->selected && (ui->mods & CUI_MOD_PRIMARY) && cui_key_pressed(ui, CUI_KEY_A)) for (int r = 0; r < nrows; r++) o->selected[r] = true;
         if (cui_key_pressed(ui, CUI_KEY_ESCAPE) && o->selected) for (int r = 0; r < nrows; r++) o->selected[r] = false;
     }
@@ -179,6 +178,14 @@ bool cui_data_grid_begin_ex(cui_ctx *ui, const char *id_str, const cui_grid_colu
     memset(&sb, 0, sizeof sb);
     sb.width = CUI_FILL; sb.height = CUI_FILL;
     cui__scroll_begin_ex(ui, b->sid, &sb, true);
+    /* Input and reduced motion can change the paint offset in this frame. */
+    int f = (int)floorf((ss->y - CUI__GRID_HEAD) / b->row_h) - 2;
+    if (f < 0) f = 0;
+    int l = f + (int)ceilf(view_h / b->row_h) + 5;
+    if (l > nrows) l = nrows;
+    if (f > l) f = l;
+    b->first = f; b->last = l;
+    *first = f; *last = l;
     int content = cui__node_new(ui, 0);
     ui->nodes[content].w = CUI_PX(total);
     ui->nodes[content].gap = 0;
@@ -392,7 +399,7 @@ void cui_data_grid_cell(cui_ctx *ui) {
 void cui_data_grid_cell_text(cui_ctx *ui, const char *text) {
     cui_data_grid_cell(ui);
     struct cui_grid_build *b = ui->building.grid;
-    bool right = b && b->col - 1 < b->ncols && b->cols[b->col - 1].align == CUI_TEXT_RIGHT;
+    bool right = b && b->col >= 1 && b->col - 1 < b->ncols && b->cols[b->col - 1].align == CUI_TEXT_RIGHT;
     /* single line text: cut short, it shows the whole value on hover */
     cui_text_opts to;
     memset(&to, 0, sizeof to);
@@ -627,6 +634,7 @@ bool cui_filter_bar(cui_ctx *ui, const char *id_str, const cui_filter_field *fie
     memset(&mo, 0, sizeof mo);
     mo.icon = CUI_ICON_FILTER; mo.variant = CUI_BUTTON_GHOST;
     int avail = 0;
+    int added = -1;
     for (int k = 0; k < count; k++) if (!selected[k] && !(st->active & (1u << k))) avail++;
     if (avail > 0 && cui_menu_begin(ui, "Filter##add", &mo)) {
         for (int k = 0; k < count; k++) {
@@ -637,13 +645,17 @@ bool cui_filter_bar(cui_ctx *ui, const char *id_str, const cui_filter_field *fie
             cui_push_id_int(ui, k);
             if (cui_menu_item_ex(ui, fields[k].name, &io)) {
                 st->active |= 1u << k;
-                /* open the new chip's value list right away */
-                cui_push_id_int(ui, k);
-                cui_pop_id(ui);
+                added = k;
             }
             cui_pop_id(ui);
         }
         cui_menu_end(ui);
+    }
+    if (added >= 0) {
+        /* Leave the add menu's ID scope before resolving the chip's popup. */
+        cui_push_id_int(ui, added);
+        cui__popup_set(ui, cui_make_id(ui, "chip") ^ 0x3E40u, true);
+        cui_pop_id(ui);
     }
     if (avail > 0) ui->nodes[ui->last_node].h = CUI_PX(30);
     bool any = false;

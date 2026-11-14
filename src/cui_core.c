@@ -344,6 +344,7 @@ cui_state_entry *cui__state_entry(cui_ctx *ui, cui_id id) {
     } else {
         CUI__GROW(ui, ui->states, ui->state_count, ui->state_cap, 1);
         idx = ui->state_count++;
+        memset(&ui->states[idx], 0, sizeof(ui->states[idx]));   /* zero before the rehash below scans every live slot */
         if (ui->state_count > ui->bucket_count) cui__state_rehash(ui, ui->bucket_count * 2);
     }
     e = &ui->states[idx];
@@ -594,6 +595,20 @@ void cui__set_cursor(cui_ctx *ui, cui_cursor c) { ui->cursor = c; }
 /* Interaction                                                              */
 /* ------------------------------------------------------------------------ */
 
+/** Consume the vertical input routed to a control independently of the X axis. */
+float cui__take_vertical_wheel(cui_ctx *ui, cui_id id) {
+    if (ui->scroll_target == id) {
+        float delta = ui->scroll_dy;
+        ui->scroll_dy = 0;
+        return delta;
+    }
+    cui__vertical_wheel *vertical = cui__state_lazy(ui, id ^ CUI__VERTICAL_WHEEL_STATE, sizeof *vertical, false);
+    if (!vertical || vertical->frame != ui->frame) return 0;
+    float delta = vertical->delta;
+    vertical->delta = 0;
+    return delta;
+}
+
 /** Choose the deepest compatible wheel target before building any widgets. */
 static void cui__compute_hot(cui_ctx *ui) {
     ui->hot = 0; ui->hot_layer = 0; ui->scroll_target = 0;
@@ -708,6 +723,8 @@ float cui__spring(cui_ctx *ui, cui_spring *s, float target, float duration, floa
     float motion = ui->theme.motion;
     if (motion <= 0.0f || ui->frame <= 1) { s->x = target; s->v = 0; return target; }
     duration *= motion;
+    if (!(duration > 0.0f)) { s->x = target; s->v = 0; return target; }   /* a zero or negative duration snaps instead of producing NaN */
+    if (duration < 0.04f) duration = 0.04f;   /* keep the integrator stable at its 240 Hz substep */
     float w = 2.0f * CUI_PI / duration;
     float k = w * w;
     float c = 2.0f * (1.0f - bounce) * w;

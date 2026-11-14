@@ -316,7 +316,8 @@ bool cui_slider_ex(cui_ctx *ui, const char *label, float *value, float min, floa
     if (r.active && ui->mdown[0] && pr.w > 0) {
         /* right to left, the minimum is at the right end */
         float mx = st->rtl ? x0 + x1 - ui->mx : ui->mx;
-        float mt = (mx - x0) / (x1 - x0);
+        float denom = x1 - x0;
+        float mt = denom > 0.0f ? (mx - x0) / denom : 0.0f;   /* a track narrower than its two 9 px pads would divide by zero */
         if (ui->mpressed[0]) {
             st->dragging = true;
             jumped = fabsf(mt - t) > 0.02f;
@@ -385,7 +386,8 @@ bool cui_range_slider(cui_ctx *ui, const char *label, float *lo, float *hi, floa
     float x0 = pr.x + 9, x1 = pr.x + pr.w - 9;
     if (r.active && ui->mdown[0] && pr.w > 0) {
         float mx = st->rtl ? x0 + x1 - ui->mx : ui->mx;
-        float mt = cui__clampf((mx - x0) / (x1 - x0), 0, 1);
+        float denom = x1 - x0;
+        float mt = cui__clampf(denom > 0.0f ? (mx - x0) / denom : 0.0f, 0, 1);   /* guard a zero-width track */
         if (ui->mpressed[0]) st->grabbed = fabsf(mt - ta) < fabsf(mt - tb) ? 0 : 1;
         if (st->grabbed == 0) ta = CUI_MIN(mt, tb); else tb = CUI_MAX(mt, ta);
     } else if (r.keyboard_focused) {

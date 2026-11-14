@@ -414,15 +414,19 @@ static void cui__x11_handle_selection_request(cui__x11 *x, XSelectionRequestEven
     ev.target = req->target;
     ev.time = req->time;
     ev.property = None;
-    if (x->clip_owned) {
+    /* only answer for the clipboard we own: another client asking for PRIMARY
+     * must not receive our CLIPBOARD text, and a stale owner must stay silent */
+    Atom property = req->property;
+    if (property == None) property = req->target;   /* ICCCM: an unset property names itself */
+    if (req->selection == x->clipboard && x->clip_owned) {
         if (req->target == x->targets) {
             Atom list[3] = { x->targets, x->utf8_string, XA_STRING };
-            XChangeProperty(x->dpy, req->requestor, req->property, XA_ATOM, 32, PropModeReplace, (unsigned char *)list, 3);
-            ev.property = req->property;
+            XChangeProperty(x->dpy, req->requestor, property, XA_ATOM, 32, PropModeReplace, (unsigned char *)list, 3);
+            ev.property = property;
         } else if (req->target == x->utf8_string || req->target == XA_STRING) {
-            XChangeProperty(x->dpy, req->requestor, req->property, req->target, 8, PropModeReplace,
+            XChangeProperty(x->dpy, req->requestor, property, req->target, 8, PropModeReplace,
                             (unsigned char *)x->clip_owned, (int)strlen(x->clip_owned));
-            ev.property = req->property;
+            ev.property = property;
         }
     }
     XSendEvent(x->dpy, req->requestor, False, 0, (XEvent *)&ev);
@@ -449,6 +453,13 @@ static const char *cui__x11_get_clip(void *user) {
             XGetWindowProperty(x->dpy, x->win, x->cui_sel, 0, 1 << 24, True, AnyPropertyType, &type, &fmt, &n, &rest, &data);
             free(x->clip_read);
             x->clip_read = NULL;
+            if (type != None && type != x->utf8_string && type != XA_STRING) {
+                /* an INCR (multi-chunk) transfer for very large selections is not
+                 * implemented; returning nothing beats interpreting the announced
+                 * byte count as text */
+                if (data) XFree(data);
+                return NULL;
+            }
             if (data) {
                 x->clip_read = malloc(n + 1);
                 if (x->clip_read) { memcpy(x->clip_read, data, n); x->clip_read[n] = 0; }

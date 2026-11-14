@@ -49,7 +49,9 @@ static bool cui__popup_is_topmost(cui_ctx *ui, cui_popup *me) {
         cui_popup *p = &ui->popups[i];
         if (p != me && p->open && p->opened_frame > me->opened_frame) return false;
     }
-    return ui->dialog_depth == 0 || true;
+    /* popups sit above modal dialogs by design: cui_dialog_begin already defers to any open
+     * popup when handling Esc and outside clicks, so no dialog_depth check belongs here */
+    return true;
 }
 
 static bool cui__layer_is_open_popup_after(cui_ctx *ui, cui_id layer, cui_popup *me) {
@@ -83,6 +85,7 @@ static void cui__panel_style(cui_ctx *ui, cui_node *n, float pad) {
 }
 
 bool cui__popup_begin(cui_ctx *ui, cui_id id, cui_id anchor, int placement, float width, float pad, float gap, bool menu) {
+    if (ui->pb_depth >= 16) return false;   /* refuse absurd nesting instead of corrupting the build stack */
     cui_popup *p = cui__popup_get(ui, id, false);
     if (!p) return false;
     p->last_frame = ui->frame;
@@ -123,8 +126,8 @@ bool cui__popup_begin(cui_ctx *ui, cui_id id, cui_id anchor, int placement, floa
     n->scale = CUI__ENTER_SCALE + (1.0f - CUI__ENTER_SCALE) * t;
     bool up = placement >= CUI_PLACE_TOP_START && placement <= CUI_PLACE_TOP_END;
     n->ty = (1.0f - t) * (up ? 6.0f : -6.0f);
-    cui__popup_build *b = &ui->pb_stack[ui->pb_depth < 16 ? ui->pb_depth : 15];
-    if (ui->pb_depth < 16) ui->pb_depth++;
+    cui__popup_build *b = &ui->pb_stack[ui->pb_depth];
+    ui->pb_depth++;
     b->id = id;
     b->menu = menu;
     b->item_index = 0;
@@ -983,13 +986,15 @@ cui_date cui_date_today(void) {
 
 static int cui__days_in_month(int y, int m) {
     static const int dm[12] = { 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
+    m = ((m - 1) % 12 + 12) % 12 + 1;   /* defensive: an unset/out-of-range month wraps instead of indexing out of bounds */
     if (m == 2 && ((y % 4 == 0 && y % 100 != 0) || y % 400 == 0)) return 29;
-    return dm[(m - 1) % 12];
+    return dm[m - 1];
 }
 
 /* 0 = Monday */
 static int cui__weekday(int y, int m, int d) {
     static const int t[12] = { 0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4 };
+    if (m < 1 || m > 12) { m = ((m - 1) % 12 + 12) % 12 + 1; if (m < 3) y -= 1; }   /* defensive wrap like days_in_month */
     if (m < 3) y -= 1;
     int w = (y + y / 4 - y / 100 + y / 400 + t[m - 1] + d) % 7;  /* 0 = Sunday */
     return (w + 6) % 7;
@@ -1214,6 +1219,7 @@ bool cui_calendar(cui_ctx *ui, const char *id_str, cui_date *value) {
     cui__calendar_build b = { id, st, value, cui_date_today(), 34, false };
     if (!st->init) {
         cui_date base = (value && value->year) ? *value : b.today;
+        if (base.month < 1 || base.month > 12) base = b.today;   /* an unset month must not poison the view */
         st->view_y = base.year; st->view_m = base.month; st->init = true;
     }
     if (st->built + 1 != ui->frame) st->mode = CUI__CAL_DAYS;   /* hidden last frame: it opens on the days again */
