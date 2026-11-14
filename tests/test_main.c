@@ -782,6 +782,29 @@ static void test_running_task_motion(void) {
     check_indicator_motion(build_running_tool_call);
 }
 
+/** Exercise the plain spinner as used for a running pipeline job. */
+static void build_running_pipeline(cui_ctx *ui, void *unused) {
+    (void)unused;
+    static const char *const stages[] = { "Build" };
+    static const cui_pipeline_job job = { "Windows", 0, CUI_JOB_RUNNING, 1.0f, false };
+    cui_pipeline(ui, "pipeline", stages, 1, &job, 1);
+}
+
+/** Exercise the plain spinner as used for a running test. */
+static void build_running_test(cui_ctx *ui, void *unused) {
+    (void)unused;
+    static const cui_test_item items[] = { { "Suite", 0 }, { "Layout", 1, CUI_JOB_RUNNING, -1 } };
+    cui_test_explorer(ui, "tests", items, 2, .height = 180);
+}
+
+/** Both developer views hold their running indicator still with reduced motion. */
+static void test_running_job_motion(void) {
+    printf("running pipeline job: reduced motion\n");
+    check_indicator_motion(build_running_pipeline);
+    printf("running test: reduced motion\n");
+    check_indicator_motion(build_running_test);
+}
+
 static void test_textarea_and_clear(void) {
     printf("text input: textarea wheel, focus flags, clear button undo\n");
     cui_ctx *ui = new_ctx();
@@ -8759,6 +8782,7 @@ int main(void) {
     test_motion();
     test_typing_indicator_motion();
     test_running_task_motion();
+    test_running_job_motion();
     test_ai();
     test_text_capacity();
     test_dialog();
