@@ -317,6 +317,16 @@ It also benchmarks two copies joined into one 156-word Persian paragraph.
 It fails if either Persian average exceeds 0.25 ms. This measures cached steady-state
 frames, not cold-frame latency. Add any fourth argument to `cui_rtl` for dark images.
 
+The shaping cache retains intrinsic widths by text, direction, font, size and tabular mode.
+Word measurements keep their previous shaped or unshaped path. Words that need
+shaping keep their owning paragraph's bidi context without a separate cache entry.
+Font loading, role changes and fallback changes invalidate
+these results along with shaped glyphs. Cold wrapping uses paragraph cluster
+advances to locate candidate breaks, then measures complete lines at the chosen
+break and the next word. It backs up or extends the break using exact shaping;
+the approximate advances are never returned as a line's width. Cache capacity,
+the public API and the shaping-OFF path are unchanged.
+
 The following fixture is rendered by `cui_rtl` with shaping OFF and ON:
 
 | | Before | After |

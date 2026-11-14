@@ -20,7 +20,7 @@
 #ifdef CUI_TEXT_SHAPING
 #include "cui_shape.h"
 #include "cui_bidi.h"
-typedef struct { int font, id, start; float x, y; } cui_shaped_glyph;
+typedef struct { int font, id, start; float x, y, advance; } cui_shaped_glyph;
 typedef struct cui_shaped_line {
     struct cui_shaped_line *next;
     int start, end, font, count;
@@ -38,6 +38,9 @@ typedef struct cui_shaped_paragraph {
     cui_text_layout_line *wrap_lines;
     int wrap_count, wrap_font;
     float wrap_size, wrap_width;
+    int metrics_font;
+    float metrics_size, preferred, minimum;
+    bool metrics_valid, metrics_tabular;
 } cui_shaped_paragraph;
 static void cui__shape_lines_free(cui_ctx *ui, cui_shaped_paragraph *p) {
     while (p->lines) {
@@ -442,7 +445,7 @@ bool cui__text_needs_shaping(cui_ctx *ui, const char *text, int len) {
 }
 
 static float cui__shape_run(cui_ctx *ui, cui_font font, float size, const char *text, int len,
-                             bool tabular, bool draw, float x, float y, cui_color color, float max_x);
+                             bool tabular, bool draw, float x, float y, cui_color color, float max_x, float *advances);
 #endif
 
 static float cui__text_width_raw(cui_ctx *ui, cui_font font, float size, const char *text, int len, bool tabular) {
@@ -454,7 +457,7 @@ static float cui__text_width_raw(cui_ctx *ui, cui_font font, float size, const c
         for (int start = 0; start <= len;) {
             int end = start;
             while (end < len && text[end] != '\n') end++;
-            float w = cui__shape_run(ui, font, size, text + start, end - start, tabular, false, 0, 0, (cui_color){0}, 1e30f);
+            float w = cui__shape_run(ui, font, size, text + start, end - start, tabular, false, 0, 0, (cui_color){0}, 1e30f, NULL);
             maxw = CUI_MAX(maxw, w);
             start = end + 1;
         }
@@ -601,13 +604,27 @@ int cui__text_wrap(cui_ctx *ui, cui_font font, float size, const char *text, int
         const char *saved = ui->text_paragraph;
         int saved_len = ui->text_paragraph_len;
         ui->text_paragraph = text; ui->text_paragraph_len = len;
+        /* Shape each paragraph once to locate breaks; verify complete lines below. */
+        float *advances = cui__alloc(ui, ((size_t)len + 1) * sizeof *advances);
+        if (advances) {
+            memset(advances, 0, ((size_t)len + 1) * sizeof *advances);
+            for (int a = 0; a <= len;) {
+                int b = a;
+                while (b < len && text[b] != '\n') b++;
+                cui__shape_run(ui, font, size, text + a, b - a, false, false, 0, 0, (cui_color){0}, 1e30f, advances + a);
+                a = b + 1;
+            }
+            for (int a = 1; a <= len; a++) advances[a] += advances[a - 1];
+        }
         int n = 0, start = 0;
         for (;;) {
-            int end = start, best = start, next = start;
+            int end = start, best = start, next = start, first_end = start;
             float best_width = 0;
             while (end < len && text[end] != '\n') {
                 while (end < len && text[end] != ' ' && text[end] != '\t' && text[end] != '\n') end++;
-                float w = cui__shape_run(ui, font, size, text + start, end - start, false, false, 0, 0, (cui_color){0}, 1e30f);
+                if (first_end == start) first_end = end;
+                float w = advances ? advances[end] - advances[start] :
+                    cui__shape_run(ui, font, size, text + start, end - start, false, false, 0, 0, (cui_color){0}, 1e30f, NULL);
                 if (w > width + 0.01f && best > start) break;
                 best = end; best_width = w;
                 next = end;
@@ -615,12 +632,30 @@ int cui__text_wrap(cui_ctx *ui, cui_font font, float size, const char *text, int
                 if (next == len || text[next] == '\n') break;
                 end = next;
             }
+            /* Joining, kerning and bidi can change at a break. Use exact line widths. */
+            for (;;) {
+                best_width = cui__shape_run(ui, font, size, text + start, best - start, false, false, 0, 0, (cui_color){0}, 1e30f, NULL);
+                if (best_width > width + 0.01f && best > first_end) {
+                    while (best > start && text[best - 1] != ' ' && text[best - 1] != '\t') best--;
+                    while (best > start && (text[best - 1] == ' ' || text[best - 1] == '\t')) best--;
+                    continue;
+                }
+                next = best;
+                while (next < len && (text[next] == ' ' || text[next] == '\t')) next++;
+                end = next;
+                while (end < len && text[end] != ' ' && text[end] != '\t' && text[end] != '\n') end++;
+                if (end == next || best_width > width + 0.01f) break;
+                float w = cui__shape_run(ui, font, size, text + start, end - start, false, false, 0, 0, (cui_color){0}, 1e30f, NULL);
+                if (w > width + 0.01f) break;
+                best = end;
+            }
             if (lines && n < max_lines) lines[n] = (cui_text_layout_line){start, best, best_width};
             n++;
             if (next == len) break;
             start = next;
             if (text[start] == '\n') start++;
         }
+        cui__free(ui, advances);
         ui->text_paragraph = saved; ui->text_paragraph_len = saved_len;
         /* Retain completed breaks, so next frame never remeasures wrap candidates. */
         if (lines && n <= max_lines) {
@@ -686,21 +721,58 @@ int cui__text_wrap(cui_ctx *ui, cui_font font, float size, const char *text, int
 }
 
 float cui__text_min_width(cui_ctx *ui, cui_font font, float size, const char *text, int len) {
-    /* widest word */
+    /* Keep bidi context only for words that already need shaping. */
+#ifdef CUI_TEXT_SHAPING
+    const char *saved = ui->text_paragraph;
+    int saved_len = ui->text_paragraph_len;
+#endif
     font = cui__resolve_font(ui, font);
     float best = 0;
     int ws = 0;
     for (int i = 0; i <= len; i++) {
         if (i == len || text[i] == ' ' || text[i] == '\n' || text[i] == '\t') {
             if (i > ws) {
+#ifdef CUI_TEXT_SHAPING
+                ui->text_paragraph = NULL;
+                if (cui__text_needs_shaping(ui, text + ws, i - ws)) {
+                    ui->text_paragraph = text; ui->text_paragraph_len = len;
+                }
+#endif
                 float w = cui__text_width_raw(ui, font, size, text + ws, i - ws, false);
                 if (w > best) best = w;
             }
             ws = i + 1;
         }
     }
+#ifdef CUI_TEXT_SHAPING
+    ui->text_paragraph = saved; ui->text_paragraph_len = saved_len;
+#endif
     return best;
 }
+
+#ifdef CUI_TEXT_SHAPING
+void cui__text_intrinsics(cui_ctx *ui, cui_font font, float size, const char *text, int len,
+                           bool tabular, float *preferred, float *minimum) {
+    int resolved = cui__resolve_font(ui, font);
+    cui_direction direction = ui->text_direction ? ui->text_direction : ui->direction;
+    int requested = direction == CUI_DIRECTION_RTL ? 1 : direction == CUI_DIRECTION_LTR ? 0 : -1;
+    cui_shaped_paragraph *p = cui__paragraph(ui, text, len, requested);
+    if (p && p->metrics_valid && p->metrics_font == resolved && p->metrics_size == size && p->metrics_tabular == tabular) {
+        *preferred = p->preferred; *minimum = p->minimum; return;
+    }
+    const char *saved = ui->text_paragraph;
+    int saved_len = ui->text_paragraph_len;
+    ui->text_paragraph = text; ui->text_paragraph_len = len;
+    *preferred = cui__text_width_raw(ui, resolved, size, text, len, tabular);
+    *minimum = cui__text_min_width(ui, font, size, text, len);
+    ui->text_paragraph = saved; ui->text_paragraph_len = saved_len;
+    p = cui__paragraph(ui, text, len, requested);
+    if (p) {
+        p->metrics_valid = true; p->metrics_font = resolved; p->metrics_size = size; p->metrics_tabular = tabular;
+        p->preferred = *preferred; p->minimum = *minimum;
+    }
+}
+#endif
 
 /* ---- atlas ---- */
 
@@ -895,7 +967,7 @@ static uint32_t cui__shape_script(uint32_t cp) {
 }
 
 static float cui__shape_run(cui_ctx *ui, cui_font font, float size, const char *text, int len,
-                             bool tabular, bool draw, float x, float y, cui_color color, float max_x) {
+                             bool tabular, bool draw, float x, float y, cui_color color, float max_x, float *advances) {
     cui_font_data *base = &ui->fonts[font];
     const char *paragraph = text;
     int plen = len, line_start = 0;
@@ -986,7 +1058,7 @@ static float cui__shape_run(cui_ctx *ui, cui_font font, float size, const char *
                     cui_shape_glyph *g = &input[k];
                     CUI__GROW(ui, glyphs, glyph_count, glyph_cap, 1);
                     glyphs[glyph_count++] = (shaped_glyph){ gf, g->id, g->cluster,
-                        span->width + g->x * em, g->y * em };
+                        span->width + g->x * em, g->y * em, g->advance * em };
                     span->width += g->advance * em;
                     span->count++;
                 }
@@ -1011,6 +1083,8 @@ static float cui__shape_run(cui_ctx *ui, cui_font font, float size, const char *
     cui__free(ui, order); cui__free(ui, levels);
     cached->width = pen; cached->next = p->lines; p->lines = cached; p->line_count++;
 paint:
+    if (advances) for (int j = 0; j < cached->count; j++)
+        advances[cached->glyphs[j].start + 1] += cached->glyphs[j].advance;
     if (draw) {
         float scale = ui->scale;
         float baseline = roundf((y + base->ascent * size) * scale);
@@ -1051,7 +1125,7 @@ static void cui__draw_run(cui_ctx *ui, cui_font font, float size, float x, float
     if (color.a == 0) return;
 #ifdef CUI_TEXT_SHAPING
     if (cui__text_needs_shaping(ui, text, len)) {
-        cui__shape_run(ui, font, size, text, len, tabular, true, x, y, color, max_x);
+        cui__shape_run(ui, font, size, text, len, tabular, true, x, y, color, max_x, NULL);
         return;
     }
 #endif
