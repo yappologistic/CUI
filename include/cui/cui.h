@@ -858,7 +858,8 @@ typedef struct cui_progress_opts {
 } cui_progress_opts;
 CUI_API void cui_progress_ex(cui_ctx *ui, float value, const cui_progress_opts *opts);
 /* Spinner: says that something is happening, for as long as you call it. `size` is its
- * height in points (20 when 0). The default style is a ring with a sweeping arc; the others
+ * height in points (20 when 0). The default style is a ring with a sweeping arc
+ * that holds still with reduced motion. The other styles
  * are drawn in dots on an 8x8 ordered dither, one point a dot below 32 points tall and two
  * from there, and each fits a kind of wait:
  *
