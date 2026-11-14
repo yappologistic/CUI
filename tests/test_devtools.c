@@ -1097,6 +1097,25 @@ static void test_histogram(void) {
     cui_destroy(ui);
 }
 
+/* local time: a start far outside what struct tm holds made the zone offset read unset fields */
+typedef struct { double start, s0, s1; } th_far_ctx;
+static void build_th_far(cui_ctx *ui, void *u) {
+    th_far_ctx *c = u;
+    const cui_histogram_series se[] = { { "info", th_a, CUI_TONE_INFO } };
+    cui_time_histogram(ui, "far", c->start, 600, 48, se, 1, &c->s0, &c->s1);
+}
+static void test_histogram_far_time(void) {
+    printf("time histogram: local time at a start no calendar can show\n");
+    th_far_ctx c = { 1e17, 0, 0 };   /* about three billion years from now */
+    cui_ctx *ui = new_ctx(800, 400);
+    run(ui, build_th_far, &c, 2);
+    c.start = -1e17;
+    run(ui, build_th_far, &c, 2);
+    CHECK(cui_get_rect(ui, cui_make_id(ui, "far")).w > 300);
+    CHECK(c.s0 == 0 && c.s1 == 0);
+    cui_destroy(ui);
+}
+
 static const cui_coverage_file cv2_files[] = {
     { "src/core/a.c", 100, 90, 10, 9, 5, 5 }, { "src/core/b.c", 100, 50, 10, 2, 5, 1 }, { "src/text/c.c", 200, 20, 0, 0, 10, 1 }, { "main.c", 100, 100, 0, 0, 1, 1 },
 };
@@ -1318,6 +1337,7 @@ int main(void) {
     test_request();
     test_uptime();
     test_histogram();
+    test_histogram_far_time();
     test_coverage();
     test_blame();
     test_blame_no_commits();
