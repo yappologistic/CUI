@@ -4148,6 +4148,7 @@ typedef struct cui_query_opts {
     int max_depth;             /* how deep groups may nest, default 3 */
     bool read_only;
 } cui_query_opts;
+/* Read-only and disabled builders preserve the input rules and count. */
 CUI_API bool cui_query_builder_ex(cui_ctx *ui, const char *id, const cui_query_field *fields, int field_count,
                                   cui_query_node *nodes, int *count, int capacity, const cui_query_opts *opts);
 /* the operators of a type: text "is", "is not", "contains", "does not contain",

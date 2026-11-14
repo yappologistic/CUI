@@ -1196,6 +1196,8 @@ Conditions joined by all or any, in groups you can nest (three deep by default, 
 
 Keyboard: Tab moves through the controls of each rule. Left and Right switch between All and Any, Up and Down change a focused select, Space opens it, and the remove buttons take Enter or Space.
 
+In read-only mode, the query builder displays the rules without changing the caller's array or count.
+
 ### Schedule picker
 
 A cron schedule edited through plain choices instead of the expression, with the next runs listed.
