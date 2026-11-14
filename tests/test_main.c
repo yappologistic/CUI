@@ -3492,6 +3492,30 @@ static void build_sankey_colors(cui_ctx *ui, void *u) {
     const cui_color colors[] = { CUI_RGB(0xff0000), { 0 } };
     cui_sankey(ui, "sk", nodes, 2, links, 1, .width = CUI_PX(300), .height = 120, .node_colors = colors);
 }
+/** Draw a single visible link after an omitted zero-value link. */
+static void build_sankey_click(cui_ctx *ui, void *user) {
+    int *clicked = user;
+    static const char *const nodes[] = { "Source", "Target" };
+    static const cui_sankey_link links[] = { { 0, 1, 0 }, { 0, 1, 10 } };
+    *clicked = cui_sankey(ui, "click flow", nodes, 2, links, 2, .width = CUI_PX(300), .height = 120);
+}
+
+/** A ribbon click reports its original link index after the node indexes. */
+static void test_sankey_link_click(void) {
+    printf("sankey: a ribbon click identifies its input link\n");
+    cui_ctx *ui = new_ctx();
+    int clicked = -1;
+    run(ui, build_sankey_click, &clicked, 3);
+    cui_rect chart = rect_of(ui, cui_make_id(ui, "click flow"));
+    click_at(ui, build_sankey_click, &clicked, chart.x + 2, chart.y + chart.h / 2);
+    CHECK(clicked == 0);
+    click_at(ui, build_sankey_click, &clicked, chart.x + chart.w / 2, chart.y + chart.h / 2);
+    CHECK(clicked == 3);
+    run(ui, build_sankey_click, &clicked, 1);
+    CHECK(clicked == -1);
+    cui_destroy(ui);
+}
+
 static void test_sankey_node_colors(void) {
     printf("sankey: nodes take the caller's colors\n");
     cui_ctx *ui = cui_create(&(cui_ctx_desc){ .renderer = cui_sw_iface(g_sw) });
@@ -5162,14 +5186,14 @@ static void test_viz(void) {
     CHECK(a.hit == 1);
     /* sankey: node C sits in the middle column */
     a.mode = 6; a.hit = -1; run(ui, build_viz, &a, 3); r = rect_of(ui, a.id);
-    /* scan the middle for node C by clicking on a grid; only nodes report clicks */
+    /* scan the middle for node C; links report indices after the four nodes */
     int got_c = 0, other = 0;
     for (float x = r.x + r.w * 0.2f; x < r.x + r.w * 0.8f && !got_c; x += 4)
         for (float y = r.y + 4; y < r.y + r.h && !got_c; y += 12) {
             a.hit = -1;
             click_at(ui, build_viz, &a, x, y);
             if (a.hit == 2) got_c = 1;
-            else if (a.hit >= 0) other = 1;
+            else if (a.hit >= 0 && a.hit < 4) other = 1;
         }
     CHECK(got_c && !other);
     /* rings: the outer ring is item 0 */
@@ -8364,6 +8388,7 @@ int main(void) {
     test_radial_gauge_styles();
     test_treemap_select();
     test_sankey_node_colors();
+    test_sankey_link_click();
     test_gantt_state();
     test_renderer();
     test_scroll_fade();

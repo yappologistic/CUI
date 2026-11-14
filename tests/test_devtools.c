@@ -646,16 +646,25 @@ static void test_trace(void) {
     run(ui, build_tr, &c, 2);
     CHECK(fabs(c.view.end - c.view.start - 0.018) < 1e-9);
     /* Shift+drag measures */
+    double mark0 = c.view.mark_start, mark1 = c.view.mark_end;
     cui_input_mouse_move(ui, r.x + r.w * 0.4f, y); run(ui, build_tr, &c, 1);
     cui_input_key(ui, CUI_KEY_NONE, false, CUI_MOD_SHIFT);
     cui_input_mouse_button(ui, CUI_MOUSE_LEFT, true); run(ui, build_tr, &c, 1);
-    for (int k = 1; k <= 4; k++) { cui_input_mouse_move(ui, r.x + r.w * (0.4f + 0.05f * k), y); run(ui, build_tr, &c, 1); }
+    for (int k = 1; k <= 4; k++) {
+        cui_input_mouse_move(ui, r.x + r.w * (0.4f + 0.05f * k), y);
+        run(ui, build_tr, &c, 1);
+        CHECK(c.view.mark_start != mark0 || c.view.mark_end != mark1);
+        CHECK(c.r.view_changed);
+        mark0 = c.view.mark_start; mark1 = c.view.mark_end;
+    }
     cui_input_mouse_button(ui, CUI_MOUSE_LEFT, false); run(ui, build_tr, &c, 1);
+    CHECK(!c.r.view_changed);
     cui_input_key(ui, CUI_KEY_NONE, false, 0);
     CHECK(c.view.mark_end > c.view.mark_start);
     CHECK(fabs(c.view.end - c.view.start - 0.018) < 1e-9);   /* measuring does not pan */
     key(ui, build_tr, &c, CUI_KEY_ESCAPE, 0);
     CHECK(!(c.view.mark_end > c.view.mark_start));
+    CHECK(c.r.view_changed);
     /* a plain drag pans */
     cui_input_scroll(ui, 0, 4); run(ui, build_tr, &c, 1);
     double s0 = c.view.start;
