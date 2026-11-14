@@ -1785,6 +1785,8 @@ cui_sankey(ui, "flow", nodes, 8, links, 8, .height = 300, .node_colors = colors)
 
 Columns follow the links from the sources, and an outcome sits at the step it is reached from, so a drop off stays beside the step it left and no ribbon crosses a column of nodes. Nodes are slim rounded bars (`node_width`, 6 points by default) colored by meaning: give `node_colors` one color per node, and any node left unset (or every node, without `node_colors`) falls back to the palette for outcomes, the largest first, and neutral gray for sources and steps. Each ribbon fades from its source's color to its target's at a low opacity. Labels sit beside the nodes: the name, then the value and, past the sources, its share of everything that leaves them ("860 · 62%"); a label that runs into the next column is cut with an ellipsis. Hover a node or a ribbon to light its whole path, everything upstream of it and everything downstream, and to see its values in a tooltip. A cycle in the links does not hang the layout.
 
+On a click, `cui_sankey` returns the node index or the node count plus the ribbon's index in the original links array. It returns -1 without an activation.
+
 ### Bar list and activity rings
 
 A ranked list with a bar behind each row, and concentric rings that fill toward a goal.
