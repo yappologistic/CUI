@@ -710,7 +710,7 @@ float cui__spring(cui_ctx *ui, cui_spring *s, float target, float duration, floa
     if (motion <= 0.0f || ui->frame <= 1) { s->x = target; s->v = 0; return target; }
     duration *= motion;
     if (!(duration > 0.0f)) { s->x = target; s->v = 0; return target; }   /* a zero or negative duration snaps instead of producing NaN */
-    if (duration < 0.016f) duration = 0.016f;   /* keep the integrator stable at its 240 Hz substep */
+    if (duration < 0.04f) duration = 0.04f;   /* keep the integrator stable at its 240 Hz substep */
     float w = 2.0f * CUI_PI / duration;
     float k = w * w;
     float c = 2.0f * (1.0f - bounce) * w;
