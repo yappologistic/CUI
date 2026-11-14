@@ -57,7 +57,11 @@ static void cui__ins_draw_axis(cui_ctx *ui, const cui__ins_axis *a, float px, fl
     float fs = cui__fs(ui, ui->theme.text_xs);
     double first = ceil(a->x0 / step - 1e-9) * step;
     float last_end = -1e9f;
-    for (double v = first; v <= a->x1 + step * 1e-6; v += step) {
+    double prev = first - step;   /* any tick is >= first, so the first tick always passes */
+    int guard = 0;
+    for (double v = first; v <= a->x1 + step * 1e-6 && guard < 1030; v += step, guard++) {
+        if (!(v > prev)) break;   /* at this magnitude the tick no longer advances: stop instead of looping forever */
+        prev = v;
         float x = px + (float)((v - a->x0) / (a->x1 - a->x0)) * pw;
         if (ticks) cui_draw_rect(ui, (cui_rect){ floorf(x), y - 6, 1, 3 }, CUI_CORNERS(0), CUI_C(ui, BORDER_STRONG));
         const char *lbl = cui__ins_label(ui, a->units, a->fmt, v, true);

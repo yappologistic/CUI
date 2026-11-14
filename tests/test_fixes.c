@@ -165,6 +165,39 @@ static void test_grid_cursor_clamp(void) {
 }
 
 /* ------------------------------------------------------------------------ */
+/* Instruments: an axis at a magnitude where the tick step rounds back to    */
+/* the same double used to loop forever, allocating labels without end       */
+/* ------------------------------------------------------------------------ */
+
+static float g_huge_dots[2] = { 1, 1 };
+
+static void dot_huge_build(cui_ctx *ui, void *user) {
+    (void)user;
+    cui_column(ui, .pad = 20) {
+        cui_dot_series s = { g_huge_dots, "huge" };
+        cui_dot_chart_opts o;
+        memset(&o, 0, sizeof o);
+        o.x_min = 9007199254740992.0; o.x_max = 9007199254740994.0;   /* ULP is 2 here: ticks cannot advance */
+        o.x_step = 0.0001;
+        cui_dot_chart_ex(ui, "huge", &s, 1, 2, &o);
+    }
+}
+
+static void test_dot_axis_huge(void) {
+    printf("dot chart: axis at 2^53 does not loop forever\n");
+    cui_ctx *ui = new_ctx();
+    run(ui, dot_huge_build, NULL, 2);
+    for (int i = 0; i < 30; i++) {
+        cui_begin_frame(ui, 1.0f / 60.0f);
+        dot_huge_build(ui, NULL);
+        cui_end_frame(ui);
+        if (!cui_needs_redraw(ui)) break;
+    }
+    CHECK(!cui_needs_redraw(ui));
+    cui_destroy(ui);
+}
+
+/* ------------------------------------------------------------------------ */
 /* Histogram slider: a negative or NULL bin list used to memcpy a huge length */
 /* ------------------------------------------------------------------------ */
 
@@ -348,6 +381,7 @@ static void test_emoji_malformed(void) {
 int main(void) {
     test_regex();
     test_chart_flat_series();
+    test_dot_axis_huge();
     test_grid_cursor_clamp();
     test_histogram_guards();
     test_accordion_depth();
