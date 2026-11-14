@@ -80,7 +80,7 @@ one entry per defect with the file, the bug and the fix. The highlights:
   JavaScript (unlike Python 3.7's `re.sub`).
 
 Every fix is locked in by a regression test where headless testing is possible:
-`tests/test_fixes.c`, 171 checks. The suite passes 18/18 — also under
+`tests/test_fixes.c`, 174 checks. The suite passes 18/18 — also under
 AddressSanitizer and UndefinedBehaviorSanitizer — and 28,000 frames of extended
 fuzzing are clean. One limitation is left open deliberately and documented: full
 ICCM INCR clipboard transfer on X11 (the garbage-paste half is fixed by
