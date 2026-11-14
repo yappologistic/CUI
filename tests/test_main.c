@@ -8636,6 +8636,48 @@ static void test_sw_incremental(void) {
     free(A); free(B);
 }
 
+/* ---- software renderer: empty textures and updates that hang over an edge ---- */
+typedef struct { cui_texture empty, quad; } swtex_ctx;
+static void build_swtex(cui_ctx *ui, void *u) {
+    swtex_ctx *c = u;
+    cui_draw_image(ui, c->empty, (cui_rect){ 50, 0, 40, 40 }, (cui_rect){ 0, 0, 1, 1 }, CUI_CORNERS(0), CUI_RGB(0xffffff));
+    cui_draw_image(ui, c->quad, (cui_rect){ 0, 0, 40, 40 }, (cui_rect){ 0, 0, 1, 1 }, CUI_CORNERS(0), CUI_RGB(0xffffff));
+}
+static void test_sw_texture_edges(void) {
+    printf("software renderer: an empty texture samples nothing, updates clip to the texture\n");
+    cui_sw_renderer *sw = cui_sw_create();
+    cui_renderer_iface r = cui_sw_iface(sw);
+    cui_ctx *ui = cui_create(&(cui_ctx_desc){ .renderer = r });
+    cui_set_viewport(ui, 100, 50, 1);
+    cui_set_reduced_motion(ui, true);
+    swtex_ctx c;
+    unsigned char blue[4 * 4 * 4], red[4 * 4 * 4], green[4 * 4 * 4];
+    for (int i = 0; i < 16; i++) {
+        unsigned char *b = blue + i * 4, *rd = red + i * 4, *g = green + i * 4;
+        b[0] = 0; b[1] = 0; b[2] = 255; b[3] = 255;
+        rd[0] = 255; rd[1] = 0; rd[2] = 0; rd[3] = 255;
+        g[0] = 0; g[1] = 255; g[2] = 0; g[3] = 255;
+    }
+    c.empty = r.texture_create(r.user, 0, 0, CUI_TEXTURE_RGBA8, blue);   /* was sampled at index -1 */
+    c.quad = r.texture_create(r.user, 4, 4, CUI_TEXTURE_RGBA8, blue);
+    r.texture_update(r.user, c.quad, 2, 0, 4, 4, red, 16);     /* two columns past the right edge */
+    r.texture_update(r.user, c.quad, -3, 0, 4, 4, green, 16);  /* three columns before the left one */
+    run(ui, build_swtex, &c, 1);
+    unsigned char *px = calloc(100 * 50, 4);
+    const cui_draw_data *dd = cui_get_draw_data(ui);
+    cui_sw_render(sw, dd, px, 100, 50, 400, CUI_SW_RGBA);
+    /* texels are 10 points wide; sampling blends a little of the neighbor in */
+    unsigned char *t0 = px + (20 * 100 + 5) * 4, *t1 = px + (20 * 100 + 15) * 4, *t3 = px + (20 * 100 + 35) * 4;
+    CHECK(t0[0] < 40 && t0[1] > 200 && t0[2] < 40);      /* the last column of the left update */
+    CHECK(t1[0] < 40 && t1[1] < 40 && t1[2] > 200);      /* untouched */
+    CHECK(t3[0] > 200 && t3[1] < 40 && t3[2] < 40);      /* the first columns of the right update */
+    free(px);
+    cui_destroy(ui);
+    r.texture_destroy(r.user, c.empty);
+    r.texture_destroy(r.user, c.quad);
+    cui_sw_destroy(sw);
+}
+
 /* ---- the emoji texture goes when no emoji is drawn for a while ---- */
 static cui_renderer_iface et_inner;
 static int et_rgba_live;
@@ -8750,6 +8792,7 @@ int main(void) {
     test_atlas_shrink();
     test_atlas_wide_glyph();
     test_sw_incremental();
+    test_sw_texture_edges();
     test_emoji_release();
     test_planning();
     test_node_editor();
