@@ -1163,6 +1163,21 @@ static void test_blame(void) {
     cui_destroy(ui);
 }
 
+/* line_commit may be NULL (a file with no blame data); every row after the first used to read it */
+static void test_blame_no_commits(void) {
+    printf("blame: no commit data for the lines\n");
+    bl_ctx c;
+    memset(&c, 0, sizeof c);
+    c.clicked = -1; c.lines = bl2_lines; c.lc = NULL; c.n = 5;
+    cui_ctx *ui = new_ctx(900, 500);
+    run(ui, build_bl, &c, 3);
+    cui_rect r = cui_get_rect(ui, cui_make_id(ui, "blame"));
+    CHECK(r.h > 100);
+    click(ui, build_bl, &c, r.x + 40, r.y + 40);
+    CHECK(c.r.hovered == -1 && c.clicked == -1);   /* no commit to report */
+    cui_destroy(ui);
+}
+
 typedef struct { cui_feature_flag f[3]; cui_feature_flags_result r; int changes; } ff_ctx;
 static void build_ff(cui_ctx *ui, void *u) {
     ff_ctx *c = u;
@@ -1305,6 +1320,7 @@ int main(void) {
     test_histogram();
     test_coverage();
     test_blame();
+    test_blame_no_commits();
     test_flags();
     test_api();
     test_random2();
