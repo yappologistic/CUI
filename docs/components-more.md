@@ -2019,7 +2019,7 @@ int step = cui_agent_plan(ui, "plan", steps, 3, .title = "Research plan");
 cui_agent_status(ui, "Reading quarterly-report.pdf", .status = CUI_TASK_RUNNING, .seconds = elapsed);
 ```
 
-The rail fills up to the step in progress, the running step shimmers, and the header counts finished steps with a progress bar. The status pill shows loader dots while running and a check or a cross when done.
+The rail fills up to the step in progress, the running step shimmers, and the header counts finished steps with a progress bar. With reduced motion, the running glyph holds still in both the plan and the tool call. The status pill shows loader dots while running and a check or a cross when done.
 
 `cui_agent_plan` returns the index of the step that was clicked this frame, or -1. `steps` is your array and is only read: you change each `status` as the agent moves on. A step is a title, a detail line that may be `NULL`, and one of `CUI_TASK_PENDING`, `CUI_TASK_RUNNING`, `CUI_TASK_DONE`, `CUI_TASK_FAILED` or `CUI_TASK_SKIPPED`. Pending is the zero value. The header counts done and skipped steps as finished, and shows `title`, or "Plan".
 

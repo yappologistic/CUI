@@ -2342,7 +2342,8 @@ typedef struct cui_tool_call_opts {
 } cui_tool_call_opts;
 CUI_API void cui_tool_call_ex(cui_ctx *ui, const char *id, const char *name, const cui_tool_call_opts *opts);
 
-/* Agent plan: steps with their status on a connected rail, and progress. */
+/* Agent plan: steps with their status on a connected rail, and progress.
+ * Reduced motion holds the running glyph still, including in tool calls. */
 typedef struct cui_plan_step {
     const char *title;         /* the step's text; shimmers while the step is running */
     const char *detail;        /* smaller muted line under the title (red when the step failed); may be `NULL` */

@@ -764,6 +764,27 @@ static void test_typing_indicator_motion(void) {
     check_indicator_motion(build_typing_indicator);
 }
 
+/** Exercise a running plan step without any other animated controls. */
+static void build_running_plan_step(cui_ctx *ui, void *unused) {
+    (void)unused;
+    static const cui_plan_step step = { "Reading", NULL, CUI_TASK_RUNNING };
+    cui_agent_plan(ui, "plan", &step, 1);
+}
+
+/** Exercise the running glyph through its tool call entry point. */
+static void build_running_tool_call(cui_ctx *ui, void *unused) {
+    (void)unused;
+    cui_tool_call(ui, "tool", "Read file", .status = CUI_TASK_RUNNING);
+}
+
+/** Both callers of the running task glyph respect reduced motion. */
+static void test_running_task_motion(void) {
+    printf("running plan step: reduced motion\n");
+    check_indicator_motion(build_running_plan_step);
+    printf("running tool call: reduced motion\n");
+    check_indicator_motion(build_running_tool_call);
+}
+
 static void test_textarea_and_clear(void) {
     printf("text input: textarea wheel, focus flags, clear button undo\n");
     cui_ctx *ui = new_ctx();
@@ -8569,6 +8590,7 @@ int main(void) {
     test_viz();
     test_motion();
     test_typing_indicator_motion();
+    test_running_task_motion();
     test_ai();
     test_text_capacity();
     test_dialog();

@@ -58,6 +58,7 @@ What changed in CUI, newest first. Every component mentioned here runs live in t
 ### Fixed
 
 - Chat typing dots stay still and stop requesting frames with reduced motion.
+- Running task glyphs in agent plans and tool calls stay still with reduced motion.
 - Split panes share the available space when their minimum sizes do not fit.
 - A vertical scroll view preserves horizontal wheel input for swipe actions inside it.
 - A wheel picker or ruler can use the vertical wheel inside a scrolling page.
