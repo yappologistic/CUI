@@ -4154,6 +4154,38 @@ static void drag_to(cui_ctx *ui, nodes_ctx *a, cui_vec2 from, cui_vec2 to) {
     run(ui, build_nodes, a, 2);
 }
 
+typedef struct { bool disabled; cui_node_view view; cui_id id; } node_wheel_case;
+
+/** Build an empty node editor that can be disabled without changing its ID. */
+static void build_node_wheel(cui_ctx *ui, void *user) {
+    node_wheel_case *n = user;
+    cui_push_disabled(ui, n->disabled);
+    n->id = cui_make_id(ui, "graph");
+    if (cui_node_editor_begin(ui, "graph", &n->view, .height = CUI_PX(240))) cui_node_editor_end(ui);
+    cui_pop_disabled(ui);
+}
+
+/** A queued wheel event cannot zoom the editor after its scope is disabled. */
+static void test_disabled_node_editor_wheel(void) {
+    printf("node editor: disabled wheel leaves zoom and offset unchanged\n");
+    cui_ctx *ui = new_ctx();
+    node_wheel_case n = { .view = { .zoom = 1 } };
+    run(ui, build_node_wheel, &n, 3);
+    cui_vec2 at = center(rect_of(ui, n.id));
+    cui_input_mouse_move(ui, at.x, at.y);
+    run(ui, build_node_wheel, &n, 1);
+    n.disabled = true;
+    cui_input_scroll(ui, 0, 2);
+    run(ui, build_node_wheel, &n, 1);
+    CHECK(n.view.zoom == 1 && n.view.x == 0 && n.view.y == 0);
+    n.disabled = false;
+    run(ui, build_node_wheel, &n, 2);
+    cui_input_scroll(ui, 0, 2);
+    run(ui, build_node_wheel, &n, 1);
+    CHECK(n.view.zoom > 1);
+    cui_destroy(ui);
+}
+
 static void test_node_editor(void) {
     printf("node editor: select, drag, links, detach, zoom, hosted controls, delete, marquee\n");
     cui_ctx *ui = new_ctx();
@@ -8614,6 +8646,7 @@ int main(void) {
     test_emoji_release();
     test_planning();
     test_node_editor();
+    test_disabled_node_editor_wheel();
     test_flame();
     test_disabled_flame_wheel();
     test_disabled_flame_shrinks();
