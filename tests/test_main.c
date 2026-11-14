@@ -2011,6 +2011,42 @@ static void build_dgrid(cui_ctx *ui, void *u) {
     }
 }
 
+typedef struct { int count, first, last; } grid_range_case;
+
+/** Build only the rows in the returned range for the current grid size. */
+static void build_grid_range(cui_ctx *ui, void *user) {
+    grid_range_case *grid = user;
+    static const cui_grid_column column = { "Name", 160, CUI_TEXT_LEFT, false };
+    if (cui_data_grid_begin(ui, "shrinking grid", &column, 1, grid->count,
+                            &grid->first, &grid->last, .height = CUI_PX(160))) {
+        for (int row = grid->first; row < grid->last; row++) {
+            cui_data_grid_row(ui, row);
+            cui_data_grid_cell_text(ui, "A row");
+        }
+        cui_data_grid_end(ui);
+    }
+}
+
+/** The remaining row must be built in the same frame as the count changes. */
+static void test_data_grid_shrinks(void) {
+    printf("data grid: visible range after shrinking\n");
+    cui_ctx *ui = new_ctx();
+    grid_range_case grid = { .count = 100 };
+    run(ui, build_grid_range, &grid, 3);
+    cui_input_mouse_move(ui, 70, 90);
+    run(ui, build_grid_range, &grid, 1);
+    cui_input_scroll(ui, 0, -40);
+    run(ui, build_grid_range, &grid, 4);
+    CHECK(grid.first > 10);
+    grid.count = 1;
+    run(ui, build_grid_range, &grid, 1);
+    CHECK(grid.first == 0 && grid.last == 1);
+    grid.count = 0;
+    run(ui, build_grid_range, &grid, 1);
+    CHECK(grid.first == 0 && grid.last == 0);
+    cui_destroy(ui);
+}
+
 static void test_json_tokens(void) {
     printf("JSON viewer: number and escape grammar\n");
     static const struct { const char *json; bool valid; } cases[] = {
@@ -8755,6 +8791,7 @@ int main(void) {
     test_confirm_popover_keyboard();
     test_checklist();
     test_data_grid();
+    test_data_grid_shrinks();
     test_json_tokens();
     test_tree_table();
     test_tools();
