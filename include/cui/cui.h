@@ -989,11 +989,11 @@ typedef struct cui_list_item_opts {
 CUI_API bool cui_list_item_ex(cui_ctx *ui, const char *title, const cui_list_item_opts *opts);
 
 /* Virtual list: only the visible rows are built, so lists with a million
- * rows stay fast. Fills first/last with the visible range. */
+ * rows stay fast. Fills first/last with the visible range for this row count. */
 CUI_API void cui_virtual_list_begin(cui_ctx *ui, const char *id, int count, float row_height, cui_size height, int *first, int *last);
 CUI_API void cui_virtual_list_end(cui_ctx *ui);
 
-/* Table */
+/* Table: sortable headers and selectable rows show keyboard focus. */
 typedef struct cui_table_column {
     const char *title;         /* text of the column's header */
     cui_size width;            /* default fill */
@@ -1394,6 +1394,7 @@ typedef struct cui_grid_opts {
     bool hide_checkboxes;      /* with selected: rows still select (click, Shift, Ctrl) but no checkbox column */
     int *anchor;               /* the row Shift ranges start from, optional (in and out like cursor) */
 } cui_grid_opts;
+/* Returns a visible range for the current row count, even after the grid shrinks. */
 CUI_API bool cui_data_grid_begin_ex(cui_ctx *ui, const char *id, const cui_grid_column *columns, int column_count, int row_count,
                                     int *first, int *last, const cui_grid_opts *opts);
 CUI_API bool cui_data_grid_row(cui_ctx *ui, int row);   /* true when the row was clicked */

@@ -694,9 +694,9 @@ if (cui_data_grid_begin(ui, "people", cols, 3, 2000, &first, &last, .height = CU
 }
 ```
 
-Only the rows in view are built, so the row count barely matters. Headers are sticky; drag a header edge to resize a column; click a sortable header to set `sort` (you reorder your data). With `selected`, a checkbox column appears and rows select like a spreadsheet: click, Shift+click for a range, Ctrl+click to toggle, Ctrl+A for all, arrows to move the cursor, Esc to clear. Editable cells start on double click or Enter and commit on Enter or clicking away.
+Only the rows in view are built, so the row count barely matters. When rows are removed, the scroll position and visible range are adjusted in the same frame. Headers are sticky; drag a header edge to resize a column; click a sortable header to set `sort` (you reorder your data). With `selected`, a checkbox column appears and rows select like a spreadsheet: click, Shift+click for a range, Ctrl+click to toggle, Ctrl+A for all, arrows to move the cursor, Esc to clear. Editable cells start on double click or Enter and commit on Enter or clicking away.
 
-The filter bar keeps one bit mask per field in `selected`; each active field shows as a chip that opens its value list, "Filter" adds one and "Clear all" resets them. `cui_tree_cell` draws a disclosure chevron and indentation inside any table or grid cell for tree tables.
+The filter bar keeps one bit mask per field in `selected`. Each active field shows as a chip. Choosing a field in "Filter" adds its chip and opens its value list. Click a chip to reopen the list, or "Clear all" to reset the filters. `cui_tree_cell` draws a disclosure chevron and indentation inside any table or grid cell for tree tables.
 
 ### Tree table and path bar
 

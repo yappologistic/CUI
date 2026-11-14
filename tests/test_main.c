@@ -1819,6 +1819,138 @@ static void build_dgrid(cui_ctx *ui, void *u) {
     }
 }
 
+typedef struct { int count, first, last; } grid_range_case;
+
+/** Build only the rows in the returned range for the current grid size. */
+static void build_grid_range(cui_ctx *ui, void *user) {
+    grid_range_case *grid = user;
+    static const cui_grid_column column = { "Name", 160, CUI_TEXT_LEFT, false };
+    if (cui_data_grid_begin(ui, "shrinking grid", &column, 1, grid->count,
+                            &grid->first, &grid->last, .height = CUI_PX(160))) {
+        for (int row = grid->first; row < grid->last; row++) {
+            cui_data_grid_row(ui, row);
+            cui_data_grid_cell_text(ui, "A row");
+        }
+        cui_data_grid_end(ui);
+    }
+}
+
+/** The remaining row must be built in the same frame as the count changes. */
+static void test_data_grid_shrinks(void) {
+    printf("data grid: visible range after shrinking\n");
+    cui_ctx *ui = new_ctx();
+    grid_range_case grid = { .count = 100 };
+    run(ui, build_grid_range, &grid, 3);
+    cui_input_mouse_move(ui, 70, 90);
+    run(ui, build_grid_range, &grid, 1);
+    cui_input_scroll(ui, 0, -40);
+    run(ui, build_grid_range, &grid, 4);
+    CHECK(grid.first > 10);
+    grid.count = 1;
+    run(ui, build_grid_range, &grid, 1);
+    CHECK(grid.first == 0 && grid.last == 1);
+    grid.count = 0;
+    run(ui, build_grid_range, &grid, 1);
+    CHECK(grid.first == 0 && grid.last == 0);
+    cui_destroy(ui);
+}
+
+/** The row brought into view by Home is present in the keypress frame. */
+static void test_data_grid_home_range(void) {
+    printf("data grid: Home updates the visible range in the same frame\n");
+    cui_ctx *ui = new_ctx();
+    grid_range_case grid = { .count = 100 };
+    run(ui, build_grid_range, &grid, 3);
+    click_at(ui, build_grid_range, &grid, 70, 90);
+    cui_input_scroll(ui, 0, -40);
+    run(ui, build_grid_range, &grid, 4);
+    CHECK(grid.first > 10);
+    cui_input_key(ui, CUI_KEY_HOME, true, 0);
+    run(ui, build_grid_range, &grid, 1);
+    CHECK(grid.first == 0 && grid.last > 0);
+    cui_destroy(ui);
+}
+
+typedef struct { cui_table_sort sort; cui_rect bounds; } table_focus_case;
+
+/** Draw one sortable header and one selectable row for the focus test. */
+static void build_table_focus(cui_ctx *ui, void *user) {
+    table_focus_case *table = user;
+    const cui_table_column column = { "Name", CUI_PX(150), CUI_TEXT_LEFT, true };
+    cui_column(ui, .pad = 12) {
+        cui_table(ui, "table focus", &column, 1, .sort = &table->sort, .selectable = true) {
+            cui_table_row(ui, false);
+            cui_table_cell_text(ui, "A row");
+        }
+        table->bounds = cui_get_rect(ui, cui_make_id(ui, "table focus"));
+    }
+}
+
+/** The focused header and row each draw a ring at their own bounds. */
+static void test_table_focus(void) {
+    printf("table: visible keyboard focus on header and row\n");
+    enum { width = 300, height = 124, stride = width * 4 };
+    unsigned char initial[height * stride], pixels[height * stride];
+    table_focus_case table = { .sort = { .column = -1 } };
+    cui_ctx *ui = new_ctx();
+    cui_set_viewport(ui, width, height, 1);
+    cui_input_mouse_leave(ui);
+    run(ui, build_table_focus, &table, 3);
+    CHECK(table.bounds.w >= 150 && table.bounds.h >= 80);
+    cui_vec2 header_top = { table.bounds.x + 80, table.bounds.y + 5 };
+    cui_vec2 row_top = { table.bounds.x + 80, table.bounds.y + 44 };
+    cui_sw_render(g_sw, cui_get_draw_data(ui), initial, width, height, stride, CUI_SW_RGBA);
+    key(ui, build_table_focus, &table, CUI_KEY_TAB, 0);
+    cui_sw_render(g_sw, cui_get_draw_data(ui), pixels, width, height, stride, CUI_SW_RGBA);
+    CHECK(focus_strip_changed(initial, pixels, stride, height, header_top));
+    CHECK(!focus_strip_changed(initial, pixels, stride, height, row_top));
+    key(ui, build_table_focus, &table, CUI_KEY_TAB, 0);
+    cui_sw_render(g_sw, cui_get_draw_data(ui), pixels, width, height, stride, CUI_SW_RGBA);
+    CHECK(!focus_strip_changed(initial, pixels, stride, height, header_top));
+    CHECK(focus_strip_changed(initial, pixels, stride, height, row_top));
+    cui_destroy(ui);
+}
+
+/** Draw one filter field whose only value is easy to select from the popup. */
+static void build_filter_handoff(cui_ctx *ui, void *user) {
+    static const char *const options[] = { "Engine" };
+    static const cui_filter_field field = { "Team", NULL, options, 1 };
+    cui_column(ui, .pad = 20) {
+        cui_filter_bar(ui, "team filters", &field, 1, user, NULL, 0);
+    }
+}
+
+/** Selecting a field opens its values without requiring an extra chip click. */
+static void test_filter_handoff(void) {
+    printf("filter bar: selecting a field opens its values\n");
+    cui_ctx *ui = new_ctx();
+    uint32_t selected = 0;
+    run(ui, build_filter_handoff, &selected, 3);
+    key(ui, build_filter_handoff, &selected, CUI_KEY_TAB, 0);
+    key(ui, build_filter_handoff, &selected, CUI_KEY_ENTER, 0);
+    key(ui, build_filter_handoff, &selected, CUI_KEY_DOWN, 0);
+    key(ui, build_filter_handoff, &selected, CUI_KEY_ENTER, 0);
+    run(ui, build_filter_handoff, &selected, 3);
+    CHECK(selected == 0);
+    cui_push_id(ui, "team filters");
+    cui_push_id_int(ui, 0);
+    cui_id chip_id = cui_make_id(ui, "chip");
+    cui_rect chip = cui_get_rect(ui, chip_id);
+    cui_push_id_int(ui, (int)(chip_id ^ 0x3E40u));
+    cui_push_id_int(ui, 0);
+    cui_rect option = cui_get_rect(ui, cui_make_id(ui, "Engine"));
+    cui_pop_id(ui);
+    cui_pop_id(ui);
+    cui_pop_id(ui);
+    cui_pop_id(ui);
+    CHECK(chip.w > 0);
+    CHECK(option.w > 0);
+    cui_vec2 at = center(option);
+    click_at(ui, build_filter_handoff, &selected, at.x, at.y);
+    CHECK(selected == 1);
+    cui_destroy(ui);
+}
+
 static void test_data_grid(void) {
     printf("data grid: virtual rows, selection, sort, keyboard, editing; filter bar, tree cell, json\n");
     cui_ctx *ui = new_ctx();
@@ -3324,19 +3456,21 @@ static void test_dock(void) {
 
 /* virtual list ---------------------------------------------------------- */
 
-typedef struct { int first, last, built; } vl_ctx;
+typedef struct { int first, last, built, count; } vl_ctx;
+/** Build only the range returned by the virtual list for the current row count. */
 static void build_vlist(cui_ctx *ui, void *u) {
     vl_ctx *v = u;
     v->built = 0;
-    cui_virtual_list(ui, "vl", 100000, 20, CUI_PX(200), &v->first, &v->last) {
+    cui_virtual_list(ui, "vl", v->count, 20, CUI_PX(200), &v->first, &v->last) {
         for (int i = v->first; i < v->last; i++) { cui_row(ui, .height = CUI_PX(20)) { cui_textf(ui, "Row %d", i); } v->built++; }
     }
 }
 
+/** Verify the visible range after scrolling and immediately after removing rows. */
 static void test_virtual_list(void) {
     printf("data: virtual list builds only visible rows\n");
     cui_ctx *ui = new_ctx();
-    vl_ctx v = { 0, 0, 0 };
+    vl_ctx v = { .count = 100000 };
     run(ui, build_vlist, &v, 3);
     CHECK(v.first == 0);
     CHECK(v.built > 5 && v.built < 30);
@@ -3346,6 +3480,12 @@ static void test_virtual_list(void) {
     run(ui, build_vlist, &v, 5);
     CHECK(v.first > 300);
     CHECK(v.built < 30);
+    v.count = 1;
+    run(ui, build_vlist, &v, 1);
+    CHECK(v.first == 0 && v.last == 1 && v.built == 1);
+    v.count = 0;
+    run(ui, build_vlist, &v, 1);
+    CHECK(v.first == 0 && v.last == 0 && v.built == 0);
     cui_destroy(ui);
 }
 
@@ -8319,6 +8459,10 @@ int main(void) {
     test_confirm_popover_keyboard();
     test_checklist();
     test_data_grid();
+    test_data_grid_shrinks();
+    test_data_grid_home_range();
+    test_table_focus();
+    test_filter_handoff();
     test_tree_table();
     test_tools();
     test_hex_view();

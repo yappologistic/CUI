@@ -57,6 +57,10 @@ What changed in CUI, newest first. Every component mentioned here runs live in t
 
 ### Fixed
 
+- Virtual lists show the remaining rows immediately when the list shrinks while scrolled.
+- Data grids keep the remaining rows visible when the row count shrinks while scrolled.
+- Sortable table headers and selectable rows show a keyboard focus ring.
+- Adding a filter opens the new chip's value list.
 - The wheel scrolls a text area before its enclosing scroll view, then reaches the outer view at the text area's edges. Diagonal input can scroll the text vertically and the outer view horizontally ([#58](https://github.com/yappologistic/CUI/issues/58)).
 - Tag input enforces its tag limit for every tag in a batch ([#58](https://github.com/yappologistic/CUI/issues/58)).
 - Pasting a different complete one-time code emits another completion event ([#58](https://github.com/yappologistic/CUI/issues/58)).
