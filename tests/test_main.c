@@ -1393,6 +1393,57 @@ static void test_range_slider_context_menu(void) {
     cui_destroy(ui);
 }
 
+/** Draw the scrub alone to drive its native edit-and-commit path. */
+static void build_scrub_commit(cui_ctx *ui, void *user) {
+    cui_scrub(ui, "Level", user, 0, 100);
+}
+
+/** Reject nonfinite and partial numbers while still accepting a complete draft. */
+static void test_scrub_commit(void) {
+    printf("scrub: finite, complete numeric drafts\n");
+    static const char *const drafts[] = { "nan", "33junk", "1e1000", "42" };
+    cui_ctx *ui = new_ctx();
+    float value = 20;
+    run(ui, build_scrub_commit, &value, 3);
+    key(ui, build_scrub_commit, &value, CUI_KEY_TAB, 0);
+    for (int i = 0; i < 4; i++) {
+        key(ui, build_scrub_commit, &value, CUI_KEY_ENTER, 0);
+        run(ui, build_scrub_commit, &value, 1);
+        key(ui, build_scrub_commit, &value, CUI_KEY_A, CUI_MOD_PRIMARY);
+        type(ui, build_scrub_commit, &value, drafts[i]);
+        key(ui, build_scrub_commit, &value, CUI_KEY_ENTER, 0);
+        CHECK(value == (i == 3 ? 42 : 20));
+        run(ui, build_scrub_commit, &value, 1);
+    }
+    cui_destroy(ui);
+}
+
+/** Draw a money input with its default two decimal places. */
+static void build_money_capacity(cui_ctx *ui, void *user) {
+    cui_money_input(ui, "amount", user);
+}
+
+/** Reject a draft that cannot fit once digits are grouped for display. */
+static void test_money_capacity(void) {
+    printf("money input: reject drafts beyond the grouped display capacity\n");
+    cui_ctx *ui = new_ctx();
+    double value = 25.0;
+    run(ui, build_money_capacity, &value, 3);
+    key(ui, build_money_capacity, &value, CUI_KEY_TAB, 0);
+    key(ui, build_money_capacity, &value, CUI_KEY_A, CUI_MOD_PRIMARY);
+    char huge[64];
+    memset(huge, '9', sizeof huge - 1);
+    huge[sizeof huge - 1] = 0;
+    type(ui, build_money_capacity, &value, huge);
+    CHECK(value == 25.0);
+    key(ui, build_money_capacity, &value, CUI_KEY_A, CUI_MOD_PRIMARY);
+    type(ui, build_money_capacity, &value, "35.50");
+    CHECK(value == 35.5);
+    key(ui, build_money_capacity, &value, CUI_KEY_TAB, 0);
+    CHECK(value == 35.5);
+    cui_destroy(ui);
+}
+
 static void test_more_inputs(void) {
     printf("inputs: inline edit, scrub, money, shortcut recorder\n");
     cui_ctx *ui = new_ctx();
@@ -3652,6 +3703,27 @@ static void build_roll(cui_ctx *ui, void *user) {
     roll_ctx *r = user;
     cui_row(ui) { cui_number_roll(ui, "n", r->v, .size = 20); }
 }
+/** Render the same long number as an animated label and as plain tabular text. */
+static void build_number_roll_reference(cui_ctx *ui, void *user) {
+    const char *text = user;
+    cui_row(ui) { cui_text(ui, text, .size = 20, .tabular = true, .nowrap = true); }
+}
+
+/** Over-capacity text keeps every digit and every affix. */
+static void test_long_number_roll(void) {
+    printf("rolling number: complete long numbers and affixes\n");
+    static const char *const values[] = { "1234567890123456789012345", "1 milliseconds per request" };
+    for (int k = 0; k < 2; k++) {
+        cui_ctx *ui = new_ctx(), *reference = new_ctx();
+        roll_ctx r = { values[k] };
+        run(ui, build_roll, &r, 2);
+        run(reference, build_number_roll_reference, (void *)values[k], 2);
+        CHECK(cui_get_draw_data(ui)->vertex_count == cui_get_draw_data(reference)->vertex_count);
+        cui_destroy(reference);
+        cui_destroy(ui);
+    }
+}
+
 static void test_number_roll(void) {
     printf("motion: a rolling number settles on its text, keeps a fixed prefix and fits its width\n");
     cui_ctx *ui = new_ctx();
@@ -8306,6 +8378,8 @@ int main(void) {
     test_more_actions();
     test_toggle_group_arrows();
     test_more_inputs();
+    test_scrub_commit();
+    test_money_capacity();
     test_range_slider_keyboard();
     test_range_slider_context_menu();
     test_swipe();
@@ -8372,6 +8446,7 @@ int main(void) {
     test_tooltip_hover_delay();
     test_truncated_tooltip_covered();
     test_number_roll();
+    test_long_number_roll();
     test_stress();
     test_atlas_pressure();
     cui_sw_destroy(g_sw);

@@ -57,6 +57,9 @@ What changed in CUI, newest first. Every component mentioned here runs live in t
 
 ### Fixed
 
+- Scrub inputs discard invalid numeric drafts and keep the last valid value.
+- Money inputs reject drafts whose complete grouped amount would not fit the field.
+- Rolling numbers draw the complete label when its digits or affixes do not fit the animation.
 - The wheel scrolls a text area before its enclosing scroll view, then reaches the outer view at the text area's edges. Diagonal input can scroll the text vertically and the outer view horizontally ([#58](https://github.com/yappologistic/CUI/issues/58)).
 - Tag input enforces its tag limit for every tag in a batch ([#58](https://github.com/yappologistic/CUI/issues/58)).
 - Pasting a different complete one-time code emits another completion event ([#58](https://github.com/yappologistic/CUI/issues/58)).

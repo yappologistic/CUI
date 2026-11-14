@@ -303,6 +303,7 @@ static void cui__paint_number_roll(cui_ctx *ui, cui_node *n, void *data) {
     cui_pop_clip(ui);
 }
 
+/** Roll numbers that fit the animation slots and display longer text in full. */
 void cui_number_roll_ex(cui_ctx *ui, const char *id_str, const char *text, const cui_text_fx_opts *o) {
     cui_text_fx_opts d;
     memset(&d, 0, sizeof d);
@@ -312,12 +313,23 @@ void cui_number_roll_ex(cui_ctx *ui, const char *id_str, const char *text, const
     cui__nr_state *st = cui_state(ui, id, sizeof *st);
     float size = cui__fs(ui, o->size > 0 ? o->size : ui->theme.text_body);
     cui_font font = o->font;
+    /* The affixes are fixed and the middle rolls one code point per slot. */
+    int len = (int)strlen(text), a = 0, b = len;
+    while (a < len && !(text[a] >= '0' && text[a] <= '9')) a++;
+    while (b > a && !(text[b - 1] >= '0' && text[b - 1] <= '9')) b--;
+    if (a > 0 && text[a - 1] == '-') a--;   /* a sign rolls with the figure */
+    if (a >= (int)sizeof st->prefix || len - b >= (int)sizeof st->suffix || b - a > CUI__NR_MAX) {
+        st->init = false;
+        st->w.x = st->w.v = 0;
+        cui_color color = cui__color_set(o->color) ? cui_color_of(ui, o->color) : CUI_C(ui, FOREGROUND);
+        int n = cui__text_node(ui, text, -1, font, size, color, false);
+        ui->nodes[n].id = id;
+        ui->nodes[n].flags |= CUI_NF_TABULAR;
+        ui->nodes[n].line_height = 1.3f;
+        ui->last_id = id;
+        return;
+    }
     if (!st->init || strcmp(st->shown, text) != 0) {
-        /* prefix up to the first digit, suffix after the last one */
-        int len = (int)strlen(text), a = 0, b = len;
-        while (a < len && !(text[a] >= '0' && text[a] <= '9')) a++;
-        while (b > a && !(text[b - 1] >= '0' && text[b - 1] <= '9')) b--;
-        if (a > 0 && text[a - 1] == '-') a--;   /* a sign rolls with the figure */
         snprintf(st->prefix, sizeof st->prefix, "%.*s", a, text);
         snprintf(st->suffix, sizeof st->suffix, "%s", text + b);
         char body[96];
