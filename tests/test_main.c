@@ -1554,6 +1554,38 @@ static void build_pickers_root(cui_ctx *ui, void *u) {
     cui_row(ui, .width = CUI_FILL, .height = CUI_FILL, .align = CUI_ALIGN_START) { build_pickers(ui, u); }
 }
 
+typedef struct { bool disabled; int drops; cui_id id; } drop_target_case;
+
+/** Use the same drop target with and without a disabled scope. */
+static void build_drop_target(cui_ctx *ui, void *user) {
+    drop_target_case *target = user;
+    cui_push_disabled(ui, target->disabled);
+    target->drops = cui_dropzone(ui, "drop target", .accept = "png", .width = CUI_PX(300));
+    target->id = cui_last_id(ui);
+    cui_pop_disabled(ui);
+}
+
+/** A disabled drop target leaves the drop available to the application. */
+static void test_disabled_file_drop(void) {
+    printf("file drop: a disabled target does not claim the drop\n");
+    cui_ctx *ui = new_ctx();
+    drop_target_case target = { .disabled = true };
+    const char *paths[] = { "photo.png" };
+    run(ui, build_drop_target, &target, 3);
+    cui_vec2 p = center(rect_of(ui, target.id));
+    cui_input_file_drop(ui, paths, 1, p.x, p.y);
+    cui_begin_frame(ui, 1.0f / 60.0f);
+    build_drop_target(ui, &target);
+    CHECK(target.drops == 0);
+    CHECK(cui_dropped_file_count(ui) == 1);
+    cui_end_frame(ui);
+    target.disabled = false;
+    cui_input_file_drop(ui, paths, 1, p.x, p.y);
+    run(ui, build_drop_target, &target, 1);
+    CHECK(target.drops == 1);
+    cui_destroy(ui);
+}
+
 static void test_pickers(void) {
     printf("pickers: multi-select, range calendar, wheel, ruler, dial, dropzone, signature\n");
     cui_ctx *ui = new_ctx();
@@ -8315,6 +8347,7 @@ int main(void) {
     test_calendar_years();
     test_date_picker_reopens_on_days();
     test_pickers();
+    test_disabled_file_drop();
     test_disclosure();
     test_confirm_popover_keyboard();
     test_checklist();
