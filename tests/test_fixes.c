@@ -197,6 +197,33 @@ static void test_dot_axis_huge(void) {
     cui_destroy(ui);
 }
 
+/* an axis whose first tick rounds back to `first - step` used to draw nothing */
+static float g_neg_dots[2] = { 1, 1 };
+
+static void dot_neg_build(cui_ctx *ui, void *user) {
+    (void)user;
+    cui_column(ui, .pad = 20) {
+        cui_dot_series s = { g_neg_dots, "neg" };
+        cui_dot_chart_opts o;
+        memset(&o, 0, sizeof o);
+        o.x_min = -9007199254740992.0; o.x_max = -9007199254740990.0;   /* ULP is 2 here too */
+        o.x_step = 1;
+        cui_dot_chart_ex(ui, "neg", &s, 1, 2, &o);
+    }
+}
+
+static void test_dot_axis_negative(void) {
+    printf("dot chart: the first tick past -2^53 still renders\n");
+    cui_ctx *ui = new_ctx();
+    run(ui, dot_neg_build, NULL, 2);
+    const cui_draw_data *dd = cui_get_draw_data(ui);
+    int text_verts = 0;
+    for (int i = 0; i < dd->vertex_count; i++)
+        if (dd->vertices[i].mode == CUI_SHADE_TEXT) text_verts++;   /* a tick label drew */
+    CHECK(text_verts > 0);
+    cui_destroy(ui);
+}
+
 /* ------------------------------------------------------------------------ */
 /* Histogram slider: a negative or NULL bin list used to memcpy a huge length */
 /* ------------------------------------------------------------------------ */
@@ -398,6 +425,7 @@ int main(void) {
     test_regex();
     test_chart_flat_series();
     test_dot_axis_huge();
+    test_dot_axis_negative();
     test_grid_cursor_clamp();
     test_histogram_guards();
     test_accordion_depth();
