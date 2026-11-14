@@ -123,13 +123,6 @@ bool cui_data_grid_begin_ex(cui_ctx *ui, const char *id_str, const cui_grid_colu
     float max_y = CUI_MAX(0, ss->content_h - ss->view_h);
     ss->y = CUI_MIN(ss->y, max_y);
     ss->ty = CUI_MIN(ss->ty, max_y);
-    int f = (int)floorf((ss->y - CUI__GRID_HEAD) / b->row_h) - 2;
-    if (f < 0) f = 0;
-    int l = f + (int)ceilf(view_h / b->row_h) + 5;
-    if (l > nrows) l = nrows;
-    if (f > l) f = l;
-    b->first = f; b->last = l;
-    *first = f; *last = l;
     if (cursor_set) {
         float top = CUI__GRID_HEAD + st->cursor * b->row_h, bottom = top + b->row_h;
         if (top - CUI__GRID_HEAD < ss->ty) ss->ty = top - CUI__GRID_HEAD;
@@ -185,6 +178,14 @@ bool cui_data_grid_begin_ex(cui_ctx *ui, const char *id_str, const cui_grid_colu
     memset(&sb, 0, sizeof sb);
     sb.width = CUI_FILL; sb.height = CUI_FILL;
     cui__scroll_begin_ex(ui, b->sid, &sb, true);
+    /* Input and reduced motion can change the paint offset in this frame. */
+    int f = (int)floorf((ss->y - CUI__GRID_HEAD) / b->row_h) - 2;
+    if (f < 0) f = 0;
+    int l = f + (int)ceilf(view_h / b->row_h) + 5;
+    if (l > nrows) l = nrows;
+    if (f > l) f = l;
+    b->first = f; b->last = l;
+    *first = f; *last = l;
     int content = cui__node_new(ui, 0);
     ui->nodes[content].w = CUI_PX(total);
     ui->nodes[content].gap = 0;

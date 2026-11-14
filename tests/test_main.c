@@ -2047,6 +2047,22 @@ static void test_data_grid_shrinks(void) {
     cui_destroy(ui);
 }
 
+/** The row brought into view by Home is present in the keypress frame. */
+static void test_data_grid_home_range(void) {
+    printf("data grid: Home updates the visible range in the same frame\n");
+    cui_ctx *ui = new_ctx();
+    grid_range_case grid = { .count = 100 };
+    run(ui, build_grid_range, &grid, 3);
+    click_at(ui, build_grid_range, &grid, 70, 90);
+    cui_input_scroll(ui, 0, -40);
+    run(ui, build_grid_range, &grid, 4);
+    CHECK(grid.first > 10);
+    cui_input_key(ui, CUI_KEY_HOME, true, 0);
+    run(ui, build_grid_range, &grid, 1);
+    CHECK(grid.first == 0 && grid.last > 0);
+    cui_destroy(ui);
+}
+
 typedef struct { cui_table_sort sort; cui_rect bounds; } table_focus_case;
 
 /** Draw one sortable header and one selectable row for the focus test. */
@@ -8872,6 +8888,7 @@ int main(void) {
     test_checklist();
     test_data_grid();
     test_data_grid_shrinks();
+    test_data_grid_home_range();
     test_table_focus();
     test_filter_handoff();
     test_json_tokens();
