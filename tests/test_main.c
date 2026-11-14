@@ -1884,6 +1884,28 @@ static void build_dgrid(cui_ctx *ui, void *u) {
     }
 }
 
+/** The JSON viewer accepts valid tokens and rejects malformed numbers and escapes. */
+static void test_json_tokens(void) {
+    printf("JSON viewer: number and escape grammar\n");
+    static const struct { const char *json; bool valid; } cases[] = {
+        { "0", true }, { "-0", true }, { "-2.1e-3", true }, { "0E+1", true },
+        { "\"\\u12aF\"", true }, { "{\"a\\tb\":[\"\\\"\\/\\\\\\b\\f\\n\\r\",1.25]}", true },
+        { "-", false }, { "01", false }, { "-01", false }, { "1.", false },
+        { "1e", false }, { "1e+", false }, { "1+2", false }, { "[1..2]", false },
+        { "\"\\q\"", false }, { "\"\\u12x4\"", false }, { "\"\\u12\"", false },
+        { "{\"\\q\":0}", false }, { "\"abc\\", false },
+    };
+    cui_ctx *ui = new_ctx();
+    for (int i = 0; i < (int)(sizeof cases / sizeof cases[0]); i++) {
+        cui_begin_frame(ui, 1.0f / 60.0f);
+        bool ok = cui_json_view(ui, "value", cases[i].json);
+        cui_end_frame(ui);
+        if (ok != cases[i].valid) printf("  unexpected JSON result: %s\n", cases[i].json);
+        CHECK(ok == cases[i].valid);
+    }
+    cui_destroy(ui);
+}
+
 static void test_data_grid(void) {
     printf("data grid: virtual rows, selection, sort, keyboard, editing; filter bar, tree cell, json\n");
     cui_ctx *ui = new_ctx();
@@ -8388,6 +8410,7 @@ int main(void) {
     test_confirm_popover_keyboard();
     test_checklist();
     test_data_grid();
+    test_json_tokens();
     test_tree_table();
     test_tools();
     test_hex_view();
