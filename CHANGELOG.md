@@ -57,6 +57,11 @@ What changed in CUI, newest first. Every component mentioned here runs live in t
 
 ### Fixed
 
+- Gradient sliders reach both endpoints and leave idle and disabled values untouched.
+- Ruler wheel steps stay in range when the maximum is between tick marks.
+- Date and color pickers show keyboard focus on their triggers.
+- An open color picker reflects external RGB changes and preserves alpha while editing.
+- Keyboard focus keeps the wheel labels and ruler scale visible.
 - The wheel scrolls a text area before its enclosing scroll view, then reaches the outer view at the text area's edges. Diagonal input can scroll the text vertically and the outer view horizontally ([#58](https://github.com/yappologistic/CUI/issues/58)).
 - Tag input enforces its tag limit for every tag in a batch ([#58](https://github.com/yappologistic/CUI/issues/58)).
 - Pasting a different complete one-time code emits another completion event ([#58](https://github.com/yappologistic/CUI/issues/58)).

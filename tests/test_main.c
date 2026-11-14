@@ -1554,6 +1554,124 @@ static void build_pickers_root(cui_ctx *ui, void *u) {
     cui_row(ui, .width = CUI_FILL, .height = CUI_FILL, .align = CUI_ALIGN_START) { build_pickers(ui, u); }
 }
 
+/** Keep the tape centered in the viewport to send it one wheel step. */
+static void build_bounded_ruler(cui_ctx *ui, void *user) {
+    cui_ruler_slider(ui, "Ruler", user, 0, 1.6f, .step = 1, .width = CUI_PX(230));
+}
+
+/** The wheel can reach a maximum that falls between ruler ticks. */
+static void test_ruler_bound(void) {
+    printf("ruler: wheel snapping stays within bounds\n");
+    cui_ctx *ui = new_ctx();
+    float value = 1;
+    run(ui, build_bounded_ruler, &value, 3);
+    cui_vec2 p = center(cui_last_rect(ui));
+    cui_input_mouse_move(ui, p.x, p.y);
+    run(ui, build_bounded_ruler, &value, 1);
+    cui_input_scroll(ui, 0, -1);
+    run(ui, build_bounded_ruler, &value, 1);
+    CHECK_NEAR(value, 1.6, 1e-6);
+    cui_destroy(ui);
+}
+
+typedef struct { bool color; cui_date date; cui_color rgb; cui_id id; } picker_focus_case;
+
+/** Build just one picker so the first Tab selects its trigger. */
+static void build_picker_focus(cui_ctx *ui, void *user) {
+    picker_focus_case *p = user;
+    cui_column(ui, .pad = 12, .width = CUI_PX(260)) {
+        if (p->color) cui_color_picker(ui, "picker", &p->rgb);
+        else cui_date_picker(ui, "picker", &p->date);
+        p->id = cui_make_id(ui, "picker");
+    }
+}
+
+/** Both trigger types show keyboard focus without opening their popup. */
+static void test_picker_focus_ring(void) {
+    printf("date and color picker: visible keyboard focus\n");
+    enum { width = 300, height = 124, stride = width * 4 };
+    unsigned char initial[height * stride], focused[height * stride];
+    for (int color = 0; color < 2; color++) {
+        cui_ctx *ui = new_ctx();
+        cui_set_viewport(ui, width, height, 1);
+        cui_input_mouse_leave(ui);
+        picker_focus_case p = { .color = color != 0, .date = { 2026, 3, 2 }, .rgb = CUI_RGB(0x7747ff) };
+        run(ui, build_picker_focus, &p, 3);
+        cui_rect r = rect_of(ui, p.id);
+        cui_vec2 top = { r.x + r.w / 2, r.y };
+        cui_sw_render(g_sw, cui_get_draw_data(ui), initial, width, height, stride, CUI_SW_RGBA);
+        key(ui, build_picker_focus, &p, CUI_KEY_TAB, 0);
+        cui_sw_render(g_sw, cui_get_draw_data(ui), focused, width, height, stride, CUI_SW_RGBA);
+        CHECK(focus_strip_changed(initial, focused, stride, height, top));
+        cui_destroy(ui);
+    }
+}
+
+/** Color edits in an open picker start from the caller's latest RGB. */
+static void test_color_picker_model_update(void) {
+    printf("color picker: external model update while open\n");
+    cui_ctx *ui = new_ctx();
+    picker_focus_case p = { .color = true, .rgb = CUI_RGB(0x7747ff) };
+    run(ui, build_picker_focus, &p, 3);
+    key(ui, build_picker_focus, &p, CUI_KEY_TAB, 0);
+    key(ui, build_picker_focus, &p, CUI_KEY_ENTER, 0);
+    p.rgb = CUI_RGB(0xff0000);
+    p.rgb.a = 100;
+    run(ui, build_picker_focus, &p, 3);
+    cui_push_id_int(ui, (int)(p.id ^ 0xC010Eu));
+    cui_rect hue = rect_of(ui, cui_make_id(ui, "#hue"));
+    cui_pop_id(ui);
+    CHECK(hue.w > 150);
+    click_at(ui, build_picker_focus, &p, hue.x + hue.w / 3, hue.y + hue.h / 2);
+    CHECK(p.rgb.r <= 1 && p.rgb.g == 255 && p.rgb.b <= 1 && p.rgb.a == 100);
+    cui_destroy(ui);
+}
+
+typedef struct { bool wheel; int index; float value; } picker_paint_case;
+
+/** Build one focusable picker with visible content at its center. */
+static void build_picker_paint(cui_ctx *ui, void *user) {
+    picker_paint_case *p = user;
+    static const char *const labels[] = { "A", "B", "Center", "D", "E" };
+    cui_column(ui, .pad = 14, .width = CUI_PX(260)) {
+        if (p->wheel) cui_wheel_picker(ui, "Wheel", labels, 5, &p->index, .width = CUI_PX(230));
+        else cui_ruler_slider(ui, "Ruler", &p->value, 0, 100, .width = CUI_PX(230));
+    }
+}
+
+/** Keyboard focus adds a ring while retaining the selected band or ruler ticks. */
+static void test_picker_focus_keeps_content(void) {
+    printf("wheel and ruler: preserve paint under keyboard focus\n");
+    enum { width = 300, height = 240, stride = width * 4 };
+    unsigned char initial[height * stride], focused[height * stride];
+    for (int wheel = 0; wheel < 2; wheel++) {
+        cui_ctx *ui = new_ctx();
+        cui_set_viewport(ui, width, height, 1);
+        cui_input_mouse_leave(ui);
+        picker_paint_case p = { .wheel = wheel != 0, .index = 2, .value = 50 };
+        run(ui, build_picker_paint, &p, 3);
+        cui_rect r = cui_last_rect(ui);
+        cui_vec2 mid = center(r), top = { mid.x, r.y };
+        bool in_bounds = r.w >= 200 && r.h >= 28 && mid.x >= 12 && mid.x + 12 < width &&
+                         mid.y >= 8 && mid.y + 8 < height;
+        CHECK(in_bounds);
+        if (!in_bounds) { cui_destroy(ui); continue; }
+        cui_sw_render(g_sw, cui_get_draw_data(ui), initial, width, height, stride, CUI_SW_RGBA);
+        key(ui, build_picker_paint, &p, CUI_KEY_TAB, 0);
+        cui_sw_render(g_sw, cui_get_draw_data(ui), focused, width, height, stride, CUI_SW_RGBA);
+        CHECK(focus_strip_changed(initial, focused, stride, height, top));
+        bool content_stable = true;
+        int x = (int)mid.x - 12;
+        int y0 = (int)mid.y - 8;
+        for (int y = y0; y < y0 + 16; y++) {
+            int offset = y * stride + x * 4;
+            if (memcmp(initial + offset, focused + offset, 24 * 4) != 0) content_stable = false;
+        }
+        CHECK(content_stable);
+        cui_destroy(ui);
+    }
+}
+
 static void test_pickers(void) {
     printf("pickers: multi-select, range calendar, wheel, ruler, dial, dropzone, signature\n");
     cui_ctx *ui = new_ctx();
@@ -8315,6 +8433,10 @@ int main(void) {
     test_calendar_years();
     test_date_picker_reopens_on_days();
     test_pickers();
+    test_ruler_bound();
+    test_picker_focus_ring();
+    test_color_picker_model_update();
+    test_picker_focus_keeps_content();
     test_disclosure();
     test_confirm_popover_keyboard();
     test_checklist();

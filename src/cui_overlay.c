@@ -1237,6 +1237,7 @@ bool cui_calendar(cui_ctx *ui, const char *id_str, cui_date *value) {
     return b.changed;
 }
 
+/** Draw the date trigger with a focus ring when reached by keyboard. */
 bool cui_date_picker_ex(cui_ctx *ui, const char *id_str, cui_date *value, const cui_date_opts *o) {
     cui_date_opts d;
     memset(&d, 0, sizeof d);
@@ -1280,6 +1281,7 @@ bool cui_date_picker_ex(cui_ctx *ui, const char *id_str, cui_date *value, const 
     ui->nodes[t].w = CUI_FILL;
     cui__close(ui);
     if (col >= 0) cui__close(ui);
+    cui__focus_ring(ui, i, r.focus_visible ? 1.0f : 0.0f);
     ui->last_id = id;
     bool changed = false;
     if (cui__popup_begin(ui, pid, id, CUI_PLACE_BOTTOM_START, 0, 12, 0, false)) {
@@ -1293,7 +1295,7 @@ bool cui_date_picker_ex(cui_ctx *ui, const char *id_str, cui_date *value, const 
 /* Color picker                                                             */
 /* ------------------------------------------------------------------------ */
 
-typedef struct { float h, s, v; bool init; char hex[16]; } cui__color_state;
+typedef struct { float h, s, v; bool init; cui_color last; char hex[16]; } cui__color_state;
 
 static void cui__rgb_to_hsv(cui_color c, float *h, float *s, float *v) {
     float r = c.r / 255.0f, g = c.g / 255.0f, b = c.b / 255.0f;
@@ -1365,17 +1367,22 @@ void cui__color_picker_open(cui_ctx *ui, cui_id id, cui_color value) {
     cui__color_state *st = cui_state(ui, id, sizeof *st);
     cui__rgb_to_hsv(value, &st->h, &st->s, &st->v);
     st->init = true;
+    st->last = value;
     cui__popup_set(ui, id ^ 0xC010Eu, true);
     cui_popup *p = cui__popup_get(ui, id ^ 0xC010Eu, false);
     if (p) p->at_mouse = false;
 }
 
+/** Draw the color trigger and reconcile its HSV controls with the caller's RGB. */
 bool cui_color_picker(cui_ctx *ui, const char *id_str, cui_color *value) {
     cui_id id = cui_make_id(ui, id_str);
     cui_id pid = id ^ 0xC010Eu;
     cui__color_state *st = cui_state(ui, id, sizeof *st);
     cui_color old = *value;
-    if (!st->init) { cui__rgb_to_hsv(*value, &st->h, &st->s, &st->v); st->init = true; }
+    if (!st->init || old.r != st->last.r || old.g != st->last.g || old.b != st->last.b) {
+        cui__rgb_to_hsv(old, &st->h, &st->s, &st->v);
+        st->init = true;
+    }
     cui_popup *p = cui__popup_get(ui, pid, true);
     cui_interact r = cui__interact(ui, id, CUI_IF_FOCUSABLE);
     if (r.clicked && p) {
@@ -1406,6 +1413,7 @@ bool cui_color_picker(cui_ctx *ui, const char *id_str, cui_color *value) {
                            cui__fs(ui, ui->theme.text_body), CUI_C(ui, FOREGROUND), false);
     ui->nodes[t].line_height = 1.3f;
     cui__close(ui);
+    cui__focus_ring(ui, i, r.focus_visible ? 1.0f : 0.0f);
     ui->last_id = id;
     if (cui__popup_begin(ui, pid, id, CUI_PLACE_BOTTOM_START, 240, 12, 12, false)) {
         cui_id svid = cui_make_id(ui, "#sv"), hid = cui_make_id(ui, "#hue");
@@ -1417,7 +1425,10 @@ bool cui_color_picker(cui_ctx *ui, const char *id_str, cui_color *value) {
             st->v = 1 - cui__clampf((ui->my - svr.y) / svr.h, 0, 1);
         }
         if (hr.active && ui->mdown[0] && hrr.w > 0) st->h = cui__clampf((ui->mx - hrr.x) / hrr.w, 0, 0.9999f) * 360.0f;
-        if ((sr.active || hr.active) && ui->mdown[0]) *value = cui__hsv(st->h, st->s, st->v);
+        if ((sr.active || hr.active) && ui->mdown[0]) {
+            *value = cui__hsv(st->h, st->s, st->v);
+            value->a = old.a;
+        }
         int svn = cui__leaf(ui, svid, CUI_FILL, CUI_PX(150));
         cui__mark_interactive(ui, svn, 0);
         cui__sv_paint *sp = cui__frame_alloc(ui, sizeof *sp);
@@ -1446,11 +1457,12 @@ bool cui_color_picker(cui_ctx *ui, const char *id_str, cui_color *value) {
             if (same) { ui->nodes[c].border = 2; ui->nodes[c].border_color = CUI_C(ui, SURFACE_RAISED); ui->nodes[c].elevation = CUI_ELEVATION_RESTING; }
             cui__mark_interactive(ui, c, 0);
             if (cr.hovered) cui__set_cursor(ui, CUI_CURSOR_HAND);
-            if (cr.clicked) { *value = pc; cui__rgb_to_hsv(pc, &st->h, &st->s, &st->v); }
+            if (cr.clicked) { pc.a = old.a; *value = pc; cui__rgb_to_hsv(pc, &st->h, &st->s, &st->v); }
         }
         cui__close(ui);
         cui__popup_end(ui);
     }
+    st->last = *value;
     return memcmp(&old, value, sizeof old) != 0;
 }
 
