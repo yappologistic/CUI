@@ -8,6 +8,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#ifdef CUI_TEST_WINDOWS_IMAGE_PATH
+#include <wchar.h>
+#endif
 
 static int g_failed, g_checks;
 #define CHECK(cond) do { g_checks++; if (!(cond)) { g_failed++; printf("  FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond); } } while (0)
@@ -1777,6 +1780,36 @@ static void test_disabled_file_drop(void) {
     CHECK(target.drops == 1);
     cui_destroy(ui);
 }
+
+#ifdef CUI_TEST_WINDOWS_IMAGE_PATH
+/** Load a generated PNG through the same UTF-8 path API used by avatar upload. */
+static void test_windows_image_path(void) {
+    printf("image load: UTF-8 path on Windows\n");
+    const wchar_t wide_name[] = L"cui-path-\x753b\x50cf.png";
+    const char utf8_name[] = "cui-path-\xe7\x94\xbb\xe5\x83\x8f.png";
+    const unsigned char pixel[4] = { 20, 40, 60, 255 };
+    const char fixture[] = "cui-image-path-fixture.png";
+    CHECK(cui_write_png(fixture, pixel, 1, 1, 4));
+    FILE *input = fopen(fixture, "rb");
+    FILE *output = _wfopen(wide_name, L"wb");
+    CHECK(input && output);
+    if (input && output) {
+        unsigned char data[256];
+        size_t count = fread(data, 1, sizeof data, input);
+        CHECK(feof(input) && fwrite(data, 1, count, output) == count);
+    }
+    if (input) fclose(input);
+    if (output) fclose(output);
+    remove(fixture);
+    cui_ctx *ui = new_ctx();
+    int w = 0, h = 0;
+    cui_texture image = cui_image_load(ui, utf8_name, &w, &h);
+    CHECK(image && w == 1 && h == 1);
+    if (image) cui_image_destroy(ui, image);
+    cui_destroy(ui);
+    _wremove(wide_name);
+}
+#endif
 
 static void test_pickers(void) {
     printf("pickers: multi-select, range calendar, wheel, ruler, dial, dropzone, signature\n");
@@ -8974,6 +9007,9 @@ int main(void) {
     test_date_picker_reopens_on_days();
     test_pickers();
     test_disabled_file_drop();
+#ifdef CUI_TEST_WINDOWS_IMAGE_PATH
+    test_windows_image_path();
+#endif
     test_disclosure();
     test_confirm_popover_keyboard();
     test_checklist();
