@@ -728,6 +728,39 @@ static uint32_t frame_hash(cui_ctx *ui) {
     return h;
 }
 
+/** Check that a settled indicator holds still with reduced motion and resumes normally. */
+static void check_indicator_motion(build_fn build) {
+    cui_ctx *ui = new_ctx();
+    cui_set_viewport(ui, 480, 240, 1);
+    cui_input_mouse_leave(ui);
+    run(ui, build, NULL, 12);
+    uint32_t still = frame_hash(ui);
+    CHECK(!cui_needs_redraw(ui));
+    run(ui, build, NULL, 9);
+    CHECK(frame_hash(ui) == still);
+    CHECK(!cui_needs_redraw(ui));
+
+    cui_set_reduced_motion(ui, false);
+    run(ui, build, NULL, 12);
+    uint32_t moving = frame_hash(ui);
+    CHECK(cui_needs_redraw(ui));
+    run(ui, build, NULL, 9);
+    CHECK(frame_hash(ui) != moving);
+    cui_destroy(ui);
+}
+
+/** Draw the typing indicator on its own so redraws are attributable to its dots. */
+static void build_typing_indicator(cui_ctx *ui, void *unused) {
+    (void)unused;
+    cui_typing_indicator(ui, "Jonas");
+}
+
+/** Reduced motion keeps the typing dots visible and still. */
+static void test_typing_indicator_motion(void) {
+    printf("typing indicator: reduced motion\n");
+    check_indicator_motion(build_typing_indicator);
+}
+
 static void test_textarea_and_clear(void) {
     printf("text input: textarea wheel, focus flags, clear button undo\n");
     cui_ctx *ui = new_ctx();
@@ -8703,6 +8736,7 @@ int main(void) {
     test_media();
     test_viz();
     test_motion();
+    test_typing_indicator_motion();
     test_ai();
     test_text_capacity();
     test_dialog();
