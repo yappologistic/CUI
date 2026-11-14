@@ -268,13 +268,11 @@ void cui_virtual_list_begin(cui_ctx *ui, const char *id_str, int count, float ro
     *last = l;
     /* spacer above */
     if (f > 0) cui__leaf(ui, 0, CUI_FILL, CUI_PX(f * row_h));
-    cui__vlist_build *vb;
     if (ui->vl_depth < 8) {
-        vb = &ui->vl_stack[ui->vl_depth++];
+        cui__vlist_build *vb = &ui->vl_stack[ui->vl_depth++];
         vb->count = count; vb->row_h = row_h; vb->first = f;
     } else {
-        vb = &ui->vl_stack[7];   /* deeper than the stack holds: mark the slot so end() skips the bottom spacer instead of stealing the outer list's record */
-        vb->count = -1;
+        ui->vl_over++;   /* deeper than the stack holds: tracked separately, so the outer lists' records stay intact */
     }
     /* rows are placed in a column of fixed-height rows */
     int rows = cui__node_new(ui, 0);
@@ -286,7 +284,8 @@ void cui_virtual_list_begin(cui_ctx *ui, const char *id_str, int count, float ro
 
 void cui_virtual_list_end(cui_ctx *ui) {
     cui__close(ui);
-    if (ui->vl_depth > 0) {
+    if (ui->vl_over > 0) ui->vl_over--;   /* an overflow-level list: no record was stored, and the outer records are untouched */
+    else if (ui->vl_depth > 0) {
         cui__vlist_build *vb = &ui->vl_stack[--ui->vl_depth];
         if (vb->count >= 0) {
             int rows = ui->nodes[cui__current(ui)].last;

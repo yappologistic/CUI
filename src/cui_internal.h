@@ -618,6 +618,7 @@ struct cui_ctx {
     cui__popup_build pb_stack[16]; int pb_depth;
     cui__modal_build mb_stack[8]; int mb_depth;
     cui__vlist_build vl_stack[8]; int vl_depth;
+    int vl_over;                 /* virtual lists nested deeper than the stack holds */
     bool acc_dis[32]; int acc_depth;
     int tree_depth;
     int button_group_depth;
