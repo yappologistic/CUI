@@ -4661,7 +4661,7 @@ typedef struct cui_dot_chart_opts {
 } cui_dot_chart_opts;
 
 typedef struct cui_dot_chart_result {
-    int hovered;               /* the sample under the pointer or the keyboard cursor, or -1 */
+    int hovered;               /* pointer or keyboard sample, middle on first keyboard activation, else -1 */
     double x;                  /* that sample's x, in x units */
     float value;               /* the stacked value there */
     bool clicked;              /* the plot was clicked, or Enter was pressed on it, this frame: `x` is where */

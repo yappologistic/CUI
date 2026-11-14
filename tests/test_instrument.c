@@ -123,6 +123,12 @@ static void test_dot_chart(void) {
     move(ui, build_dots, &c, 2, 2);
     CHECK_EQ(c.r.hovered, -1);
     key(ui, build_dots, &c, CUI_KEY_TAB, 0);
+    int clicks_before_keyboard = c.clicks;
+    key(ui, build_dots, &c, CUI_KEY_ENTER, 0);
+    CHECK_EQ(c.clicks, clicks_before_keyboard + 1);
+    CHECK_EQ(c.r.hovered, 24);
+    CHECK_NEAR(c.r.x, 18.0, 1e-9);
+    CHECK_NEAR(c.r.value, 34, 1e-4);
     key(ui, build_dots, &c, CUI_KEY_RIGHT, 0);
     CHECK_EQ(c.r.hovered, 25);                    /* from the middle, one to the right */
     key(ui, build_dots, &c, CUI_KEY_RIGHT, CUI_MOD_SHIFT);
