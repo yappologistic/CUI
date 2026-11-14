@@ -235,27 +235,33 @@ static void test_histogram_guards(void) {
 /* without popping it, leaving the rest of the frame inert                   */
 /* ------------------------------------------------------------------------ */
 
+static bool g_acc_open[40];
+
 static void accordion_deep_build(cui_ctx *ui, void *user) {
-    (void)user;
+    bool *closing = user;
     cui_column(ui, .pad = 10) {
-        bool open = true;
         for (int i = 0; i < 40; i++) {
             char id[32];
             snprintf(id, sizeof id, "acc%d", i);
-            if (cui_accordion_begin(ui, id, &open)) {
-                cui_text(ui, "content");
-                cui_accordion_end(ui);
-            }
+            CHECK(cui_accordion_begin(ui, id, &g_acc_open[i]));
         }
+        if (closing && *closing) CHECK(cui_is_disabled(ui));   /* the first 32 closing scopes pushed disabled */
+        for (int i = 0; i < 40; i++) cui_accordion_end(ui);
         cui_text(ui, "after");
     }
+    CHECK(!cui_is_disabled(ui));   /* every push was popped: the frame ends enabled */
 }
 
 static void test_accordion_depth(void) {
     printf("accordion: nesting past 32 keeps input enabled\n");
     cui_ctx *ui = new_ctx();
-    run(ui, accordion_deep_build, NULL, 2);
-    CHECK(!cui_is_disabled(ui));
+    for (int i = 0; i < 40; i++) g_acc_open[i] = true;
+    bool closing = false;
+    run(ui, accordion_deep_build, &closing, 2);   /* 40 scopes nested, all open */
+    closing = true;
+    for (int i = 0; i < 40; i++) g_acc_open[i] = false;
+    cui_set_reduced_motion(ui, false);   /* the closing transition must animate, or no disabled push happens */
+    run(ui, accordion_deep_build, &closing, 1);   /* one frame of the closing transition */
     cui_destroy(ui);
 }
 
@@ -366,12 +372,22 @@ static void emoji_build(cui_ctx *ui, void *user) {
     }
 }
 
+static bool fake_emoji_draw(void *user, const char *utf8, int len, int px, unsigned char *rgba) {
+    (void)user; (void)utf8; (void)len; (void)px; (void)rgba;
+    return true;
+}
+
 static void test_emoji_malformed(void) {
     printf("emoji: malformed UTF-8 stays in bounds\n");
     cui_ctx *ui = new_ctx();
-    CHECK(cui_emoji_supported(ui, "\xf0\x9f\x91\x8d", -1));
-    CHECK(!cui_emoji_supported(ui, "\xff\xfe", -1));
-    CHECK(!cui_emoji_supported(ui, "\xed\xa0\x80", -1));   /* a UTF-16 surrogate is not a character */
+    if (cui_emoji_font_load_system(ui)) {   /* a real emoji font: the decoder runs for real */
+        CHECK(cui_emoji_supported(ui, "\xf0\x9f\x91\x8d", -1));
+        CHECK(!cui_emoji_supported(ui, "\xff\xfe", -1));
+        CHECK(!cui_emoji_supported(ui, "\xed\xa0\x80", -1));   /* a UTF-16 surrogate is not a character */
+    } else {   /* no system emoji font: a provider still satisfies the valid-sequence contract */
+        cui_set_platform(ui, &(cui_platform_iface){ .draw_emoji = fake_emoji_draw });
+        CHECK(cui_emoji_supported(ui, "\xf0\x9f\x91\x8d", -1));
+    }
     run(ui, emoji_build, NULL, 2);
     cui_destroy(ui);
 }
