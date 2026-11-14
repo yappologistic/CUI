@@ -1633,7 +1633,7 @@ static cui_cal_event events[] = {
 int clicked = cui_week_calendar(ui, "week", monday, events, 2, .start_hour = 8, .end_hour = 18, .height = CUI_PX(460));
 ```
 
-Drag an event to move it (it snaps to 15 minutes and keeps its length) or pull its bottom edge to resize it; the calendar writes the new times into your array. Overlapping events share the day side by side. Today is circled and a line marks the current time. `read_only` turns editing off but keeps clicks. With the keyboard, Up and Down move a focused event by 15 minutes, Left and Right by a day, and Shift with Up or Down changes its end.
+Drag an event to move it (it snaps to 15 minutes and keeps its length) or pull its bottom edge to resize it; the calendar writes the new times into your array. Overlapping events share the day side by side. Today is circled and a line marks the current time. With `read_only`, a click or Enter or Space on a focused event still returns its index. The editing keys do not move or resize it. With the keyboard, Up and Down move a focused event by 15 minutes, Left and Right by a day, and Shift with Up or Down changes its end.
 
 ### Month calendar
 
@@ -1677,6 +1677,8 @@ int clicked = cui_gantt(ui, "plan", tasks, 4, start_date, 28, .today = 10);
 ```
 
 Drag a bar to reschedule it, or drag either end to change its length. Bars are colored by `state`: done in green, active in the first series color, planned in a neutral tint with a dashed edge. `CUI_GANTT_AUTO`, the default, works the state out: a progress of 1 is done, any progress is active, and untouched work is planned when it starts after `today` and active once that day has come. A task's `tone`, when set, replaces the state's color. The filled part of a bar is its progress, with the percentage at the bar's end when the name leaves room for it. Dependencies are soft curves with small arrowheads, running behind the bars; when a task starts before the one it waits for ends, the curve leaves from that bar's edge. A milestone is an outlined diamond labelled with its name and date. `today` draws an accent line over the rows with a small "Today" chip in the header, and weekends are lightly shaded. A focused bar moves a day with the arrow keys and changes its length with Shift and the arrows.
+
+In read-only mode, clicking a bar or pressing Enter or Space on the focused task returns its index. Moving and resizing are disabled.
 
 ### Node editor
 

@@ -5353,6 +5353,40 @@ static void test_timeline(void) {
     cui_destroy(ui);
 }
 
+typedef struct { cui_cal_event event; cui_gantt_task task; bool gantt; int activated; } read_only_plan;
+
+/** Build a single item so Tab has one unambiguous target. */
+static void build_read_only_plan(cui_ctx *ui, void *user) {
+    read_only_plan *plan = user;
+    const cui_date origin = { 2026, 3, 2 };
+    if (plan->gantt)
+        plan->activated = cui_gantt(ui, "gantt", &plan->task, 1, origin, 14, .read_only = true);
+    else
+        plan->activated = cui_week_calendar(ui, "week", origin, &plan->event, 1,
+                                           .start_hour = 8, .end_hour = 16, .read_only = true);
+}
+
+/** Read-only tasks and events activate from the keyboard without editing dates. */
+static void test_read_only_plan_activation(void) {
+    printf("planning: read-only activation without editing\n");
+    for (int gantt = 0; gantt < 2; gantt++) {
+        cui_ctx *ui = new_ctx();
+        read_only_plan plan = { .event = { .title = "Review", .day = 1, .start = 10, .end = 11 },
+                               .task = { .name = "Review", .start = 2, .end = 4, .depends_on = -1 },
+                               .gantt = gantt != 0 };
+        cui_input_mouse_leave(ui);
+        run(ui, build_read_only_plan, &plan, 3);
+        key(ui, build_read_only_plan, &plan, CUI_KEY_TAB, 0);
+        key(ui, build_read_only_plan, &plan, CUI_KEY_RIGHT, 0);
+        CHECK(plan.event.day == 1 && plan.task.start == 2 && plan.task.end == 4);
+        key(ui, build_read_only_plan, &plan, CUI_KEY_ENTER, 0);
+        CHECK(plan.activated == 0);
+        key(ui, build_read_only_plan, &plan, CUI_KEY_SPACE, 0);
+        CHECK(plan.activated == 0);
+        cui_destroy(ui);
+    }
+}
+
 static void test_planning(void) {
     printf("planning: kanban drag between and within columns, week calendar move and resize, gantt reschedule\n");
     cui_ctx *ui = new_ctx();
@@ -8935,6 +8969,7 @@ int main(void) {
     test_sw_incremental();
     test_emoji_release();
     test_planning();
+    test_read_only_plan_activation();
     test_node_editor();
     test_disabled_node_editor_wheel();
     test_flame();

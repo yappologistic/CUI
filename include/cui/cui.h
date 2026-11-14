@@ -2602,6 +2602,7 @@ typedef struct cui_week_opts {
     cui_size height;
     bool read_only;
 } cui_week_opts;
+/* Returns the activated event index or -1. Read-only events still activate. */
 CUI_API int cui_week_calendar_ex(cui_ctx *ui, const char *id, cui_date week_start, cui_cal_event *events, int count, const cui_week_opts *opts);
 
 /* Month calendar: a month grid with events. All-day and multi-day events
@@ -2673,6 +2674,7 @@ typedef struct cui_gantt_opts {
     int today;                 /* day to mark as today, counted from `origin`, with an accent line and a "Today" chip; 0 marks none */
     bool read_only;
 } cui_gantt_opts;
+/* Returns the activated task index or -1. Read-only tasks still activate. */
 CUI_API int cui_gantt_ex(cui_ctx *ui, const char *id, cui_gantt_task *tasks, int count, cui_date origin, int days, const cui_gantt_opts *opts);
 
 /* ------------------------------------------------------------------------ */
