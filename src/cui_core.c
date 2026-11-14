@@ -344,6 +344,7 @@ cui_state_entry *cui__state_entry(cui_ctx *ui, cui_id id) {
     } else {
         CUI__GROW(ui, ui->states, ui->state_count, ui->state_cap, 1);
         idx = ui->state_count++;
+        memset(&ui->states[idx], 0, sizeof ui->states[idx]);   /* the rehash below reads every slot up to the count */
         if (ui->state_count > ui->bucket_count) cui__state_rehash(ui, ui->bucket_count * 2);
     }
     e = &ui->states[idx];

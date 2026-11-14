@@ -66,6 +66,46 @@ static void test_color(void) {
     CHECK(a.a == 128 && a.r == 0x12);
 }
 
+/* An allocator that fills the memory it adds with 0x01, as reused heap memory
+ * may be. The size lives in a header, so realloc knows which bytes are new. */
+static void *junk_alloc(size_t size, void *user) {
+    (void)user;
+    size_t *p = malloc(size + 16);
+    if (!p) return NULL;
+    p[0] = size;
+    memset((char *)p + 16, 0x01, size);
+    return (char *)p + 16;
+}
+static void *junk_realloc(void *ptr, size_t size, void *user) {
+    if (!ptr) return junk_alloc(size, user);
+    size_t *p = (size_t *)((char *)ptr - 16), old = p[0];
+    p = realloc(p, size + 16);
+    if (!p) return NULL;
+    p[0] = size;
+    if (size > old) memset((char *)p + 16 + old, 0x01, size - old);
+    return (char *)p + 16;
+}
+static void junk_free(void *ptr, void *user) { (void)user; if (ptr) free((char *)ptr - 16); }
+
+/* growing the state store rehashed before clearing the new slot, so leftover
+ * bytes there linked a phantom entry into a bucket and cut off its chain */
+static void test_state_store_grow(void) {
+    printf("state: values survive the store growing over reused memory\n");
+    cui_ctx *ui = cui_create(&(cui_ctx_desc){ .renderer = cui_sw_iface(g_sw), .allocator = { junk_alloc, junk_realloc, junk_free, NULL } });
+    /* an id picks its bucket by its low bits: 257 shares one with the leftover id 0x01010101 */
+    *(int *)cui_state(ui, 257, sizeof(int)) = 42;
+    bool kept = true;
+    for (cui_id k = 0; k < 5000 && kept; k++) {
+        cui_id id = 100000 + k;
+        if ((id & 0x7FF) == 257) continue;   /* the new entry itself must not land there (a lookup loop) */
+        *(int *)cui_state(ui, id, sizeof(int)) = (int)k;
+        kept = *(int *)cui_state(ui, 257, sizeof(int)) == 42;
+    }
+    CHECK(kept);
+    CHECK(*(int *)cui_state(ui, 100000 + 4000, sizeof(int)) == 4000);
+    cui_destroy(ui);
+}
+
 /* layout --------------------------------------------------------------- */
 
 typedef struct { cui_id a, b, c; } ids3;
@@ -8609,6 +8649,7 @@ static void test_emoji_release(void) {
 int main(void) {
     g_sw = cui_sw_create();
     test_color();
+    test_state_store_grow();
     test_layout_row();
     test_layout_wrap();
     test_layout_center();
