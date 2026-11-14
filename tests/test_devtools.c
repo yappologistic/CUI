@@ -842,6 +842,20 @@ static void test_regex(void) {
     CHECK(cui_regex_search(NULL, 0, "a", -1, 0, &m, NULL) == 0);
 }
 
+/* a (?: ) group has no capture slot: matching it used to write cap[-1] */
+static void test_regex_noncapture(void) {
+    printf("regex: non-capturing groups match and leave the captures around them intact\n");
+    int a = 0, b = 0;
+    CHECK(rx("(?:a)b", 0, "ab", 0, &a, &b) == 1 && a == 0 && b == 2);
+    CHECK(rx("(?:ab)+c", 0, "xababc", 0, &a, &b) == 1 && a == 1 && b == 6);
+    CHECK(rx("(?:a|b|c)*d", 0, "abcabcd", 0, &a, &b) == 1 && a == 0 && b == 7);
+    CHECK(rx("(?:x)y", 0, "xz", 0, &a, &b) == 0);
+    cui_regex_match m;
+    CHECK(cui_regex_search("(a)(?:b)(c)", 0, "abc", -1, 0, &m, NULL) == 1);
+    CHECK(m.groups == 2 && m.group_start[1] == 0 && m.group_end[1] == 1 && m.group_start[2] == 2 && m.group_end[2] == 3);
+    CHECK(cui_regex_search("x(?:y)?(z)?", 0, "x", -1, 0, &m, NULL) == 1 && m.groups == 1 && m.group_start[1] == -1);
+}
+
 typedef struct { char pat[128]; char text[512]; int flags; cui_regex_tester_result r; } rt_ctx;
 static void build_rt(cui_ctx *ui, void *u) {
     rt_ctx *c = u;
@@ -1281,6 +1295,7 @@ int main(void) {
     test_trace();
     test_random();
     test_regex();
+    test_regex_noncapture();
     test_regex_tester();
     test_url();
     test_test_explorer();
