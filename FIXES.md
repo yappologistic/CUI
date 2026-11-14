@@ -14,7 +14,7 @@
 4. **Fixes + regression tests.** Every fix was implemented and, where headless testing is possible, locked in with a new regression test file (see §5).
 5. **Re-verification.** Rebuilt everything: zero warnings, 18/18 tests pass, the full suite also passes under ASan+UBSan, extended fuzzing (28,000 frames of random input over the gallery and example apps) is clean, and the single-file amalgamation (`tools/amalgamate.py`) still compiles and runs a hello-world app.
 
-**Totals: 40 distinct defects fixed across 29 source files (649 insertions), 1 new public function, 1 new test program with 40 checks.**
+**Totals: 40 distinct defects fixed across 29 source files (649 insertions), 1 new public function, 1 new test program with 171 checks.**
 
 ---
 
@@ -90,10 +90,10 @@ Replace every match of a pattern with a template in which `$0`–`$9` stand for 
 
 - snprintf-style return: the number of bytes the *whole* result needs; `>= out_cap` means truncated. `out == NULL` measures without writing.
 - No match: text copied unchanged. Bad pattern: returns -1 with `*error` set.
-- An empty match advances one character, so `x*` terminates; edge-case behaviour verified identical to Python 3.7+ `re.sub`.
+- An empty match advances one character, so `x*` terminates; this is the JavaScript empty-match rule (Python 3.7's `re.sub` differs: `a*?` over `a` gives `-a-`, not `---`).
 - UTF-8-safe: an empty match at a continuation byte steps a whole character.
 
-### `tests/test_fixes.c` (new regression suite, 40 checks)
+### `tests/test_fixes.c` (new regression suite, 171 checks)
 
 Registered as `cui_test_fixes` in CTest. Covers, headlessly: `(?: )` groups (the former segfault), capture offsets around non-capturing groups, optional groups, `[\b]` backspace, `[\B]` rejection, all `cui_regex_replace` edge cases; the flat-series chart (previously NaN, now settles without endless redraw); the stale grid cursor clamp; negative/NULL histogram bins; accordion nesting past 32 (input stays enabled); the disabled knob (value untouched); the unset calendar month; blame with NULL commits; theme customization surviving an accent switch; and malformed UTF-8 through the emoji API.
 
