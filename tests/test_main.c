@@ -6724,6 +6724,34 @@ static void ced_text(ced_ctx *c, const char *s) { snprintf(c->buf, sizeof c->buf
 static void ced_sel(cui_ctx *ui, ced_ctx *c, int a, int b) { cui_code_editor_select(ui, "ed", a, b); run(ui, build_ced, c, 1); }
 static int ced_at(const ced_ctx *c, const char *needle) { const char *p = strstr(c->buf, needle); return p ? (int)(p - c->buf) : -1; }
 
+/* Keep line numbers and other controls out of the glyph count. */
+static void build_ced_render(cui_ctx *ui, void *u) {
+    ced_ctx *c = u;
+    cui_code_editor(ui, "ed", c->buf, sizeof c->buf, .lang = c->lang,
+                    .read_only = true, .no_line_numbers = true, .height = 200, .tab_size = 4);
+}
+
+static void test_code_editor_indented_text(void) {
+    printf("code editor: visible text after leading spaces and tabs\n");
+    static const char *const langs[] = { "text", "plain", "c", NULL };
+    static const char *const inputs[] = { "abc", "\tabc", "    abc", "a\tbc", "\t\tabc", " \tabc" };
+    for (int l = 0; l < 4; l++) {
+        for (int i = 0; i < 6; i++) {
+            cui_ctx *ui = new_ctx();
+            ced_ctx c = {0};
+            c.lang = langs[l];
+            ced_text(&c, inputs[i]);
+            run(ui, build_ced_render, &c, 3);
+            const cui_draw_data *dd = cui_get_draw_data(ui);
+            int glyph_vertices = 0;
+            for (int v = 0; v < dd->vertex_count; v++)
+                if (dd->vertices[v].mode == CUI_SHADE_TEXT) glyph_vertices++;
+            CHECK(glyph_vertices == 3 * 4);   /* a, b, c each emit one quad */
+            cui_destroy(ui);
+        }
+    }
+}
+
 static void test_code_editor(void) {
     printf("code editor: typing, indentation, undo, clipboard, find, brackets, capacity, virtualization\n");
     cui_ctx *ui = new_ctx();
@@ -8590,6 +8618,7 @@ int main(void) {
     test_hex_view();
     test_markdown();
     test_code_editor();
+    test_code_editor_indented_text();
     test_diff();
     test_dials();
     test_candles();
