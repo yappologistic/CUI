@@ -8522,6 +8522,39 @@ static void test_atlas_shrink(void) {
     cui_destroy(ui);
 }
 
+/* ---- glyph atlas: a glyph wider than the atlas grows it, a huge one is skipped ---- */
+typedef struct { float dash, first; } wide_ctx;
+static void build_wide(cui_ctx *ui, void *u) {
+    wide_ctx *c = u;
+    if (c->first > 0) cui_draw_text(ui, CUI_FONT_BODY, c->first, (cui_vec2){ 0, 0 }, CUI_RGB(0), "H", -1);
+    cui_draw_text(ui, CUI_FONT_BODY, c->dash, (cui_vec2){ 0, 100 }, CUI_RGB(0), "\xe2\x80\x94", -1);   /* an em dash: wide and flat */
+}
+static void test_atlas_wide_glyph(void) {
+    printf("glyph atlas: a glyph wider than the atlas grows it, one too big for any atlas is skipped\n");
+    at_inner = cui_sw_iface(g_sw);
+    cui_renderer_iface r = at_inner;
+    r.texture_create = at_create;
+    cui_ctx *ui = cui_create(&(cui_ctx_desc){ .renderer = r });
+    cui_set_viewport(ui, 20000, 20000, 1);
+    cui_set_reduced_motion(ui, true);
+    /* about 2000 pixels wide and 160 tall: the height fits the first atlas, the width does not */
+    wide_ctx c = { 2000, 0 };
+    run(ui, build_wide, &c, 2);
+    CHECK(at_w >= 2048);
+    /* compacting keeps the atlas wide enough for it while it is still drawn */
+    for (int i = 0; i < 700; i++) { cui_input_mouse_move(ui, (float)(i % 50), 5); run(ui, build_wide, &c, 1); }
+    CHECK(at_w >= 2048);
+    cui_destroy(ui);
+    /* about 12000 pixels wide, low enough in the atlas that its rows used to run past the end */
+    ui = cui_create(&(cui_ctx_desc){ .renderer = r });
+    cui_set_viewport(ui, 20000, 20000, 1);
+    cui_set_reduced_motion(ui, true);
+    c.dash = 12000; c.first = 60;
+    run(ui, build_wide, &c, 2);
+    CHECK(at_w < 4096);   /* skipped up front, not grown to the limit and then reset */
+    cui_destroy(ui);
+}
+
 /* ---- software renderer: incremental frames equal full ones ---- */
 static cui_sw_renderer *inc_a, *inc_b;
 static cui_texture inc_create(void *u, int w, int h, cui_texture_format f, const void *px) {
@@ -8715,6 +8748,7 @@ int main(void) {
     test_terminal();
     test_emoji();
     test_atlas_shrink();
+    test_atlas_wide_glyph();
     test_sw_incremental();
     test_emoji_release();
     test_planning();
