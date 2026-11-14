@@ -8,6 +8,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#ifdef CUI_TEST_WINDOWS_IMAGE_PATH
+#include <wchar.h>
+#endif
 
 static int g_failed, g_checks;
 #define CHECK(cond) do { g_checks++; if (!(cond)) { g_failed++; printf("  FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond); } } while (0)
@@ -1553,6 +1556,68 @@ static void build_pickers(cui_ctx *ui, void *u) {
 static void build_pickers_root(cui_ctx *ui, void *u) {
     cui_row(ui, .width = CUI_FILL, .height = CUI_FILL, .align = CUI_ALIGN_START) { build_pickers(ui, u); }
 }
+
+typedef struct { bool disabled; int drops; cui_id id; } drop_target_case;
+
+/** Use the same drop target with and without a disabled scope. */
+static void build_drop_target(cui_ctx *ui, void *user) {
+    drop_target_case *target = user;
+    cui_push_disabled(ui, target->disabled);
+    target->drops = cui_dropzone(ui, "drop target", .accept = "png", .width = CUI_PX(300));
+    target->id = cui_last_id(ui);
+    cui_pop_disabled(ui);
+}
+
+/** A disabled drop target leaves the drop available to the application. */
+static void test_disabled_file_drop(void) {
+    printf("file drop: a disabled target does not claim the drop\n");
+    cui_ctx *ui = new_ctx();
+    drop_target_case target = { .disabled = true };
+    const char *paths[] = { "photo.png" };
+    run(ui, build_drop_target, &target, 3);
+    cui_vec2 p = center(rect_of(ui, target.id));
+    cui_input_file_drop(ui, paths, 1, p.x, p.y);
+    cui_begin_frame(ui, 1.0f / 60.0f);
+    build_drop_target(ui, &target);
+    CHECK(target.drops == 0);
+    CHECK(cui_dropped_file_count(ui) == 1);
+    cui_end_frame(ui);
+    target.disabled = false;
+    cui_input_file_drop(ui, paths, 1, p.x, p.y);
+    run(ui, build_drop_target, &target, 1);
+    CHECK(target.drops == 1);
+    cui_destroy(ui);
+}
+
+#ifdef CUI_TEST_WINDOWS_IMAGE_PATH
+/** Load a generated PNG through the same UTF-8 path API used by avatar upload. */
+static void test_windows_image_path(void) {
+    printf("image load: UTF-8 path on Windows\n");
+    const wchar_t wide_name[] = L"cui-path-\x753b\x50cf.png";
+    const char utf8_name[] = "cui-path-\xe7\x94\xbb\xe5\x83\x8f.png";
+    const unsigned char pixel[4] = { 20, 40, 60, 255 };
+    const char fixture[] = "cui-image-path-fixture.png";
+    CHECK(cui_write_png(fixture, pixel, 1, 1, 4));
+    FILE *input = fopen(fixture, "rb");
+    FILE *output = _wfopen(wide_name, L"wb");
+    CHECK(input && output);
+    if (input && output) {
+        unsigned char data[256];
+        size_t count = fread(data, 1, sizeof data, input);
+        CHECK(feof(input) && fwrite(data, 1, count, output) == count);
+    }
+    if (input) fclose(input);
+    if (output) fclose(output);
+    remove(fixture);
+    cui_ctx *ui = new_ctx();
+    int w = 0, h = 0;
+    cui_texture image = cui_image_load(ui, utf8_name, &w, &h);
+    CHECK(image && w == 1 && h == 1);
+    if (image) cui_image_destroy(ui, image);
+    cui_destroy(ui);
+    _wremove(wide_name);
+}
+#endif
 
 static void test_pickers(void) {
     printf("pickers: multi-select, range calendar, wheel, ruler, dial, dropzone, signature\n");
@@ -8315,6 +8380,10 @@ int main(void) {
     test_calendar_years();
     test_date_picker_reopens_on_days();
     test_pickers();
+    test_disabled_file_drop();
+#ifdef CUI_TEST_WINDOWS_IMAGE_PATH
+    test_windows_image_path();
+#endif
     test_disclosure();
     test_confirm_popover_keyboard();
     test_checklist();

@@ -1403,10 +1403,10 @@ bool cui_path_has_extension(const char *path, const char *accept) {
     return false;
 }
 
-/* Claims this frame's drop if it landed inside r. Returns accepted count. */
+/** Claim this frame's drop only for an enabled target. */
 static int cui__claim_drop(cui_ctx *ui, cui_rect r, const char *accept, int *rejected) {
     *rejected = 0;
-    if (ui->drop_count == 0 || ui->drop_claimed || r.w <= 0) return 0;
+    if (cui_is_disabled(ui) || ui->drop_count == 0 || ui->drop_claimed || r.w <= 0) return 0;
     if (!cui__rect_contains(r, ui->drop_x, ui->drop_y)) return 0;
     ui->drop_claimed = true;
     int ok = 0;
@@ -1477,6 +1477,7 @@ static void cui__paint_dropzone(cui_ctx *ui, cui_node *n, void *data) {
 
 typedef struct { float hover, drag; cui_spring lift; double done_at; int done_count, rejected; } cui__drop_state;
 
+/** Build a dropzone and show drag feedback only while it can accept a drop. */
 int cui_dropzone_ex(cui_ctx *ui, const char *id_str, const cui_dropzone_opts *o) {
     cui_dropzone_opts d;
     memset(&d, 0, sizeof d);
@@ -1488,7 +1489,7 @@ int cui_dropzone_ex(cui_ctx *ui, const char *id_str, const cui_dropzone_opts *o)
     int rejected = 0;
     int got = cui__claim_drop(ui, pr, o->accept, &rejected);
     if (got || rejected) { st->done_at = ui->time; st->done_count = got; st->rejected = rejected; }
-    bool over = ui->drag_hover && cui__rect_contains(pr, ui->drag_x, ui->drag_y);
+    bool over = !cui_is_disabled(ui) && ui->drag_hover && cui__rect_contains(pr, ui->drag_x, ui->drag_y);
     cui__tween(ui, &st->hover, r.hovered ? 1.0f : 0.0f, CUI__T_HOVER);
     cui__tween(ui, &st->drag, over ? 1.0f : 0.0f, CUI__T_STATE);
     cui__spring(ui, &st->lift, over ? 1.0f : 0.0f, CUI_SPRING_SNAPPY);
@@ -1566,6 +1567,7 @@ static void cui__paint_avatar_overlay(cui_ctx *ui, cui_node *n, void *data) {
         cui_draw_rect_border(ui, cui__rect_inset(r, -4), CUI_CORNERS(rad + 4), cui__rgba(0, 0, 0, 0), cui_alpha(p->ring, p->ring_t), 2);
 }
 
+/** Build an avatar image target that only accepts drops while enabled. */
 int cui_avatar_upload(cui_ctx *ui, const char *id_str, const char *name, cui_texture *image, float size) {
     if (size <= 0) size = 88;
     cui_id id = cui_make_id(ui, id_str);
@@ -1586,7 +1588,7 @@ int cui_avatar_upload(cui_ctx *ui, const char *id_str, const char *name, cui_tex
         }
     }
     if (r.clicked) result = -1;
-    bool over = ui->drag_hover && cui__rect_contains(pr, ui->drag_x, ui->drag_y);
+    bool over = !cui_is_disabled(ui) && ui->drag_hover && cui__rect_contains(pr, ui->drag_x, ui->drag_y);
     cui__tween(ui, &st->hover, (r.hovered || over) ? 1.0f : 0.0f, CUI__T_HOVER);
     cui__tween(ui, &st->drag, over ? 1.0f : 0.0f, CUI__T_STATE);
     if (st->pop.x == 0) st->pop.x = 1;
