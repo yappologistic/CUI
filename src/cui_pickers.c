@@ -749,6 +749,7 @@ static void cui__paint_wheel(cui_ctx *ui, cui_node *n, void *data) {
     cui_pop_clip(ui);
 }
 
+/** Build a wheel picker and apply input routed to its drum. */
 bool cui_wheel_picker_ex(cui_ctx *ui, const char *id_str, const char *const *items, int count, int *index, const cui_wheel_opts *o) {
     cui_wheel_opts d;
     memset(&d, 0, sizeof d);
@@ -802,8 +803,9 @@ bool cui_wheel_picker_ex(cui_ctx *ui, const char *id_str, const char *const *ite
             st->vel = 0;
         }
     }
-    if (r.hovered && ui->scroll_dy != 0 && !st->dragging) {
-        st->wheel_acc -= ui->scroll_dy;
+    float wheel = r.hovered && !st->dragging ? cui__take_vertical_wheel(ui, id) : 0;
+    if (wheel != 0) {
+        st->wheel_acc -= wheel;
         int steps = (int)st->wheel_acc;
         if (steps == 0) steps = st->wheel_acc > 0 ? 1 : -1;
         st->wheel_acc = 0;
@@ -811,7 +813,6 @@ bool cui_wheel_picker_ex(cui_ctx *ui, const char *id_str, const char *const *ite
         if (o->loop) { k %= count; if (k < 0) k += count; target += (float)steps; }
         else { k = CUI_CLAMP(k, 0, count - 1); target = (float)k; }
         *index = k;
-        ui->scroll_dy = 0;
     }
     if (ui->focus == id) {
         int dk = 0;
@@ -838,6 +839,10 @@ bool cui_wheel_picker_ex(cui_ctx *ui, const char *id_str, const char *const *ite
     p->fg = CUI_C(ui, FOREGROUND);
     p->dim = CUI_C(ui, TEXT_MUTED);
     p->font_size = cui__fs(ui, ui->theme.text_body + 2);
+    if (!cui_is_disabled(ui) && !st->dragging && count > 1) {
+        if (o->loop || *index > 0) n->flags |= CUI_HIT_WHEEL_UP;
+        if (o->loop || *index < count - 1) n->flags |= CUI_HIT_WHEEL_DOWN;
+    }
     n->paint = cui__paint_wheel;
     n->paint_data = p;
     cui__focus_ring(ui, node, r.focus_visible ? 1.0f : 0.0f);
@@ -1046,6 +1051,7 @@ static void cui__paint_ruler(cui_ctx *ui, cui_node *n, void *data) {
     cui_draw_polygon(ui, tri, 3, p->marker);
 }
 
+/** Build a ruler slider, taking vertical wheel input before the enclosing view. */
 bool cui_ruler_slider_ex(cui_ctx *ui, const char *label, float *value, float min, float max, const cui_ruler_opts *o) {
     cui_ruler_opts d;
     memset(&d, 0, sizeof d);
@@ -1081,12 +1087,13 @@ bool cui_ruler_slider_ex(cui_ctx *ui, const char *label, float *value, float min
             target = *value;
         }
     }
-    if (r.hovered && (ui->scroll_dx != 0 || ui->scroll_dy != 0) && !st->dragging) {
-        float dv = (ui->scroll_dx != 0 ? -ui->scroll_dx : -ui->scroll_dy) * step;
+    float wheel = r.hovered && !st->dragging ? cui__take_vertical_wheel(ui, rid) : 0;
+    if (r.hovered && (ui->scroll_dx != 0 || wheel != 0) && !st->dragging) {
+        float dv = (wheel != 0 ? -wheel : -ui->scroll_dx) * step;
         *value = cui__clampf(*value + (dv > 0 ? CUI_MAX(dv, step) : CUI_MIN(dv, -step)), min, max);
         *value = roundf((*value - min) / step) * step + min;
         target = *value;
-        ui->scroll_dx = ui->scroll_dy = 0;
+        if (wheel == 0) ui->scroll_dx = 0;
     }
     if (ui->focus == rid) {
         float k = (ui->mods & CUI_MOD_SHIFT) ? major : 1;
@@ -1119,6 +1126,10 @@ bool cui_ruler_slider_ex(cui_ctx *ui, const char *label, float *value, float min
     int tape = cui__leaf(ui, rid, CUI_FILL, CUI_PX(52));
     ui->nodes[tape].self_align = CUI_ALIGN_STRETCH;
     cui__mark_interactive(ui, tape, CUI_IF_FOCUSABLE | CUI_IF_DRAG);
+    if (!cui_is_disabled(ui) && !st->dragging) {
+        if (*value > min) ui->nodes[tape].flags |= CUI_HIT_WHEEL_UP;
+        if (*value < max) ui->nodes[tape].flags |= CUI_HIT_WHEEL_DOWN;
+    }
     if (r.hovered || st->dragging) cui__set_cursor(ui, CUI_CURSOR_RESIZE_EW);
     cui__ruler_paint *p = cui__frame_alloc(ui, sizeof *p);
     p->value = st->shown.x; p->min = min; p->max = max; p->step = step; p->spacing = spacing; p->major = major; p->format = fmt;

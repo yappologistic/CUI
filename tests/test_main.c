@@ -1535,6 +1535,45 @@ static void test_scroll_swipe(void) {
 
 /* pickers ------------------------------------------------------------------ */
 
+typedef struct { int day; float value; cui_id wheel, tape; } scroll_picker_case;
+
+/** Put the wheel and ruler inside a scrollable page with room to move. */
+static void build_scroll_pickers(cui_ctx *ui, void *user) {
+    scroll_picker_case *pickers = user;
+    static const char *const days[] = { "Monday", "Tuesday", "Wednesday" };
+    cui_scroll(ui, .id = "pickers", .height = CUI_PX(330)) {
+        cui_wheel_picker(ui, "day", days, 3, &pickers->day);
+        pickers->wheel = cui_last_id(ui);
+        cui_ruler_slider(ui, "Level", &pickers->value, 0, 100, .width = CUI_PX(180));
+        pickers->tape = cui_last_id(ui);
+        cui_gap(ui, 600);
+    }
+}
+
+/** Wheel input over each picker changes its value without scrolling its parent. */
+static void test_scroll_pickers(void) {
+    printf("pickers: wheel routing within a scroll view\n");
+    cui_ctx *ui = new_ctx();
+    scroll_picker_case pickers = { .day = 1, .value = 20 };
+    run(ui, build_scroll_pickers, &pickers, 3);
+    cui_rect wheel = rect_of(ui, pickers.wheel);
+    cui_vec2 p = center(wheel);
+    cui_input_mouse_move(ui, p.x, p.y);
+    run(ui, build_scroll_pickers, &pickers, 1);
+    cui_input_scroll(ui, 0, -1);
+    run(ui, build_scroll_pickers, &pickers, 2);
+    CHECK(pickers.day == 2);
+    CHECK_NEAR(rect_of(ui, pickers.wheel).y, wheel.y, 0.01);
+    p = center(rect_of(ui, pickers.tape));
+    cui_input_mouse_move(ui, p.x, p.y);
+    run(ui, build_scroll_pickers, &pickers, 1);
+    cui_input_scroll(ui, 0, -1);
+    run(ui, build_scroll_pickers, &pickers, 2);
+    CHECK_NEAR(pickers.value, 21, 0.01);
+    CHECK_NEAR(rect_of(ui, pickers.wheel).y, wheel.y, 0.01);
+    cui_destroy(ui);
+}
+
 static void test_date_math(void) {
     printf("dates: day numbers round trip\n");
     CHECK(cui_date_to_days((cui_date){ 1970, 1, 1 }) == 0);
@@ -8453,6 +8492,7 @@ int main(void) {
     test_range_slider_context_menu();
     test_swipe();
     test_scroll_swipe();
+    test_scroll_pickers();
     test_date_math();
     test_strings();
     test_sql_colors();

@@ -59,6 +59,7 @@ What changed in CUI, newest first. Every component mentioned here runs live in t
 
 - Split panes share the available space when their minimum sizes do not fit.
 - A vertical scroll view preserves horizontal wheel input for swipe actions inside it.
+- A wheel picker or ruler can use the vertical wheel inside a scrolling page.
 - Disabled dropzones and avatar upload targets leave dropped files available to the application.
 - Image loading accepts UTF-8 file paths on Windows.
 - The JSON viewer reports malformed number literals and string escapes as invalid JSON.
