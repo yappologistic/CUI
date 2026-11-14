@@ -181,7 +181,7 @@ static void cui__tm_sgr(cui_ctx *ui, cui__tm_style *st, const char *s, int n) {
     int p[16], np = 0, v = -1;
     for (int k = 2; k < n - 1 && np < 16; k++) {
         char c = s[k];
-        if (c >= '0' && c <= '9') v = (v < 0 ? 0 : v) * 10 + (c - '0');
+        if (c >= '0' && c <= '9') { v = (v < 0 ? 0 : v) * 10 + (c - '0'); if (v > 65535) v = 65535; }   /* clamp: a long digit run must not overflow int */
         else if (c == ';' || c == ':') { p[np++] = v < 0 ? 0 : v; v = -1; }
     }
     if (np < 16) p[np++] = v < 0 ? 0 : v;

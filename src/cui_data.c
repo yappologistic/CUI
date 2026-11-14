@@ -96,9 +96,13 @@ bool cui_accordion_begin(cui_ctx *ui, const char *title, bool *open) {
     ct->w = CUI_FILL;
     cui__open(ui, content);
     bool closing = !*open;
-    if (ui->acc_depth < 32) ui->acc_dis[ui->acc_depth] = closing;
-    ui->acc_depth++;
-    if (closing) cui_push_disabled(ui, true);
+    if (ui->acc_depth < 32) {
+        ui->acc_dis[ui->acc_depth] = closing;
+        ui->acc_depth++;
+        if (closing) cui_push_disabled(ui, true);   /* push and pop must stay paired at any depth */
+    } else {
+        ui->acc_depth++;   /* beyond the tracked depth nothing is pushed, so end() must not pop either */
+    }
     return true;
 }
 
@@ -264,9 +268,14 @@ void cui_virtual_list_begin(cui_ctx *ui, const char *id_str, int count, float ro
     *last = l;
     /* spacer above */
     if (f > 0) cui__leaf(ui, 0, CUI_FILL, CUI_PX(f * row_h));
-    cui__vlist_build *vb = &ui->vl_stack[ui->vl_depth < 8 ? ui->vl_depth : 7];
-    if (ui->vl_depth < 8) ui->vl_depth++;
-    vb->count = count; vb->row_h = row_h; vb->first = f;
+    cui__vlist_build *vb;
+    if (ui->vl_depth < 8) {
+        vb = &ui->vl_stack[ui->vl_depth++];
+        vb->count = count; vb->row_h = row_h; vb->first = f;
+    } else {
+        vb = &ui->vl_stack[7];   /* deeper than the stack holds: mark the slot so end() skips the bottom spacer instead of stealing the outer list's record */
+        vb->count = -1;
+    }
     /* rows are placed in a column of fixed-height rows */
     int rows = cui__node_new(ui, 0);
     ui->nodes[rows].w = CUI_FILL;
@@ -279,10 +288,12 @@ void cui_virtual_list_end(cui_ctx *ui) {
     cui__close(ui);
     if (ui->vl_depth > 0) {
         cui__vlist_build *vb = &ui->vl_stack[--ui->vl_depth];
-        int rows = ui->nodes[cui__current(ui)].last;
-        float shown = rows >= 0 ? ui->nodes[rows].h.value : 0;
-        float rest = vb->count * vb->row_h - vb->first * vb->row_h - shown;
-        if (rest > 0) cui__leaf(ui, 0, CUI_FILL, CUI_PX(rest));
+        if (vb->count >= 0) {
+            int rows = ui->nodes[cui__current(ui)].last;
+            float shown = rows >= 0 ? ui->nodes[rows].h.value : 0;
+            float rest = vb->count * vb->row_h - vb->first * vb->row_h - shown;
+            if (rest > 0) cui__leaf(ui, 0, CUI_FILL, CUI_PX(rest));
+        }
     }
     cui__scroll_end_ex(ui);
 }
@@ -464,7 +475,7 @@ void cui_table_cell(cui_ctx *ui) {
 void cui_table_cell_text(cui_ctx *ui, const char *text) {
     cui_table_cell(ui);
     struct cui_table_build *t = ui->building.table;
-    bool right = t && t->col - 1 < t->ncols && t->cols[t->col - 1].align == CUI_TEXT_RIGHT;
+    bool right = t && t->col >= 1 && t->col - 1 < t->ncols && t->cols[t->col - 1].align == CUI_TEXT_RIGHT;
     int tx = cui__text_node(ui, text, -1, CUI_FONT_BODY, cui__fs(ui, ui->theme.text_body), CUI_C(ui, FOREGROUND), false);
     ui->nodes[tx].line_height = 1.3f;
     if (right) ui->nodes[tx].flags |= CUI_NF_TABULAR;

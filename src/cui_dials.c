@@ -134,6 +134,7 @@ bool cui_knob_ex(cui_ctx *ui, const char *id_str, float *value, float min, float
     cui__knob_state *st = cui_state(ui, id, sizeof *st);
     bool lg = o->log_scale && min > 0;
     float old = *value, t = cui__dl_pos(*value, min, max, lg);
+    float t_in = t;   /* the app's value untouched this frame */
     if (!st->init) { st->shown.x = t; st->init = true; }
     float reset_t = cui__dl_reset_t(min, max, o->reset, lg);
     /* drag up to turn right: 200 points for the whole range, Shift for a tenth of that */
@@ -145,9 +146,12 @@ bool cui_knob_ex(cui_ctx *ui, const char *id_str, float *value, float min, float
         t = cui__clampf(st->ref_t + (st->ref_y - ui->my) / (fine ? 2000.0f : 200.0f), 0, 1);
     } else st->dragging = false;
     if (!disabled) t = cui__dl_input(ui, r, wid, t, min, max, lg ? 0 : o->step, reset_t);
-    float v = cui__dl_value(t, min, max, o->step, lg);
-    *value = v;
-    t = cui__dl_pos(v, min, max, lg);
+    float v = *value;
+    if (t != t_in) {   /* write back only when an input path ran: a disabled or untouched knob must not quantize the app's value */
+        v = cui__dl_value(t, min, max, o->step, lg);
+        *value = v;
+        t = cui__dl_pos(v, min, max, lg);
+    }
     if (st->dragging) { st->shown.x = t; st->shown.v = 0; }
     else cui__spring(ui, &st->shown, t, 0.26f, 0.0f);
     cui__tween(ui, &st->hover, (r.hovered || r.active) ? 1.0f : 0.0f, CUI__T_HOVER);
@@ -361,6 +365,7 @@ bool cui_fader_ex(cui_ctx *ui, const char *id_str, float *value, float min, floa
     cui_pop_disabled(ui);
     cui__fader_state *st = cui_state(ui, id, sizeof *st);
     float old = *value, t = cui__dl_norm(*value, min, max);
+    float t_in = t;   /* the app's value untouched this frame */
     if (!st->init) { st->shown.x = t; st->init = true; }
     bool hz = o->horizontal;
     const char *fmt = o->format ? o->format : "%.1f";
@@ -393,9 +398,12 @@ bool cui_fader_ex(cui_ctx *ui, const char *id_str, float *value, float min, floa
         t = cui__clampf(st->ref_t + (px - st->ref_px) / (b - a) * (fine ? 0.1f : 1.0f), 0, 1);
     } else st->dragging = false;
     if (!disabled) t = cui__dl_input(ui, r, wid, t, min, max, o->step, reset_t);
-    float v = cui__dl_value(t, min, max, o->step, false);
-    *value = v;
-    t = cui__dl_norm(v, min, max);
+    float v = *value;
+    if (t != t_in) {   /* write back only when an input path ran: a disabled or untouched fader must not quantize the app's value */
+        v = cui__dl_value(t, min, max, o->step, false);
+        *value = v;
+        t = cui__dl_norm(v, min, max);
+    }
     if (st->dragging) { st->shown.x = t; st->shown.v = 0; }
     else cui__spring(ui, &st->shown, t, 0.26f, 0.0f);
     cui__tween(ui, &st->hover, (r.hovered || r.active) ? 1.0f : 0.0f, CUI__T_HOVER);

@@ -7,10 +7,12 @@
 typedef struct { cui_spring intro; cui_spring hx; float hover_t; int hover; bool init; float plot_x, plot_w; } cui__chart_state;
 
 void cui__nice_range(float lo, float hi, int target_ticks, float *out_lo, float *out_hi, float *out_step) {
-    if (hi <= lo) { hi = lo + 1; }
+    if (hi <= lo) hi = lo + CUI_MAX(1.0f, fabsf(lo) * 1e-6f);   /* widen relative to magnitude: at |lo| > ~3e7 the float ULP is 1+, so lo + 1 would round back to lo */
     float range = hi - lo;
+    if (!(range > 0.0f)) { *out_lo = lo; *out_hi = hi; *out_step = 1.0f; return; }   /* final guard against a NaN-producing zero step */
     float rough = range / (float)target_ticks;
     float mag = powf(10.0f, floorf(log10f(rough)));
+    if (!(mag > 0.0f)) mag = 1.0f;
     float norm = rough / mag;
     float step = norm < 1.5f ? 1 : norm < 2.25f ? 2 : norm < 3.5f ? 2.5f : norm < 7.5f ? 5 : 10;
     step *= mag;

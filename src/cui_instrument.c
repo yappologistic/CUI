@@ -53,6 +53,7 @@ static void cui__ins_draw_axis(cui_ctx *ui, const cui__ins_axis *a, float px, fl
     if (!(a->x1 > a->x0)) return;
     double step = a->step > 0 ? a->step : cui__ins_step(a->units, a->x1 - a->x0, pw, a->units == CUI_AXIS_HOURS ? 34 : 56);
     if (!(step > 0)) return;
+    if (step * 1024.0 < a->x1 - a->x0) step = (a->x1 - a->x0) / 1024.0;   /* a caller step that is far too fine would loop for hours and flood the frame arena */
     float fs = cui__fs(ui, ui->theme.text_xs);
     double first = ceil(a->x0 / step - 1e-9) * step;
     float last_end = -1e9f;

@@ -176,6 +176,7 @@ static bool cui__posix_file_dialog(const cui_file_dialog_opts *o, char *out, siz
                 k += (size_t)snprintf(types + k, sizeof types - k, "%s\"%.*s\"", p == o->filter ? "" : ", ", (int)l, p);
                 p = e ? e + 1 : p + l;
             }
+            if (k >= sizeof types) k = sizeof types - 1;   /* the loop's would-be lengths can overshoot the buffer */
             snprintf(types + k, sizeof types - k, "}");
         }
         snprintf(script, sizeof script, "POSIX path of (choose file with prompt \"%s\"%s)", title, types);
@@ -221,6 +222,7 @@ static bool cui__posix_file_dialog(const cui_file_dialog_opts *o, char *out, siz
                 k += (size_t)snprintf(spec + k, sizeof spec - k, "%s*.%.*s", k ? " " : "", (int)l, p);
                 p = e ? e + 1 : p + l;
             }
+            if (k >= sizeof spec) k = sizeof spec - 1;   /* the loop's would-be lengths can overshoot the buffer */
             snprintf(spec + k, sizeof spec - k, "|%s", o->filter_name ? o->filter_name : "Files");
             cui__shell_quote(filter, sizeof filter, spec);
         }

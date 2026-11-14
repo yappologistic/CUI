@@ -377,11 +377,16 @@ static int cui__utf8_cps(const char *s, int len, uint32_t *cps, int cap) {
         unsigned char c = (unsigned char)s[i];
         uint32_t cp; int k;
         if (c < 0x80) { cp = c; k = 1; }
-        else if ((c & 0xE0) == 0xC0) { cp = c & 0x1F; k = 2; }
+        else if ((c & 0xE0) == 0xC0 && c >= 0xC2) { cp = c & 0x1F; k = 2; }   /* 0xC0/0xC1 are overlong encodings */
         else if ((c & 0xF0) == 0xE0) { cp = c & 0x0F; k = 3; }
-        else { cp = c & 0x07; k = 4; }
+        else if ((c & 0xF8) == 0xF0 && c <= 0xF4) { cp = c & 0x07; k = 4; }   /* 0xF5..0xFF are not UTF-8 */
+        else { cp = 0xFFFD; k = 1; }   /* a stray or invalid byte becomes one replacement character, like the core decoder */
         if (i + k > len) break;
-        for (int j = 1; j < k; j++) cp = cp << 6 | ((unsigned char)s[i + j] & 0x3F);
+        bool ok = true;
+        for (int j = 1; j < k; j++)
+            if (((unsigned char)s[i + j] & 0xC0) != 0x80) { ok = false; break; }   /* continuation bytes must be well formed */
+        if (!ok) { cp = 0xFFFD; k = 1; }
+        else for (int j = 1; j < k; j++) cp = cp << 6 | ((unsigned char)s[i + j] & 0x3F);
         cps[n++] = cp; i += k;
     }
     return n;

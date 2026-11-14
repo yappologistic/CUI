@@ -723,6 +723,11 @@ static void cui__atlas_grow(cui_ctx *ui) {
 static bool cui__atlas_pack(cui_ctx *ui, int w, int h, int *ox, int *oy) {
     for (;;) {
         if (ui->pack_x + w + 1 > ui->atlas_w) { ui->pack_x = 1; ui->pack_y += ui->pack_row_h + 1; ui->pack_row_h = 0; }
+        if (ui->pack_x + w + 1 > ui->atlas_w) {   /* a single glyph wider than the atlas must grow it too, or the row below overflows */
+            if (ui->atlas_w >= CUI_ATLAS_MAX) return false;
+            cui__atlas_grow(ui);
+            continue;
+        }
         if (ui->pack_y + h + 1 <= ui->atlas_h) break;
         if (ui->atlas_w >= CUI_ATLAS_MAX) return false;
         cui__atlas_grow(ui);
@@ -751,6 +756,7 @@ static cui_glyph *cui__glyph_get(cui_ctx *ui, cui_font font, int gi, float px_si
     int x0, y0, x1, y1;
     stbtt_GetGlyphBitmapBoxSubpixel(&fd->info, gi, scale, scale, shift, 0, &x0, &y0, &x1, &y1);
     int w = x1 - x0, hgt = y1 - y0;
+    if (w > CUI_ATLAS_MAX - 2 || hgt > CUI_ATLAS_MAX - 2) { ui->atlas_reset_pending = true; return NULL; }   /* a pathological outline must not overflow the int16/uint16 glyph fields */
     int ax = 0, ay = 0;
     if (w > 0 && hgt > 0) {
         if (!cui__atlas_pack(ui, w, hgt, &ax, &ay)) { ui->atlas_reset_pending = true; return NULL; }

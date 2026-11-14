@@ -47,8 +47,9 @@ int cui_fs_list(void *user, const char *path, cui_file_entry *out, int cap, char
         if (!wcscmp(fd.cFileName, L".") || !wcscmp(fd.cFileName, L"..")) continue;
         if (!hidden && ((fd.dwFileAttributes & FILE_ATTRIBUTE_HIDDEN) || fd.cFileName[0] == L'.')) continue;
         if (count >= cap) break;
+        if (used >= names_cap) break;   /* WideCharToMultiByte with cbMultiByte == 0 is a size query: it would return a length and write nothing, leaving name dangling one past the buffer */
         int len = WideCharToMultiByte(CP_UTF8, 0, fd.cFileName, -1, names + used, (int)(names_cap - used), NULL, NULL);
-        if (len <= 0) break;   /* out of name space */
+        if (len <= 0 || used + (size_t)len > names_cap) break;   /* out of name space */
         cui_file_entry *e = &out[count++];
         e->name = names + used;
         used += (size_t)len;

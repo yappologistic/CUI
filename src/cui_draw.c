@@ -405,6 +405,7 @@ void cui__draw_sheen(cui_ctx *ui, cui_rect r, cui_corners rad, float k) {
 
 void cui__draw_check(cui_ctx *ui, cui_rect r, float t, float thick, cui_color c) {
     if (t <= 0.001f) return;
+    if (!(r.w > 0.0f && r.h > 0.0f)) return;   /* a degenerate rect would divide 0/0 below and send NaN into the mesh */
     cui_vec2 a = { r.x + r.w * 0.22f, r.y + r.h * 0.53f };
     cui_vec2 b = { r.x + r.w * 0.42f, r.y + r.h * 0.72f };
     cui_vec2 d = { r.x + r.w * 0.78f, r.y + r.h * 0.32f };

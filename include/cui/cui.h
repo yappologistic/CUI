@@ -4364,6 +4364,18 @@ typedef struct cui_regex_match {
 } cui_regex_match;
 CUI_API int cui_regex_search(const char *pattern, int flags, const char *text, int len, int from, cui_regex_match *m, const char **error);
 
+/* Replace every match of the pattern in text with a template. In the template,
+ * "$0" to "$9" stand for the whole match and the capture groups, as in
+ * JavaScript ($1 is the first group; a group that took no part contributes
+ * nothing), and everything else is copied literally. The result is written to
+ * out, at most out_cap bytes, always NUL terminated, and the return value is
+ * the number of bytes the whole result needs, snprintf style: a return of
+ * out_cap or more means it was truncated. With out NULL the length is measured
+ * without writing. Text with no match is copied unchanged. Returns -1 when the
+ * pattern does not compile, with *error set. An empty match advances one
+ * character, so "x*" replaces every character once, not forever. */
+CUI_API int cui_regex_replace(const char *pattern, int flags, const char *text, int len, const char *replacement, char *out, size_t out_cap, const char **error);
+
 /* A pattern field with flags over a test text: every match is highlighted in
  * the text and its groups in their own colors, and the list below shows each
  * match with its groups. Errors show under the pattern. Both buffers are

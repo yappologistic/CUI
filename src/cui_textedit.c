@@ -39,10 +39,12 @@ static int cui__cp_count(const char *s, int len) {
 
 static float cui__x_at(cui_ctx *ui, const cui__edit_paint *p, const char *line, int line_len, int off) {
     if (p->password) {
-        char tmp[1024];
+        /* the painted mask is one bullet per code point and every bullet has the
+         * same advance, so measure arithmetically: a fixed mask buffer would
+         * truncate around 340 characters and desync caret from glyphs */
         int cps = cui__cp_count(line, off);
-        int n = cui__edit_mask(tmp, sizeof tmp, cps);
-        return cui__text_width(ui, p->font, p->size, tmp, n, false);
+        float one = cui__text_width(ui, p->font, p->size, "\xE2\x80\xA2", 3, false);
+        return one * (float)cps;
     }
     (void)line_len;
     return cui__text_width(ui, p->font, p->size, line, off, false);

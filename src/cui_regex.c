@@ -116,7 +116,9 @@ static int cui__rx_class(cui__rx *R) {
     while (R->p < R->end && (*R->p != ']' || first)) {
         first = false;
         int a = (unsigned char)*R->p++;
-        if (a == '\\') {
+        if (a == '\\' && R->p < R->end && *R->p == 'b') { R->p++; a = 0x08; }   /* [\b] is backspace, as in JS/PCRE/Python */
+        else if (a == '\\') {
+            if (R->p < R->end && *R->p == 'B') { R->error = "Unknown escape"; return -1; }
             a = cui__rx_escape(R);
             if (a == -2) return -1;
             if (a == -1) { cui__rx_class_escape(s, (unsigned char)*R->p++); continue; }
@@ -383,7 +385,8 @@ static int cui__rx_cont(cui__rx_m *M, int i, const cui__rx_k *k) {
         break;
     }
     case RK_GROUP_END: {
-        int g = R->node[k->node].group;
+        int g = R->node[k->node].group;   /* -1 for a non-capturing (?: ) group */
+        if (g < 0) { r = cui__rx_cont(M, i, k->next); break; }
         int old = M->cap[g][1];
         M->cap[g][1] = i;
         r = cui__rx_cont(M, i, k->next);
@@ -457,12 +460,12 @@ static int cui__rx_match(cui__rx_m *M, int node, int i, const cui__rx_k *k) {
         for (int a = 0; a < n->nkid && !r && !M->abort; a++) r = cui__rx_match(M, R->kid[n->kid + a], i, k);
         break;
     case RX_GROUP: {
-        int g = n->group;
-        int o0 = M->cap[g][0], o1 = M->cap[g][1];
-        M->cap[g][0] = i;
+        int g = n->group;   /* -1 for a non-capturing (?: ) group */
+        int o0 = g >= 0 ? M->cap[g][0] : 0, o1 = g >= 0 ? M->cap[g][1] : 0;
+        if (g >= 0) M->cap[g][0] = i;
         cui__rx_k end = { RK_GROUP_END, node, 0, 0, k };
         r = cui__rx_match(M, R->kid[n->kid], i, &end);
-        if (!r) { M->cap[g][0] = o0; M->cap[g][1] = o1; }
+        if (!r && g >= 0) { M->cap[g][0] = o0; M->cap[g][1] = o1; }
         break;
     }
     case RX_REPEAT: {
@@ -506,4 +509,58 @@ int cui_regex_search(const char *pattern, int flags, const char *text, int len, 
         if (M.abort) { if (error) *error = "Too complex: the pattern backtracks too much"; return -2; }
     }
     return 0;
+}
+
+/* ---- replace ---- */
+
+typedef struct { char *s; size_t cap, n; } cui__rx_out;
+
+static void cui__rx_put(cui__rx_out *o, const char *s, size_t n) {
+    if (o->s && o->n < o->cap) {
+        size_t room = o->cap - 1 - o->n;   /* one byte stays for the terminator */
+        memcpy(o->s + o->n, s, n < room ? n : room);
+    }
+    o->n += n;
+}
+
+int cui_regex_replace(const char *pattern, int flags, const char *text, int len, const char *replacement, char *out, size_t out_cap, const char **error) {
+    if (error) *error = NULL;
+    if (!text) text = "";
+    if (len < 0) len = (int)strlen(text);
+    if (!replacement) replacement = "";
+    cui__rx_out o = { out, out && out_cap ? out_cap : 0, 0 };
+    if (o.s && o.cap) o.s[0] = 0;
+    if (!pattern) { cui__rx_put(&o, text, (size_t)len); goto finish; }
+    int last = 0, from = 0;
+    cui_regex_match m;
+    while (from <= len) {
+        int r = cui_regex_search(pattern, flags, text, len, from, &m, error);
+        if (r < 0) return -1;
+        if (r == 0) break;
+        cui__rx_put(&o, text + last, (size_t)(m.start - last));
+        for (const char *p = replacement; *p; p++) {
+            if (*p == '$' && p[1] >= '0' && p[1] <= '9') {
+                int g = p[1] - '0';
+                p++;
+                if (g <= m.groups && m.group_start[g] >= 0)
+                    cui__rx_put(&o, text + m.group_start[g], (size_t)(m.group_end[g] - m.group_start[g]));
+            } else cui__rx_put(&o, p, 1);
+        }
+        if (m.end == m.start) {   /* an empty match: keep the character it sits before, so the loop advances */
+            if (m.start < len) {
+                int cl = 1;
+                while (m.start + cl < len && ((unsigned char)text[m.start + cl] & 0xC0) == 0x80) cl++;
+                cui__rx_put(&o, text + m.start, (size_t)cl);
+                last = m.start + cl;
+            } else last = m.end;
+            from = m.start + 1;
+        } else {
+            last = m.end;
+            from = m.end;
+        }
+    }
+    cui__rx_put(&o, text + last, (size_t)(len - last));
+finish:
+    if (o.s && o.cap) o.s[o.n < o.cap ? o.n : o.cap - 1] = 0;
+    return (int)o.n;
 }

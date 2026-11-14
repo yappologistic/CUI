@@ -148,13 +148,13 @@ static int cui__tag_split(const char *buf, int *starts, int *lens, int max) {
     return n;
 }
 
-static void cui__tag_rebuild(char *buf, size_t cap, const char *src, const int *starts, const int *lens, int n, int skip) {
-    char tmp[2048];
+static void cui__tag_rebuild(cui_ctx *ui, char *buf, size_t cap, const char *src, const int *starts, const int *lens, int n, int skip) {
+    char *tmp = (char *)cui__frame_alloc(ui, cap);   /* sized from the buffer, so long tag lists are not cut at 2048 bytes */
     size_t o = 0;
     for (int k = 0; k < n; k++) {
         if (k == skip) continue;
-        if (o && o + 2 < sizeof tmp) { tmp[o++] = ','; tmp[o++] = ' '; }
-        for (int j = 0; j < lens[k] && o + 1 < sizeof tmp; j++) tmp[o++] = src[starts[k] + j];
+        if (o && o + 2 < cap) { tmp[o++] = ','; tmp[o++] = ' '; }
+        for (int j = 0; j < lens[k] && o + 1 < cap; j++) tmp[o++] = src[starts[k] + j];
     }
     tmp[o] = 0;
     snprintf(buf, cap, "%s", tmp);
@@ -183,13 +183,17 @@ bool cui_tag_input_ex(cui_ctx *ui, const char *id_str, char *buf, size_t cap, co
     cui_id fid = id ^ 0x7A6u;
     cui__tag_state *st = cui_state(ui, id, sizeof *st);
     bool changed = false;
-    int starts[64], lens[64];
-    int count = cui__tag_split(buf, starts, lens, 64);
-    int n = CUI_MIN(count, 64);
+    /* a buffer of cap bytes cannot hold more than cap/2 tags; sizing the split from cap
+     * keeps removal lossless for lists longer than the old fixed 64 */
+    int max_split = (int)(cap / 2) + 2;
+    int *starts = (int *)cui__frame_alloc(ui, sizeof(int) * (size_t)max_split);
+    int *lens = (int *)cui__frame_alloc(ui, sizeof(int) * (size_t)max_split);
+    int count = cui__tag_split(buf, starts, lens, max_split);
+    int n = count;   /* with the split sized from cap, every tag has a slot */
     if (ui->focus == fid && cui_key_pressed(ui, CUI_KEY_BACKSPACE) && st->typing[0] == 0 && n > 0) {
-        cui__tag_rebuild(buf, cap, buf, starts, lens, n, n - 1);
-        count = cui__tag_split(buf, starts, lens, 64);
-        n = CUI_MIN(count, 64);
+        cui__tag_rebuild(ui, buf, cap, buf, starts, lens, n, n - 1);
+        count = cui__tag_split(buf, starts, lens, max_split);
+        n = count;
         changed = true;
     }
     cui_interact r = cui__interact(ui, id, 0);
@@ -254,8 +258,8 @@ bool cui_tag_input_ex(cui_ctx *ui, const char *id_str, char *buf, size_t cap, co
     cui__close(ui);
     if (outer >= 0) cui__close(ui);
     if (remove >= 0) {
-        cui__tag_rebuild(buf, cap, buf, starts, lens, n, remove);
-        count = cui__tag_split(buf, starts, lens, 64);
+        cui__tag_rebuild(ui, buf, cap, buf, starts, lens, n, remove);
+        count = cui__tag_split(buf, starts, lens, max_split);
         changed = true;
     }
     if ((f & CUI_CHANGED) && strchr(st->typing, ',')) {
@@ -738,8 +742,10 @@ void cui_reorder_begin(cui_ctx *ui, const char *id_str, int *order, int count) {
     /* start a drag once the pointer moves a few points */
     if (st->pending && ui->mdown[0] && fabsf(ui->my - st->press_y) > 4 && b->have_rects) {
         st->pending = false;
-        st->from = st->to = st->press_pos;
-        st->grab = st->press_y - b->slot_top[st->from];
+        if (st->press_pos >= 0 && st->press_pos < b->count) {   /* the list may have shrunk since the press */
+            st->from = st->to = st->press_pos;
+            st->grab = st->press_y - b->slot_top[st->from];
+        }
     }
     if (!ui->mdown[0]) st->pending = false;
     if (st->from >= 0 && b->have_rects) {

@@ -467,7 +467,7 @@ static int cui__week_calendar_ex_body(cui_ctx *ui, const char *id_str, cui_date 
         ui->nodes[c].w = CUI_FILL; ui->nodes[c].dir = CUI_ROW; ui->nodes[c].gap = 8;
         ui->nodes[c].align = CUI_ALIGN_CENTER; ui->nodes[c].justify = CUI_JUSTIFY_CENTER;
         cui__open(ui, c);
-        int t = cui__text_node(ui, cui__weekday_short(ui, k), -1, CUI_FONT_MEDIUM, cui__fs(ui, ui->theme.text_xs), is_today ? cui__emphasis(ui) : CUI_C(ui, TEXT_MUTED), false);
+        int t = cui__text_node(ui, cui__weekday_short(ui, ((base + k + 3) % 7 + 7) % 7), -1, CUI_FONT_MEDIUM, cui__fs(ui, ui->theme.text_xs), is_today ? cui__emphasis(ui) : CUI_C(ui, TEXT_MUTED), false);   /* the header must name the column's date, not the k-th weekday */
         ui->nodes[t].line_height = 1.3f;
         int nb = cui__node_new(ui, 0);
         cui_node *nn = &ui->nodes[nb];
@@ -588,7 +588,8 @@ static int cui__week_calendar_ex_body(cui_ctx *ui, const char *id_str, cui_date 
         cui_color fg = cui_mix(CUI_C(ui, FOREGROUND), tone, ui->mode == CUI_THEME_DARK ? 0.2f : 0.45f);
         int t = cui__text_node(ui, e->title, -1, CUI_FONT_MEDIUM, cui__fs(ui, ui->theme.text_xs + 0.5f), fg, false);
         ui->nodes[t].line_height = 1.3f;
-        int sh = (int)e->start, sm = (int)roundf((e->start - sh) * 60), eh = (int)e->end, em = (int)roundf((e->end - eh) * 60);
+        int smin = (int)lroundf((double)e->start * 60.0), sh = smin / 60, sm = smin % 60;   /* minutes carried into the hour: 9.99 h shows "10:00", never "9:60" */
+        int emin = (int)lroundf((double)e->end * 60.0), eh = emin / 60, em = emin % 60;
         float meta_fs = cui__fs(ui, ui->theme.text_xs);
         if (short_ev) {
             const char *tm = cui__frame_printf(ui, "%d:%02d", sh, sm);

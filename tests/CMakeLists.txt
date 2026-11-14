@@ -75,6 +75,11 @@ add_executable(cui_test_inflate test_inflate.c)
 target_include_directories(cui_test_inflate PRIVATE ../include)
 add_test(NAME cui_test_inflate COMMAND cui_test_inflate)
 
+# Regressions for fixed bugs: every test here failed or crashed before its fix
+add_executable(cui_test_fixes test_fixes.c)
+target_link_libraries(cui_test_fixes PRIVATE cui::cui)
+add_test(NAME cui_test_fixes COMMAND cui_test_fixes)
+
 # Random input against the example apps (their sources are included directly)
 if(CUI_WITH_APP)
     # the tutorial's app does what the tutorial says

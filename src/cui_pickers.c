@@ -1162,6 +1162,8 @@ bool cui_histogram_slider_ex(cui_ctx *ui, const char *label, const float *bins, 
     memset(&d, 0, sizeof d);
     if (!o) o = &d;
     if (max <= min) max = min + 1;
+    if (bin_count < 0) bin_count = 0;   /* a negative count must not become a huge size_t below */
+    if (bin_count > 0 && !bins) bin_count = 0;   /* no data pointer, no bars */
     const char *fmt = o->format ? o->format : "%.0f";
     cui_id id = cui_make_id(ui, label) ^ 0x4157u;
     int col = cui__node_new(ui, id);
@@ -1191,8 +1193,12 @@ bool cui_histogram_slider_ex(cui_ctx *ui, const char *label, const float *bins, 
     int bars = cui__leaf(ui, 0, CUI_FILL, CUI_PX(o->height > 0 ? o->height : 56));
     ui->nodes[bars].self_align = CUI_ALIGN_STRETCH;
     cui__hist_paint *p = cui__frame_alloc(ui, sizeof *p);
-    p->bins = cui__frame_alloc(ui, sizeof(float) * (size_t)CUI_MAX(1, bin_count));
-    memcpy((float *)p->bins, bins, sizeof(float) * (size_t)bin_count);
+    p->bins = NULL;
+    if (bin_count > 0) {   /* copy into the frame arena: the app may free the array before the frame is painted */
+        float *copy = (float *)cui__frame_alloc(ui, sizeof(float) * (size_t)bin_count);
+        memcpy(copy, bins, sizeof(float) * (size_t)bin_count);
+        p->bins = copy;
+    }
     p->n = bin_count; p->lo_t = anim[0]; p->hi_t = anim[1]; p->tmax = tmax;
     p->on = cui__emphasis(ui);
     p->off = CUI_C(ui, CONTROL_TRACK);
@@ -1355,11 +1361,14 @@ bool cui_signature_pad_ex(cui_ctx *ui, const char *id_str, const cui_signature_o
 
 int cui_signature_points(cui_ctx *ui, const char *id, const cui_vec2 **points, const int **stroke_ends, int *stroke_count) {
     cui__sig_state *st = cui_state(ui, cui_make_id(ui, id), sizeof *st);
-    /* stroke_ends lists the start of every stroke after the first; expose ends instead */
-    static int ends_buf[4096];
+    /* stroke_ends lists the start of every stroke after the first; expose ends instead.
+     * Built in the frame arena so each call's result lives to the end of the frame:
+     * two pads queried in one frame no longer overwrite each other. */
+    int cap = CUI_MIN(st->nends, 4095) + 1;
+    int *ends_buf = (int *)cui__frame_alloc(ui, sizeof(int) * (size_t)cap);
     int n = 0;
-    for (int k = 0; k < st->nends && n < 4095; k++) ends_buf[n++] = st->ends[k];
-    if (st->npts > 0 && n < 4096) ends_buf[n++] = st->npts;
+    for (int k = 0; k < st->nends && n < cap - 1; k++) ends_buf[n++] = st->ends[k];
+    if (st->npts > 0) ends_buf[n++] = st->npts;
     if (points) *points = st->pts;
     if (stroke_ends) *stroke_ends = ends_buf;
     if (stroke_count) *stroke_count = n;

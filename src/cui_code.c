@@ -251,6 +251,14 @@ static void cui__paint_code(cui_ctx *ui, cui_node *n, void *data) {
                 cui__draw_text_line(ui, CUI_FONT_MONO, p->size, x, ty, p->colors[toks[k].kind], s, len, true);
             x += cui__text_width(ui, CUI_FONT_MONO, p->size, s, len, true);
         }
+        if (nt == 256) {   /* the fixed token buffer filled: draw the rest of the line as plain text so long lines are not cut short */
+            const char *s = p->code + i + toks[nt - 1].start + toks[nt - 1].len;
+            int len = (int)(e - i) - (int)(s - (p->code + i));
+            while (len > 0 && s[0] == '\t') { x += cui__text_width(ui, CUI_FONT_MONO, p->size, "    ", 4, true); s++; len--; }
+            if (len > 0 && s[0] != ' ')
+                cui__draw_text_line(ui, CUI_FONT_MONO, p->size, x, ty, p->colors[TK_TEXT], s, len, true);
+            x += cui__text_width(ui, CUI_FONT_MONO, p->size, s, len, true);
+        }
         y += p->lh;
         line++;
         if (e >= p->len) break;
@@ -285,7 +293,7 @@ static void cui__code_block_ex_body(cui_ctx *ui, const char *id_str, const char 
             while (e < len && code[e] != '\n') e++;
             int tabs = 0;
             for (int k = i; k < e; k++) if (code[k] == '\t') tabs++;
-            float w = cui__text_width(ui, CUI_FONT_MONO, size, code + i, e - i, true) + tabs * cui__text_width(ui, CUI_FONT_MONO, size, "   ", 3, true);
+            float w = cui__text_width(ui, CUI_FONT_MONO, size, code + i, e - i, true) + tabs * cui__text_width(ui, CUI_FONT_MONO, size, "    ", 4, true);   /* a tab paints as four spaces, measure the same */
             if (w > maxw) maxw = w;
             if (e >= len) break;
             i = e + 1;

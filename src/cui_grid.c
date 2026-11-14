@@ -93,10 +93,11 @@ bool cui_data_grid_begin_ex(cui_ctx *ui, const char *id_str, const cui_grid_colu
         st->resizing = -1; st->edit_row = st->edit_col = -1; st->cursor = -1; st->anchor = -1;
         st->init = true;
     }
-    /* a cursor moved by the caller is scrolled into view below */
+    /* a cursor moved by the caller is scrolled into view below; clamp stale indexes
+     * (rows may have been removed since the caller saved the value) */
     bool cursor_set = o->cursor && *o->cursor >= 0 && *o->cursor < nrows && st->cursor >= 0 && *o->cursor != st->cursor;
-    if (o->cursor && *o->cursor >= 0) st->cursor = *o->cursor;
-    if (o->anchor && *o->anchor >= 0) st->anchor = *o->anchor;
+    if (o->cursor && *o->cursor >= 0) st->cursor = nrows > 0 ? CUI_MIN(*o->cursor, nrows - 1) : -1;
+    if (o->anchor && *o->anchor >= 0) st->anchor = nrows > 0 ? CUI_MIN(*o->anchor, nrows - 1) : -1;
     cui_scroll_state *ss = cui_state(ui, b->sid, sizeof *ss);
     b->checks = o->selected && !o->hide_checkboxes;
     float total = b->checks ? CUI__GRID_CHECK : 0;
@@ -156,7 +157,7 @@ bool cui_data_grid_begin_ex(cui_ctx *ui, const char *id_str, const cui_grid_colu
             if (bottom > ss->ty + view_h) ss->ty = bottom - view_h;
             ui->animating = true;
         }
-        if (o->selected && cui_key_pressed(ui, CUI_KEY_SPACE) && st->cursor >= 0) o->selected[st->cursor] = !o->selected[st->cursor];
+        if (o->selected && cui_key_pressed(ui, CUI_KEY_SPACE) && st->cursor >= 0 && st->cursor < nrows) o->selected[st->cursor] = !o->selected[st->cursor];
         if (o->selected && (ui->mods & CUI_MOD_PRIMARY) && cui_key_pressed(ui, CUI_KEY_A)) for (int r = 0; r < nrows; r++) o->selected[r] = true;
         if (cui_key_pressed(ui, CUI_KEY_ESCAPE) && o->selected) for (int r = 0; r < nrows; r++) o->selected[r] = false;
     }
@@ -392,7 +393,7 @@ void cui_data_grid_cell(cui_ctx *ui) {
 void cui_data_grid_cell_text(cui_ctx *ui, const char *text) {
     cui_data_grid_cell(ui);
     struct cui_grid_build *b = ui->building.grid;
-    bool right = b && b->col - 1 < b->ncols && b->cols[b->col - 1].align == CUI_TEXT_RIGHT;
+    bool right = b && b->col >= 1 && b->col - 1 < b->ncols && b->cols[b->col - 1].align == CUI_TEXT_RIGHT;
     /* single line text: cut short, it shows the whole value on hover */
     cui_text_opts to;
     memset(&to, 0, sizeof to);

@@ -47,11 +47,11 @@ const char *cui__mmss(cui_ctx *ui, float s) {
 /* minutes east of UTC of the local time zone at time t */
 int cui__utc_offset(int64_t t64) {
     time_t t = (time_t)t64;
-    struct tm lt, gt;
+    struct tm lt = { 0 }, gt = { 0 };
 #if defined(_WIN32)
-    localtime_s(&lt, &t); gmtime_s(&gt, &t);
+    if (localtime_s(&lt, &t) != 0 || gmtime_s(&gt, &t) != 0) return 0;
 #else
-    localtime_r(&t, &lt); gmtime_r(&t, &gt);
+    if (!localtime_r(&t, &lt) || !gmtime_r(&t, &gt)) return 0;   /* an out-of-range timestamp leaves the structs untouched */
 #endif
     int d = (lt.tm_year - gt.tm_year) * 366 + (lt.tm_yday - gt.tm_yday);
     if (d > 1) d = -1;

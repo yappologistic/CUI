@@ -476,7 +476,8 @@ static void cui__cov_flatten(cui_ctx *ui, const cui__cov_state *s, int k, int *r
     rows[(*nr)++] = k;
     if (s->nodes[k].file >= 0 || cui__cov_folded(s, k)) return;
     int kids[512], nk = 0;
-    for (int c = s->nodes[k].first_child; c >= 0 && nk < 512; c = s->nodes[c].next) kids[nk++] = c;
+    int c = s->nodes[k].first_child;
+    for (; c >= 0 && nk < 512; c = s->nodes[c].next) kids[nk++] = c;
     for (int a = 1; a < nk; a++) {   /* insertion sort: few children per folder */
         int x = kids[a], b = a - 1;
         for (; b >= 0; b--) {
@@ -493,6 +494,7 @@ static void cui__cov_flatten(cui_ctx *ui, const cui__cov_state *s, int k, int *r
         kids[b + 1] = x;
     }
     for (int i = 0; i < nk; i++) cui__cov_flatten(ui, s, kids[i], rows, nr);
+    for (; c >= 0; c = s->nodes[c].next) cui__cov_flatten(ui, s, c, rows, nr);   /* rare: more than 512 children, the rest in chain order */
 }
 
 typedef struct { float pct; cui_color c, track; } cui__cov_bar;
@@ -782,7 +784,7 @@ cui_blame_result cui_blame_ex(cui_ctx *ui, const char *id_str, const char *const
         int c = line_commit ? line_commit[i] : -1;
         if (c < 0 || c >= commit_count) c = -1;
         int pc = i > 0 && line_commit ? line_commit[i - 1] : -2;
-        bool run_start = i == 0 || pc != line_commit[i];
+        bool run_start = i == 0 || pc != (line_commit ? line_commit[i] : -1);
         cui_id rid = cui__hash(&i, sizeof i, id ^ 0xB1A4u);
         cui_id gid = rid ^ 0x6u;
         cui_interact gi = cui__interact(ui, gid, 0);
