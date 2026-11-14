@@ -1556,7 +1556,71 @@ static void test_swipe(void) {
     cui_destroy(ui);
 }
 
+/** Put the existing swipe row in a vertically scrolling area. */
+static void build_scroll_swipe(cui_ctx *ui, void *user) {
+    cui_scroll(ui, .id = "swipe page", .height = CUI_PX(200)) {
+        build_swipe(ui, user);
+        cui_gap(ui, 500);
+    }
+}
+
+/** Horizontal wheel motion reaches the row while the enclosing page stays put. */
+static void test_scroll_swipe(void) {
+    printf("swipe actions: horizontal wheel within a vertical scroll view\n");
+    cui_ctx *ui = new_ctx();
+    swipe_ctx a = { -1, 0 };
+    run(ui, build_scroll_swipe, &a, 3);
+    cui_rect row = rect_of(ui, a.row);
+    cui_input_mouse_move(ui, row.x + 250, row.y + row.h / 2);
+    run(ui, build_scroll_swipe, &a, 1);
+    cui_input_scroll(ui, -4, 0);
+    run(ui, build_scroll_swipe, &a, 16);
+    CHECK_NEAR(rect_of(ui, a.row).y, row.y, 0.01);
+    click_at(ui, build_scroll_swipe, &a, row.x + row.w - 30, row.y + row.h / 2);
+    CHECK(a.result == 101);
+    cui_destroy(ui);
+}
+
 /* pickers ------------------------------------------------------------------ */
+
+typedef struct { int day; float value; cui_id wheel, tape; } scroll_picker_case;
+
+/** Put the wheel and ruler inside a scrollable page with room to move. */
+static void build_scroll_pickers(cui_ctx *ui, void *user) {
+    scroll_picker_case *pickers = user;
+    static const char *const days[] = { "Monday", "Tuesday", "Wednesday" };
+    cui_scroll(ui, .id = "pickers", .height = CUI_PX(330)) {
+        cui_wheel_picker(ui, "day", days, 3, &pickers->day);
+        pickers->wheel = cui_last_id(ui);
+        cui_ruler_slider(ui, "Level", &pickers->value, 0, 100, .width = CUI_PX(180));
+        pickers->tape = cui_last_id(ui);
+        cui_gap(ui, 600);
+    }
+}
+
+/** Wheel input over each picker changes its value without scrolling its parent. */
+static void test_scroll_pickers(void) {
+    printf("pickers: wheel routing within a scroll view\n");
+    cui_ctx *ui = new_ctx();
+    scroll_picker_case pickers = { .day = 1, .value = 20 };
+    run(ui, build_scroll_pickers, &pickers, 3);
+    cui_rect wheel = rect_of(ui, pickers.wheel);
+    cui_vec2 p = center(wheel);
+    cui_input_mouse_move(ui, p.x, p.y);
+    run(ui, build_scroll_pickers, &pickers, 1);
+    cui_input_scroll(ui, 0, -1);
+    run(ui, build_scroll_pickers, &pickers, 2);
+    CHECK(pickers.day == 2);
+    CHECK_NEAR(rect_of(ui, pickers.wheel).y, wheel.y, 0.01);
+    p = center(rect_of(ui, pickers.tape));
+    cui_input_mouse_move(ui, p.x, p.y);
+    run(ui, build_scroll_pickers, &pickers, 1);
+    cui_input_scroll(ui, 0, -1);
+    run(ui, build_scroll_pickers, &pickers, 2);
+    CHECK_NEAR(pickers.value, 21, 0.01);
+    CHECK_NEAR(rect_of(ui, pickers.wheel).y, wheel.y, 0.01);
+    cui_destroy(ui);
+}
 
 static void test_date_math(void) {
     printf("dates: day numbers round trip\n");
@@ -3391,6 +3455,37 @@ static void test_dock(void) {
         CHECK(strncmp(t, "dock1 ", 6) == 0);
         for (int k = 0; k < DK_N; k++) CHECK(strstr(t, dk_names[k]) != NULL || !d.open[k]);
     }
+    cui_destroy(ui);
+}
+
+typedef struct { float width, ratio; } split_range_case;
+
+/** A horizontal split containing two measurable panes. */
+static void build_split_range(cui_ctx *ui, void *user) {
+    split_range_case *split = user;
+    cui_split(ui, "short split", &split->ratio, .width = CUI_PX(split->width), .height = CUI_PX(120)) {
+        cui_box(ui, .id = "first pane", .width = CUI_FILL, .height = CUI_FILL) {}
+        cui_split_next(ui);
+        cui_box(ui, .id = "second pane", .width = CUI_FILL, .height = CUI_FILL) {}
+    }
+}
+
+/** An undersized split fits both panes and reports a bounded drag ratio. */
+static void test_split_minimums(void) {
+    printf("split view: pane minimums at small widths\n");
+    cui_ctx *ui = new_ctx();
+    split_range_case split = { 100, 0.5f };
+    run(ui, build_split_range, &split, 4);
+    cui_rect first = rect_of(ui, cui_make_id(ui, "first pane"));
+    cui_rect second = rect_of(ui, cui_make_id(ui, "second pane"));
+    CHECK(first.w + second.w <= split.width);
+    drag(ui, build_split_range, &split, first.x + first.w, first.y + 50, 20, 4);
+    CHECK(split.ratio >= 0 && split.ratio <= 1);
+    split.width = 380;
+    run(ui, build_split_range, &split, 4);
+    first = rect_of(ui, cui_make_id(ui, "first pane"));
+    drag(ui, build_split_range, &split, first.x + first.w, first.y + 50, 245, 4);
+    CHECK(split.ratio > 0.6f && split.ratio < 0.7f);
     cui_destroy(ui);
 }
 
@@ -8404,6 +8499,8 @@ int main(void) {
     test_range_slider_keyboard();
     test_range_slider_context_menu();
     test_swipe();
+    test_scroll_swipe();
+    test_scroll_pickers();
     test_date_math();
     test_strings();
     test_sql_colors();
@@ -8455,6 +8552,7 @@ int main(void) {
     test_chrome();
     test_dock();
     test_virtual_list();
+    test_split_minimums();
     test_theme();
     test_series_palette();
     test_radial_gauge_styles();

@@ -1176,11 +1176,19 @@ int cui__scroll_begin_ex(cui_ctx *ui, cui_id id, const cui_box *box, bool horizo
     if (ui->scroll_target == id && (ui->scroll_dy != 0 || ui->scroll_dx != 0)) {
         float line = 44;
         float dy = ui->scroll_dy, dx = ui->scroll_dx;
-        if ((ui->mods & CUI_MOD_SHIFT) && horizontal && dx == 0) { dx = dy; dy = 0; }
-        if (max_y > 0) st->ty -= dy * line;
-        if (horizontal && max_x > 0) st->tx -= dx * line;
-        st->last_activity = ui->time;
-        ui->scroll_dy = ui->scroll_dx = 0;   /* consumed */
+        bool sideways = (ui->mods & CUI_MOD_SHIFT) && horizontal && dx == 0;
+        if (sideways) { dx = dy; dy = 0; }
+        if (dy != 0 && max_y > 0) {   /* consume each axis only when this area can move it */
+            st->ty -= dy * line;
+            st->last_activity = ui->time;
+            ui->scroll_dy = 0;
+        }
+        if (dx != 0 && horizontal && max_x > 0) {
+            st->tx -= dx * line;
+            st->last_activity = ui->time;
+            if (sideways) ui->scroll_dy = 0;
+            else ui->scroll_dx = 0;
+        }
     }
     /* scrollbar dragging */
     cui_id bar_id = id ^ 0x5C5C5C5Cu;
@@ -1362,10 +1370,18 @@ void cui_split_begin(cui_ctx *ui, const char *id_str, float *ratio, const cui_sp
     cui_interact r = cui__interact(ui, hid, CUI_IF_DRAG);
     cui__split_state *st = cui_state(ui, hid, sizeof *st);
     float total = o->vertical ? pr.h : pr.w;
-    if (r.active && ui->mdown[0] && total > 0) {
+    cui_size extent = o->vertical ? o->height : o->width;
+    if (extent.kind == CUI_SIZE_FIXED) total = extent.value;
+    float available = CUI_MAX(0, total - 1);   /* the divider takes one point */
+    if ((total > 0 || extent.kind == CUI_SIZE_FIXED) && b->min1 + b->min2 > available) {
+        float fraction = b->min1 / (b->min1 + b->min2);   /* scale both down: they still fit */
+        b->min1 = available * fraction;
+        b->min2 = available - b->min1;
+    }
+    if (r.active && ui->mdown[0] && available > 0) {
         float pos = o->vertical ? ui->my - pr.y : st->rtl ? pr.x + pr.w - ui->mx : ui->mx - pr.x;
-        pos = cui__clampf(pos, b->min1, total - b->min2);
-        *ratio = pos / total;
+        pos = cui__clampf(pos, b->min1, CUI_MAX(b->min1, available - b->min2));
+        *ratio = pos / available;
     }
     if (r.hovered || r.active) cui__set_cursor(ui, o->vertical ? CUI_CURSOR_RESIZE_NS : CUI_CURSOR_RESIZE_EW);
     cui__tween(ui, &st->hover, (r.hovered || r.active) ? 1.0f : 0.0f, CUI__T_HOVER);
