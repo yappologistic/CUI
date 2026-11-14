@@ -804,6 +804,8 @@ typedef struct cui_dialog_opts {
     float width;               /* default 440 */
     bool no_close_button;      /* hides the x in the corner (Esc and a click outside still close it unless `persistent`) */
     bool persistent;           /* clicking outside or Esc does not close */
+    bool draggable;            /* the header moves the dialog; it stays inside the window */
+    bool resizable;            /* the edges and corners resize it, down to a minimum size; the content is clipped when it no longer fits */
 } cui_dialog_opts;
 /* Modal dialog. Shown while *open is true; closing sets it to false.
  * Escape leaves a focused text field before it can dismiss the dialog. */

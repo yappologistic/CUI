@@ -2383,6 +2383,106 @@ static void test_dialog_escape_after_edit(void) {
     cui_destroy(ui);
 }
 
+typedef struct { bool open, draggable, resizable; int inside; cui_id button; } dlg_move_ctx;
+
+static void build_dialog_move(cui_ctx *ui, void *u) {
+    dlg_move_ctx *d = u;
+    cui_dialog(ui, "Move me", &d->open, .draggable = d->draggable, .resizable = d->resizable) {
+        cui_box_begin(ui, &(cui_box){ .width = CUI_FILL, .height = CUI_PX(40) });
+        cui_box_end(ui);
+        if (cui_button(ui, "Inside")) d->inside++;
+        d->button = cui_last_id(ui);
+    }
+}
+
+/* The dialog's own ids, from the same derivation cui_dialog_begin uses. */
+static cui_id dialog_move_id(cui_ctx *ui) { return cui_make_id(ui, "Move me") ^ 0xD1A106u; }
+
+/* Press at (x, y), travel to (x + dx, y + dy) in a few frames, release. */
+static void drag_by(cui_ctx *ui, build_fn fn, void *user, float x, float y, float dx, float dy) {
+    cui_input_mouse_move(ui, x, y);
+    run(ui, fn, user, 2);
+    cui_input_mouse_button(ui, CUI_MOUSE_LEFT, true);
+    run(ui, fn, user, 1);
+    for (int i = 1; i <= 4; i++) { cui_input_mouse_move(ui, x + dx * i / 4, y + dy * i / 4); run(ui, fn, user, 1); }
+    cui_input_mouse_button(ui, CUI_MOUSE_LEFT, false);
+    run(ui, fn, user, 2);
+}
+
+static void test_dialog_drag(void) {
+    printf("dialog: the header moves it, a plain dialog stays put\n");
+    cui_ctx *ui = new_ctx();
+    dlg_move_ctx d = { .open = true, .draggable = true };
+    run(ui, build_dialog_move, &d, 3);
+    cui_rect head = rect_of(ui, dialog_move_id(ui) ^ 0xD2A6u);
+    cui_rect b0 = rect_of(ui, d.button);
+    CHECK(head.w > 0);
+    /* grab the header's empty right side, left of the close button, and drag far outside the panel */
+    drag_by(ui, build_dialog_move, &d, head.x + 40, head.y + head.h / 2, 120, 80);
+    CHECK(d.open);                       /* letting go on the scrim is not a click on it */
+    cui_vec2 c = center(rect_of(ui, d.button));
+    click_at(ui, build_dialog_move, &d, c.x + 120, c.y + 80);
+    CHECK(d.inside == 1);                /* the button is under the pointer at its new place */
+    CHECK_NEAR(rect_of(ui, d.button).x, b0.x, 0.01);   /* layout stays centred; the move is a paint offset */
+    /* it cannot leave the window */
+    drag_by(ui, build_dialog_move, &d, head.x + 40 + 120, head.y + head.h / 2 + 80, 5000, 5000);
+    cui_rect pr = rect_of(ui, dialog_move_id(ui) ^ 0x9A4Eu);
+    c = center(rect_of(ui, d.button));
+    click_at(ui, build_dialog_move, &d, c.x + (800 - pr.w) / 2, c.y + (600 - pr.h) / 2);
+    CHECK(d.inside == 2);
+    /* closed and opened again it is centred */
+    d.open = false; run(ui, build_dialog_move, &d, 4);
+    d.open = true; run(ui, build_dialog_move, &d, 4);
+    c = center(rect_of(ui, d.button));
+    click_at(ui, build_dialog_move, &d, c.x, c.y);
+    CHECK(d.inside == 3);
+    /* not draggable: the same drag does nothing */
+    d.draggable = false;
+    drag_by(ui, build_dialog_move, &d, head.x + 40, head.y + head.h / 2, 120, 80);
+    click_at(ui, build_dialog_move, &d, c.x, c.y);
+    CHECK(d.inside == 4);
+    cui_destroy(ui);
+}
+
+static void test_dialog_resize(void) {
+    printf("dialog: the edges resize it, down to a minimum\n");
+    cui_ctx *ui = new_ctx();
+    dlg_move_ctx d = { .open = true, .resizable = true };
+    run(ui, build_dialog_move, &d, 3);
+    cui_id pid = dialog_move_id(ui) ^ 0x9A4Eu;
+    cui_rect p0 = rect_of(ui, pid);
+    CHECK_NEAR(p0.w, 440, 0.01);
+    /* right edge, 60 wider; the left edge stays where it was */
+    drag_by(ui, build_dialog_move, &d, p0.x + p0.w - 2, p0.y + p0.h / 2, 60, 0);
+    cui_rect p1 = rect_of(ui, pid);
+    CHECK(d.open);
+    CHECK_NEAR(p1.w, 500, 0.5);
+    /* bottom edge, 50 taller; the content keeps its place at the top */
+    float by0 = rect_of(ui, d.button).y;
+    drag_by(ui, build_dialog_move, &d, p1.x + p1.w / 2 + 30, p1.y + p1.h - 2, 0, 50);
+    cui_rect p2 = rect_of(ui, pid);
+    CHECK_NEAR(p2.h, p1.h + 50, 0.5);
+    CHECK_NEAR(rect_of(ui, d.button).y - p2.y, by0 - p1.y, 0.5);
+    /* the left edge (still where it began: a centred panel moves half of what it grows) shrinks it past the minimum; it stops there */
+    drag_by(ui, build_dialog_move, &d, p0.x + 2, p2.y + p2.h / 2 + 30, 2000, 0);
+    CHECK_NEAR(rect_of(ui, pid).w, 240, 0.5);
+    CHECK(d.open);
+    /* a button on the panel still works at the new size */
+    cui_vec2 c = center(rect_of(ui, d.button));
+    float shift = (p0.x + 500) - 240 / 2 - 400;   /* the right edge stayed, so the panel sits left of centre by this */
+    click_at(ui, build_dialog_move, &d, c.x + shift, c.y + 25);
+    CHECK(d.inside == 1);
+    /* without the option the edge is just the panel */
+    cui_destroy(ui);
+    ui = new_ctx();
+    d = (dlg_move_ctx){ .open = true };
+    run(ui, build_dialog_move, &d, 3);
+    p0 = rect_of(ui, dialog_move_id(ui) ^ 0x9A4Eu);
+    drag_by(ui, build_dialog_move, &d, p0.x + p0.w - 2, p0.y + p0.h / 2, 60, 0);
+    CHECK_NEAR(rect_of(ui, dialog_move_id(ui) ^ 0x9A4Eu).w, 440, 0.01);
+    cui_destroy(ui);
+}
+
 typedef struct { int chosen; cui_id trigger; } menu_ctx;
 static void build_menu(cui_ctx *ui, void *u) {
     menu_ctx *m = u;
@@ -8350,6 +8450,8 @@ int main(void) {
     test_text_capacity();
     test_dialog();
     test_dialog_escape_after_edit();
+    test_dialog_drag();
+    test_dialog_resize();
     test_menu();
     test_focus_trap();
     test_tag_limit_batch();
