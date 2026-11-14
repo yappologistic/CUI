@@ -348,7 +348,10 @@ cui_dot_chart_result cui_dot_chart_ex(cui_ctx *ui, const char *id_str, const cui
             cursor = (int)lround(t * (count - 1));
             st->keyed = false;
         } else if (st->keyed) cursor = CUI_CLAMP(st->cursor, 0, count - 1);
-        if (r.keyboard_activate && cursor < 0) cursor = count / 2;
+        if (r.keyboard_activate && cursor < 0) {
+            st->keyed = true;
+            st->cursor = cursor = count / 2;
+        }
     }
     /* copies of the data, for the paint callback, and the value range */
     cui__dm_paint *p = cui__frame_alloc(ui, sizeof *p);

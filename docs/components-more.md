@@ -2274,7 +2274,7 @@ Series stack: each one fills its own band above the one before it, and negative,
 
 `x_units = CUI_AXIS_HOURS` labels x as times of day, so 13.5 reads 13:30 and 30 reads 06:00 the next morning; otherwise `x_format` prints the labels. The chart keeps a gutter on its right for value labels, the same width as the event track's, so the two stacked at one width share their x positions.
 
-The result reports the sample under the pointer or the keyboard cursor (`hovered`, its `x` and the stacked `value`, or -1), and `clicked` with the exact `x` of a click. The readout beside the cursor shows the time and the value with `unit`; `no_readout` hides it. Enter or Space uses the middle sample if there is no pointer or keyboard sample yet.
+The result reports the sample under the pointer or the keyboard cursor (`hovered`, its `x` and the stacked `value`, or -1), and `clicked` with the exact `x` of a click. The readout beside the cursor shows the time and the value with `unit`; `no_readout` hides it. Enter or Space places the keyboard cursor on the middle sample if there is no pointer or keyboard sample yet.
 
 In a right-to-left interface the chart keeps time running left to right, like the other time-based components, and Right still moves later. Its labels and readout are drawn with the library's text, so Persian and Arabic labels are shaped when CUI is built with `CUI_TEXT_SHAPING` and a font that covers them is loaded ([Text in other languages](integration.md#text-in-other-languages)).
 
