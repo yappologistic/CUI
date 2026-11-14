@@ -1168,6 +1168,7 @@ cui_canvas_result cui_canvas(cui_ctx *ui, const char *id_str, cui_size w, cui_si
 
 #define CUI__BAR_ZONE 12.0f
 
+/** Open a scroll area and consume only the wheel axes the area can use. */
 int cui__scroll_begin_ex(cui_ctx *ui, cui_id id, const cui_box *box, bool horizontal) {
     cui_scroll_state *st = cui_state(ui, id, sizeof *st);
     cui_rect pr = cui__prev_rect(ui, id);
@@ -1176,11 +1177,19 @@ int cui__scroll_begin_ex(cui_ctx *ui, cui_id id, const cui_box *box, bool horizo
     if (ui->scroll_target == id && (ui->scroll_dy != 0 || ui->scroll_dx != 0)) {
         float line = 44;
         float dy = ui->scroll_dy, dx = ui->scroll_dx;
-        if ((ui->mods & CUI_MOD_SHIFT) && horizontal && dx == 0) { dx = dy; dy = 0; }
-        if (max_y > 0) st->ty -= dy * line;
-        if (horizontal && max_x > 0) st->tx -= dx * line;
-        st->last_activity = ui->time;
-        ui->scroll_dy = ui->scroll_dx = 0;   /* consumed */
+        bool sideways = (ui->mods & CUI_MOD_SHIFT) && horizontal && dx == 0;
+        if (sideways) { dx = dy; dy = 0; }
+        if (dy != 0 && max_y > 0) {
+            st->ty -= dy * line;
+            st->last_activity = ui->time;
+            ui->scroll_dy = 0;
+        }
+        if (dx != 0 && horizontal && max_x > 0) {
+            st->tx -= dx * line;
+            st->last_activity = ui->time;
+            if (sideways) ui->scroll_dy = 0;
+            else ui->scroll_dx = 0;
+        }
     }
     /* scrollbar dragging */
     cui_id bar_id = id ^ 0x5C5C5C5Cu;

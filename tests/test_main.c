@@ -1508,6 +1508,31 @@ static void test_swipe(void) {
     cui_destroy(ui);
 }
 
+/** Put the existing swipe row in a vertically scrolling area. */
+static void build_scroll_swipe(cui_ctx *ui, void *user) {
+    cui_scroll(ui, .id = "swipe page", .height = CUI_PX(200)) {
+        build_swipe(ui, user);
+        cui_gap(ui, 500);
+    }
+}
+
+/** Horizontal wheel motion reaches the row while the enclosing page stays put. */
+static void test_scroll_swipe(void) {
+    printf("swipe actions: horizontal wheel within a vertical scroll view\n");
+    cui_ctx *ui = new_ctx();
+    swipe_ctx a = { -1, 0 };
+    run(ui, build_scroll_swipe, &a, 3);
+    cui_rect row = rect_of(ui, a.row);
+    cui_input_mouse_move(ui, row.x + 250, row.y + row.h / 2);
+    run(ui, build_scroll_swipe, &a, 1);
+    cui_input_scroll(ui, -4, 0);
+    run(ui, build_scroll_swipe, &a, 16);
+    CHECK_NEAR(rect_of(ui, a.row).y, row.y, 0.01);
+    click_at(ui, build_scroll_swipe, &a, row.x + row.w - 30, row.y + row.h / 2);
+    CHECK(a.result == 101);
+    cui_destroy(ui);
+}
+
 /* pickers ------------------------------------------------------------------ */
 
 static void test_date_math(void) {
@@ -8427,6 +8452,7 @@ int main(void) {
     test_range_slider_keyboard();
     test_range_slider_context_menu();
     test_swipe();
+    test_scroll_swipe();
     test_date_math();
     test_strings();
     test_sql_colors();
