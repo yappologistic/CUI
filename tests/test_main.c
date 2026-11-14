@@ -4689,6 +4689,33 @@ static int tl_selected(const tl_ctx *a) {
 static void tl_mods(cui_ctx *ui, int mods) { cui_input_key(ui, CUI_KEY_NONE, mods != 0, mods); }
 static unsigned tl_rand(unsigned *s) { *s ^= *s << 13; *s ^= *s >> 17; *s ^= *s << 5; return *s; }
 
+/** Draw the timeline inside a disabled scope. */
+static void build_disabled_timeline(cui_ctx *ui, void *user) {
+    cui_push_disabled(ui, true);
+    build_tl(ui, user);
+    cui_pop_disabled(ui);
+}
+
+/** A wheel event queued before disabling the timeline cannot change its view. */
+static void test_disabled_timeline_wheel(void) {
+    printf("timeline: disabled wheel leaves the view unchanged\n");
+    cui_ctx *ui = new_ctx();
+    tl_ctx a;
+    tl_setup(&a);
+    run(ui, build_tl, &a, 3);
+    tl_map m = tl_map_of(ui, &a);
+    cui_input_mouse_move(ui, m.px + m.pw / 2, m.ry + 14);
+    run(ui, build_tl, &a, 1);
+    cui_input_scroll(ui, 0, 2);
+    run(ui, build_disabled_timeline, &a, 1);
+    CHECK(a.view.start == 0 && a.view.end == 4 && !a.r.view_changed);
+    run(ui, build_tl, &a, 2);
+    cui_input_scroll(ui, 0, 2);
+    run(ui, build_tl, &a, 1);
+    CHECK(a.view.end - a.view.start < 4);
+    cui_destroy(ui);
+}
+
 static void test_timeline(void) {
     printf("timeline editor: scrub, frame keys, select, box select, snapped drags, add, delete, zoom, fit, groups, clips, 2000 tracks, empty\n");
     cui_ctx *ui = new_ctx();
@@ -6421,6 +6448,62 @@ static void build_flame(cui_ctx *ui, void *u) {
     if (f->last.zoomed >= 0) f->zooms++;
 }
 static cui_vec2 flame_at(flame_ctx *f, cui_ctx *ui, int i) { return center(cui_flame_span_rect(ui, f->id, &f->s[i])); }
+
+/** Draw the flame graph inside a disabled scope. */
+static void build_disabled_flame(cui_ctx *ui, void *user) {
+    flame_ctx *f = user;
+    cui_push_disabled(ui, true);
+    build_flame(ui, f);
+    cui_pop_disabled(ui);
+}
+
+/** The wheel can zoom an enabled flame graph and leaves a disabled one unchanged. */
+static void test_disabled_flame_wheel(void) {
+    printf("flame graph: disabled wheel leaves the view unchanged\n");
+    static const cui_flame_span spans[] = { { "frame", 0, 10, 0, 0 } };
+    cui_ctx *ui = new_ctx();
+    flame_ctx f = { .s = spans, .n = 1, .sel = -1, .height = 200 };
+    run(ui, build_flame, &f, 3);
+    cui_vec2 at = center(rect_of(ui, f.id));
+    cui_input_mouse_move(ui, at.x, at.y);
+    run(ui, build_flame, &f, 1);
+    cui_input_scroll(ui, 0, 2);
+    run(ui, build_disabled_flame, &f, 1);
+    CHECK(f.view.start == 0 && f.view.end == 10 && !f.last.view_changed);
+    run(ui, build_flame, &f, 2);
+    cui_input_scroll(ui, 0, 2);
+    run(ui, build_flame, &f, 1);
+    CHECK(f.view.end - f.view.start < 10);
+    cui_destroy(ui);
+}
+
+/** A disabled graph still fits its view to the current spans. */
+static void test_disabled_flame_shrinks(void) {
+    printf("flame graph: disabled view follows a smaller dataset\n");
+    cui_flame_span deep[20];
+    for (int i = 0; i < 20; i++) deep[i] = (cui_flame_span){ "frame", 0, 10, i, 0 };
+    deep[1].end = 1;
+    static const cui_flame_span shallow = { "frame", 4, 6, 0, 0 };
+    cui_ctx *ui = new_ctx();
+    flame_ctx f = { .s = deep, .n = 20, .sel = -1, .height = 200 };
+    run(ui, build_flame, &f, 3);
+    f.view.scroll = 100;
+    cui_set_reduced_motion(ui, false);
+    f.sel = 1;
+    key(ui, build_flame, &f, CUI_KEY_TAB, 0);
+    key(ui, build_flame, &f, CUI_KEY_ENTER, 0);
+    CHECK(f.last.zoomed == 1 && f.view.end > 6);
+    run(ui, build_flame, &f, 1);
+    CHECK(f.view.scroll == 100);
+    f.s = &shallow;
+    f.n = 1;
+    run(ui, build_disabled_flame, &f, 1);
+    CHECK(f.view.scroll == 0);
+    CHECK(f.view.start == 4 && f.view.end == 6 && f.last.view_changed);
+    run(ui, build_flame, &f, 1);
+    CHECK(f.view.start == 4 && f.view.end == 6);
+    cui_destroy(ui);
+}
 
 static void test_flame(void) {
     printf("flame graph: fit, select, keys, zoom about the pointer, pan, zoom to span, reset, tooltip, 100k spans, empty\n");
@@ -8532,6 +8615,9 @@ int main(void) {
     test_planning();
     test_node_editor();
     test_flame();
+    test_disabled_flame_wheel();
+    test_disabled_flame_shrinks();
+    test_disabled_timeline_wheel();
     test_curve_eval();
     test_curve_editor();
     test_gradient();
