@@ -1760,6 +1760,35 @@ static void test_windows_image_path(void) {
 }
 #endif
 
+typedef struct { const float *bins; int n; float lo, hi; } hist_bins_ctx;
+static void build_hist_bins(cui_ctx *ui, void *u) {
+    hist_bins_ctx *h = u;
+    cui_column(ui, .pad = 20, .width = CUI_PX(400)) { cui_histogram_slider(ui, "Price", h->bins, h->n, &h->lo, &h->hi, 0, 100); }
+}
+
+/* a negative bin count used to reach memcpy as a huge size, and NULL bins were read */
+static void test_histogram_slider_bins(void) {
+    printf("histogram slider: a negative count or no bins draws no bars\n");
+    cui_ctx *ui = new_ctx();
+    float *bins = malloc(sizeof(float) * 3);
+    bins[0] = 1; bins[1] = 4; bins[2] = 2;
+    hist_bins_ctx h = { NULL, -1, 20, 80 };
+    run(ui, build_hist_bins, &h, 2);
+    h.n = 4;                                   /* a count without data */
+    run(ui, build_hist_bins, &h, 2);
+    h.n = 0;
+    run(ui, build_hist_bins, &h, 2);
+    h.bins = bins; h.n = -5;
+    run(ui, build_hist_bins, &h, 2);
+    h.n = 3;
+    run(ui, build_hist_bins, &h, 2);
+    CHECK(h.lo == 20 && h.hi == 80);
+    cui_rect r = cui_get_rect(ui, cui_make_id(ui, "Price") ^ 0x4157u);
+    CHECK(r.w > 300 && r.h > 56);
+    free(bins);
+    cui_destroy(ui);
+}
+
 static void test_pickers(void) {
     printf("pickers: multi-select, range calendar, wheel, ruler, dial, dropzone, signature\n");
     cui_ctx *ui = new_ctx();
@@ -8580,6 +8609,7 @@ int main(void) {
 #ifdef CUI_TEST_WINDOWS_IMAGE_PATH
     test_windows_image_path();
 #endif
+    test_histogram_slider_bins();
     test_disclosure();
     test_confirm_popover_keyboard();
     test_checklist();
