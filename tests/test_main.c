@@ -2025,6 +2025,49 @@ static void test_checklist(void) {
 
 /* data grid ------------------------------------------------------------------ */
 
+/* a cell text before the first row has no column yet: it used to read cols[-1] */
+typedef struct { cui_grid_column *gcols; cui_table_column *tcols; } early_cell_ctx;
+static void build_early_cells(cui_ctx *ui, void *u) {
+    early_cell_ctx *a = u;
+    cui_column(ui, .pad = 20, .gap = 12, .width = CUI_FILL, .height = CUI_FILL) {
+        int first, last;
+        if (cui_data_grid_begin(ui, "early_grid", a->gcols, 2, 2, &first, &last, .height = CUI_PX(200))) {
+            cui_data_grid_cell_text(ui, "too early");
+            for (int r = first; r < last; r++) {
+                cui_data_grid_row(ui, r);
+                cui_data_grid_cell_text(ui, "name");
+                cui_data_grid_cell_text(ui, "1");
+            }
+            cui_data_grid_end(ui);
+        }
+        if (cui_table_begin_ex(ui, "early_table", a->tcols, 2, NULL)) {
+            cui_table_cell_text(ui, "too early");
+            for (int r = 0; r < 2; r++) {
+                cui_table_row(ui, false);
+                cui_table_cell_text(ui, "name");
+                cui_table_cell_text(ui, "1");
+            }
+            cui_table_end(ui);
+        }
+    }
+}
+static void test_cell_text_before_row(void) {
+    printf("data grid, table: cell text before the first row\n");
+    cui_ctx *ui = new_ctx();
+    early_cell_ctx a;
+    a.gcols = calloc(2, sizeof *a.gcols);   /* on the heap, so a read before the array is caught */
+    a.tcols = calloc(2, sizeof *a.tcols);
+    a.gcols[0].title = a.tcols[0].title = "Name";
+    a.gcols[1].title = a.tcols[1].title = "Value";
+    a.gcols[1].align = a.tcols[1].align = CUI_TEXT_RIGHT;
+    run(ui, build_early_cells, &a, 3);
+    CHECK(rect_of(ui, cui_make_id(ui, "early_grid")).h > 100);
+    free(a.gcols);
+    free(a.tcols);
+    cui_destroy(ui);
+}
+
+
 typedef struct { bool sel[500]; cui_table_sort sort; char names[500][16]; int committed; int cursor; bool open; uint32_t filt[2]; char q[32]; int json_ok, json_bad; cui_id grid_id, tree_id, fb_id; } dgrid_ctx;
 static void build_dgrid(cui_ctx *ui, void *u) {
     dgrid_ctx *a = u;
@@ -8615,6 +8658,7 @@ int main(void) {
     test_checklist();
     test_data_grid();
     test_json_tokens();
+    test_cell_text_before_row();
     test_tree_table();
     test_tools();
     test_hex_view();
