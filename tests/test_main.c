@@ -2047,6 +2047,46 @@ static void test_data_grid_shrinks(void) {
     cui_destroy(ui);
 }
 
+typedef struct { cui_table_sort sort; cui_rect bounds; } table_focus_case;
+
+/** Draw one sortable header and one selectable row for the focus test. */
+static void build_table_focus(cui_ctx *ui, void *user) {
+    table_focus_case *table = user;
+    const cui_table_column column = { "Name", CUI_PX(150), CUI_TEXT_LEFT, true };
+    cui_column(ui, .pad = 12) {
+        cui_table(ui, "table focus", &column, 1, .sort = &table->sort, .selectable = true) {
+            cui_table_row(ui, false);
+            cui_table_cell_text(ui, "A row");
+        }
+        table->bounds = cui_get_rect(ui, cui_make_id(ui, "table focus"));
+    }
+}
+
+/** The focused header and row each draw a ring at their own bounds. */
+static void test_table_focus(void) {
+    printf("table: visible keyboard focus on header and row\n");
+    enum { width = 300, height = 124, stride = width * 4 };
+    unsigned char initial[height * stride], pixels[height * stride];
+    table_focus_case table = { .sort = { .column = -1 } };
+    cui_ctx *ui = new_ctx();
+    cui_set_viewport(ui, width, height, 1);
+    cui_input_mouse_leave(ui);
+    run(ui, build_table_focus, &table, 3);
+    CHECK(table.bounds.w >= 150 && table.bounds.h >= 80);
+    cui_vec2 header_top = { table.bounds.x + 80, table.bounds.y + 5 };
+    cui_vec2 row_top = { table.bounds.x + 80, table.bounds.y + 44 };
+    cui_sw_render(g_sw, cui_get_draw_data(ui), initial, width, height, stride, CUI_SW_RGBA);
+    key(ui, build_table_focus, &table, CUI_KEY_TAB, 0);
+    cui_sw_render(g_sw, cui_get_draw_data(ui), pixels, width, height, stride, CUI_SW_RGBA);
+    CHECK(focus_strip_changed(initial, pixels, stride, height, header_top));
+    CHECK(!focus_strip_changed(initial, pixels, stride, height, row_top));
+    key(ui, build_table_focus, &table, CUI_KEY_TAB, 0);
+    cui_sw_render(g_sw, cui_get_draw_data(ui), pixels, width, height, stride, CUI_SW_RGBA);
+    CHECK(!focus_strip_changed(initial, pixels, stride, height, header_top));
+    CHECK(focus_strip_changed(initial, pixels, stride, height, row_top));
+    cui_destroy(ui);
+}
+
 static void test_json_tokens(void) {
     printf("JSON viewer: number and escape grammar\n");
     static const struct { const char *json; bool valid; } cases[] = {
@@ -8792,6 +8832,7 @@ int main(void) {
     test_checklist();
     test_data_grid();
     test_data_grid_shrinks();
+    test_table_focus();
     test_json_tokens();
     test_tree_table();
     test_tools();

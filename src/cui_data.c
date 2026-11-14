@@ -340,6 +340,13 @@ static void cui__table_close_row(cui_ctx *ui, struct cui_table_build *t) {
     t->in_row = false;
 }
 
+/** Paint the ring inside the cell so the scrolling table does not clip it. */
+static void cui__paint_table_focus(cui_ctx *ui, cui_node *n, void *unused) {
+    (void)unused;
+    cui_draw_rect_border(ui, cui__rect_inset(n->rect, 2), CUI_CORNERS(3),
+                         CUI_TRANSPARENT, CUI_C(ui, FOCUS_RING), 2);
+}
+
 bool cui_table_begin_ex(cui_ctx *ui, const char *id_str, const cui_table_column *cols, int ncols, const cui_table_opts *o) {
     cui_table_opts d;
     memset(&d, 0, sizeof d);
@@ -407,6 +414,10 @@ bool cui_table_begin_ex(cui_ctx *ui, const char *id_str, const cui_table_column 
         cn->h = CUI_FILL;
         cn->pad[1] = cn->pad[3] = 8;
         cn->text_align = (uint8_t)c->align;
+        if (r.focus_visible) {
+            cn->paint = cui__paint_table_focus;
+            cn->flags |= CUI_NF_PAINT_AFTER;
+        }
         if (c->sortable && o->sort) {
             cui__mark_interactive(ui, cell, CUI_IF_FOCUSABLE);
             if (r.hovered) cui__set_cursor(ui, CUI_CURSOR_HAND);
@@ -458,6 +469,10 @@ bool cui_table_row(cui_ctx *ui, bool selected) {
     if (selected) bg = CUI_C(ui, ACCENT_SUBTLE);
     else bg = cui_mix(bg, CUI_C(ui, HOVER), *hv);
     n->bg = bg;
+    if (r.focus_visible) {
+        n->paint = cui__paint_table_focus;
+        n->flags |= CUI_NF_PAINT_AFTER;
+    }
     cui__mark_interactive(ui, row, t->selectable ? CUI_IF_FOCUSABLE : 0);
     if (r.hovered && t->selectable) cui__set_cursor(ui, CUI_CURSOR_HAND);
     cui__open(ui, row);
