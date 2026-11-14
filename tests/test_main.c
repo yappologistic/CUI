@@ -3966,6 +3966,38 @@ static void drag_to(cui_ctx *ui, nodes_ctx *a, cui_vec2 from, cui_vec2 to) {
     run(ui, build_nodes, a, 2);
 }
 
+typedef struct { bool disabled; cui_node_view view; cui_id id; } node_wheel_case;
+
+/** Build an empty node editor that can be disabled without changing its ID. */
+static void build_node_wheel(cui_ctx *ui, void *user) {
+    node_wheel_case *n = user;
+    cui_push_disabled(ui, n->disabled);
+    n->id = cui_make_id(ui, "graph");
+    if (cui_node_editor_begin(ui, "graph", &n->view, .height = CUI_PX(240))) cui_node_editor_end(ui);
+    cui_pop_disabled(ui);
+}
+
+/** A queued wheel event cannot zoom the editor after its scope is disabled. */
+static void test_disabled_node_editor_wheel(void) {
+    printf("node editor: disabled wheel leaves zoom and offset unchanged\n");
+    cui_ctx *ui = new_ctx();
+    node_wheel_case n = { .view = { .zoom = 1 } };
+    run(ui, build_node_wheel, &n, 3);
+    cui_vec2 at = center(rect_of(ui, n.id));
+    cui_input_mouse_move(ui, at.x, at.y);
+    run(ui, build_node_wheel, &n, 1);
+    n.disabled = true;
+    cui_input_scroll(ui, 0, 2);
+    run(ui, build_node_wheel, &n, 1);
+    CHECK(n.view.zoom == 1 && n.view.x == 0 && n.view.y == 0);
+    n.disabled = false;
+    run(ui, build_node_wheel, &n, 2);
+    cui_input_scroll(ui, 0, 2);
+    run(ui, build_node_wheel, &n, 1);
+    CHECK(n.view.zoom > 1);
+    cui_destroy(ui);
+}
+
 static void test_node_editor(void) {
     printf("node editor: select, drag, links, detach, zoom, hosted controls, delete, marquee\n");
     cui_ctx *ui = new_ctx();
@@ -4500,6 +4532,33 @@ static int tl_selected(const tl_ctx *a) {
 }
 static void tl_mods(cui_ctx *ui, int mods) { cui_input_key(ui, CUI_KEY_NONE, mods != 0, mods); }
 static unsigned tl_rand(unsigned *s) { *s ^= *s << 13; *s ^= *s >> 17; *s ^= *s << 5; return *s; }
+
+/** Draw the timeline inside a disabled scope. */
+static void build_disabled_timeline(cui_ctx *ui, void *user) {
+    cui_push_disabled(ui, true);
+    build_tl(ui, user);
+    cui_pop_disabled(ui);
+}
+
+/** A wheel event queued before disabling the timeline cannot change its view. */
+static void test_disabled_timeline_wheel(void) {
+    printf("timeline: disabled wheel leaves the view unchanged\n");
+    cui_ctx *ui = new_ctx();
+    tl_ctx a;
+    tl_setup(&a);
+    run(ui, build_tl, &a, 3);
+    tl_map m = tl_map_of(ui, &a);
+    cui_input_mouse_move(ui, m.px + m.pw / 2, m.ry + 14);
+    run(ui, build_tl, &a, 1);
+    cui_input_scroll(ui, 0, 2);
+    run(ui, build_disabled_timeline, &a, 1);
+    CHECK(a.view.start == 0 && a.view.end == 4 && !a.r.view_changed);
+    run(ui, build_tl, &a, 2);
+    cui_input_scroll(ui, 0, 2);
+    run(ui, build_tl, &a, 1);
+    CHECK(a.view.end - a.view.start < 4);
+    cui_destroy(ui);
+}
 
 static void test_timeline(void) {
     printf("timeline editor: scrub, frame keys, select, box select, snapped drags, add, delete, zoom, fit, groups, clips, 2000 tracks, empty\n");
@@ -6234,6 +6293,62 @@ static void build_flame(cui_ctx *ui, void *u) {
 }
 static cui_vec2 flame_at(flame_ctx *f, cui_ctx *ui, int i) { return center(cui_flame_span_rect(ui, f->id, &f->s[i])); }
 
+/** Draw the flame graph inside a disabled scope. */
+static void build_disabled_flame(cui_ctx *ui, void *user) {
+    flame_ctx *f = user;
+    cui_push_disabled(ui, true);
+    build_flame(ui, f);
+    cui_pop_disabled(ui);
+}
+
+/** The wheel can zoom an enabled flame graph and leaves a disabled one unchanged. */
+static void test_disabled_flame_wheel(void) {
+    printf("flame graph: disabled wheel leaves the view unchanged\n");
+    static const cui_flame_span spans[] = { { "frame", 0, 10, 0, 0 } };
+    cui_ctx *ui = new_ctx();
+    flame_ctx f = { .s = spans, .n = 1, .sel = -1, .height = 200 };
+    run(ui, build_flame, &f, 3);
+    cui_vec2 at = center(rect_of(ui, f.id));
+    cui_input_mouse_move(ui, at.x, at.y);
+    run(ui, build_flame, &f, 1);
+    cui_input_scroll(ui, 0, 2);
+    run(ui, build_disabled_flame, &f, 1);
+    CHECK(f.view.start == 0 && f.view.end == 10 && !f.last.view_changed);
+    run(ui, build_flame, &f, 2);
+    cui_input_scroll(ui, 0, 2);
+    run(ui, build_flame, &f, 1);
+    CHECK(f.view.end - f.view.start < 10);
+    cui_destroy(ui);
+}
+
+/** A disabled graph still fits its view to the current spans. */
+static void test_disabled_flame_shrinks(void) {
+    printf("flame graph: disabled view follows a smaller dataset\n");
+    cui_flame_span deep[20];
+    for (int i = 0; i < 20; i++) deep[i] = (cui_flame_span){ "frame", 0, 10, i, 0 };
+    deep[1].end = 1;
+    static const cui_flame_span shallow = { "frame", 4, 6, 0, 0 };
+    cui_ctx *ui = new_ctx();
+    flame_ctx f = { .s = deep, .n = 20, .sel = -1, .height = 200 };
+    run(ui, build_flame, &f, 3);
+    f.view.scroll = 100;
+    cui_set_reduced_motion(ui, false);
+    f.sel = 1;
+    key(ui, build_flame, &f, CUI_KEY_TAB, 0);
+    key(ui, build_flame, &f, CUI_KEY_ENTER, 0);
+    CHECK(f.last.zoomed == 1 && f.view.end > 6);
+    run(ui, build_flame, &f, 1);
+    CHECK(f.view.scroll == 100);
+    f.s = &shallow;
+    f.n = 1;
+    run(ui, build_disabled_flame, &f, 1);
+    CHECK(f.view.scroll == 0);
+    CHECK(f.view.start == 4 && f.view.end == 6 && f.last.view_changed);
+    run(ui, build_flame, &f, 1);
+    CHECK(f.view.start == 4 && f.view.end == 6);
+    cui_destroy(ui);
+}
+
 static void test_flame(void) {
     printf("flame graph: fit, select, keys, zoom about the pointer, pan, zoom to span, reset, tooltip, 100k spans, empty\n");
     static const cui_flame_span small[] = {
@@ -7251,6 +7366,50 @@ static void build_cs(cui_ctx *ui, void *u) {
         c->r = cui_last_rect(ui);
     }
 }
+typedef struct { bool disabled; cui_candle candles[80]; cui_rect rect; } candle_wheel_case;
+
+/** Build a chart whose disabled state can change after wheel routing. */
+static void build_candle_wheel(cui_ctx *ui, void *user) {
+    candle_wheel_case *c = user;
+    cui_push_disabled(ui, c->disabled);
+    cui_candlestick(ui, "candles", c->candles, 80, .height = 180);
+    c->rect = cui_last_rect(ui);
+    cui_pop_disabled(ui);
+}
+
+/** A queued wheel event leaves the disabled chart at its previous viewport. */
+static void test_disabled_candlestick_wheel(void) {
+    printf("candlestick: disabling after wheel routing preserves the viewport\n");
+    cui_ctx *ui = new_ctx();
+    candle_wheel_case c = {0};
+    cui_set_viewport(ui, 480, 240, 1);
+    for (int i = 0; i < 80; i++) {
+        float value = 100 + (float)(i % 17);
+        c.candles[i] = (cui_candle){ value, value + 3, value - 2, value + 1, 0 };
+    }
+    run(ui, build_candle_wheel, &c, 4);
+    cui_vec2 p = center(c.rect);
+    cui_input_mouse_move(ui, p.x, p.y);
+    run(ui, build_candle_wheel, &c, 2);
+    c.disabled = true;
+    run(ui, build_candle_wheel, &c, 1);
+    uint32_t before = frame_hash(ui);
+    c.disabled = false;
+    run(ui, build_candle_wheel, &c, 2);
+    c.disabled = true;
+    cui_input_scroll(ui, 0, 3);
+    run(ui, build_candle_wheel, &c, 1);
+    CHECK(frame_hash(ui) == before);
+    c.disabled = false;
+    run(ui, build_candle_wheel, &c, 2);
+    cui_input_scroll(ui, 0, 3);
+    run(ui, build_candle_wheel, &c, 1);
+    c.disabled = true;
+    run(ui, build_candle_wheel, &c, 1);
+    CHECK(frame_hash(ui) != before);
+    cui_destroy(ui);
+}
+
 static void test_candles(void) {
     cui_ctx *ui = new_ctx();
     enum { N = 100000 };
@@ -8327,6 +8486,7 @@ int main(void) {
     test_diff();
     test_dials();
     test_candles();
+    test_disabled_candlestick_wheel();
     test_month();
     test_tour();
     test_photo();
@@ -8338,7 +8498,11 @@ int main(void) {
     test_emoji_release();
     test_planning();
     test_node_editor();
+    test_disabled_node_editor_wheel();
     test_flame();
+    test_disabled_flame_wheel();
+    test_disabled_flame_shrinks();
+    test_disabled_timeline_wheel();
     test_curve_eval();
     test_curve_editor();
     test_gradient();

@@ -2140,6 +2140,7 @@ static void cui__paint_candles(cui_ctx *ui, cui_node *n, void *data) {
     cui__tip_draw(ui, &p->tip);
 }
 
+/** Build a candlestick chart with zoom and pan available while it is enabled. */
 int cui_candlestick_ex(cui_ctx *ui, const char *id_str, const cui_candle *candles, int count, const cui_candlestick_opts *o) {
     cui_candlestick_opts d;
     memset(&d, 0, sizeof d);
@@ -2170,7 +2171,7 @@ int cui_candlestick_ex(cui_ctx *ui, const char *id_str, const cui_candle *candle
     g = cui__cs_layout(rr, st->axis_w, st->span, volume);
     /* zoom around a point (0..1 across the plot) */
 #define CUI__CS_ZOOM(f, at) do { double m_ = st->first + (at) * st->span; st->span = CUI_CLAMP(st->span * (f), min_span, max_span); st->first = m_ - (at) * st->span; } while (0)
-    if (ui->scroll_target == wid && (ui->scroll_dy != 0 || ui->scroll_dx != 0) && pr.w > 0) {
+    if (!cui_is_disabled(ui) && ui->scroll_target == wid && (ui->scroll_dy != 0 || ui->scroll_dx != 0) && pr.w > 0) {
         float at = cui__clampf((ui->mx - g.plot.x) / g.plot.w, 0, 1);
         if (ui->scroll_dx != 0 || (ui->mods & CUI_MOD_SHIFT)) st->first -= (ui->scroll_dx != 0 ? ui->scroll_dx : ui->scroll_dy) * st->span * 0.06;
         else CUI__CS_ZOOM(pow(1.18, -ui->scroll_dy), at);
