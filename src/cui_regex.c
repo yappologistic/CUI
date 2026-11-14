@@ -126,7 +126,9 @@ static int cui__rx_class(cui__rx *R) {
         if (R->p + 1 < R->end && *R->p == '-' && R->p[1] != ']') {
             R->p++;
             int b = (unsigned char)*R->p++;
-            if (b == '\\') {
+            if (b == '\\' && R->p < R->end && *R->p == 'b') { R->p++; b = 0x08; }   /* a range end treats \b as backspace too */
+            else if (b == '\\') {
+                if (R->p < R->end && *R->p == 'B') { R->error = "Unknown escape"; return -1; }
                 b = cui__rx_escape(R);
                 if (b < 0) { if (b == -1) R->error = "A range cannot end in a class"; return -1; }
             }
@@ -535,7 +537,10 @@ int cui_regex_replace(const char *pattern, int flags, const char *text, int len,
     cui_regex_match m;
     while (from <= len) {
         int r = cui_regex_search(pattern, flags, text, len, from, &m, error);
-        if (r < 0) return -1;
+        if (r < 0) {   /* a later search can exhaust its budget after earlier matches were already replaced */
+            if (o.s && o.cap) o.s[o.n < o.cap ? o.n : o.cap - 1] = 0;
+            return -1;
+        }
         if (r == 0) break;
         cui__rx_put(&o, text + last, (size_t)(m.start - last));
         for (const char *p = replacement; *p; p++) {
@@ -552,8 +557,11 @@ int cui_regex_replace(const char *pattern, int flags, const char *text, int len,
                 while (m.start + cl < len && ((unsigned char)text[m.start + cl] & 0xC0) == 0x80) cl++;
                 cui__rx_put(&o, text + m.start, (size_t)cl);
                 last = m.start + cl;
-            } else last = m.end;
-            from = m.start + 1;
+                from = last;   /* resume after the whole copied character, never inside it */
+            } else {
+                last = m.end;
+                from = m.end + 1;
+            }
         } else {
             last = m.end;
             from = m.end;

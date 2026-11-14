@@ -52,6 +52,10 @@ static void test_regex(void) {
     CHECK(cui_regex_search("[\\b]", 0, "\x08", -1, 0, &m, &err) == 1);
     CHECK(cui_regex_search("[\\b]", 0, "b", -1, 0, &m, &err) == 0);
     CHECK(cui_regex_search("[\\B]", 0, "b", -1, 0, &m, &err) == -1);   /* rejected, as in PCRE */
+    /* the same backspace and \B policy holds at the end of a range */
+    CHECK(cui_regex_search("[\\x00-\\b]", 0, "\x08", -1, 0, &m, &err) == 1);
+    CHECK(cui_regex_search("[\\x00-\\b]", 0, "b", -1, 0, &m, &err) == 0);
+    CHECK(cui_regex_search("[\\x00-\\B]", 0, "b", -1, 0, &m, &err) == -1);
 
     /* regex_replace: the new helper */
     char out[128];
@@ -70,6 +74,12 @@ static void test_regex(void) {
     CHECK(cui_regex_replace("(unclosed", 0, "x", -1, "", out, sizeof out, &err) == -1 && err != NULL);
     int need = cui_regex_replace("e", 0, "eé", -1, "E", NULL, 0, &err);   /* measuring without a buffer */
     CHECK(need == 3);
+    /* a match replaced before a later search exhausts its budget still leaves a terminated prefix */
+    CHECK(cui_regex_replace("a|(b+)+c", 0, "abbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", -1, "-", out, sizeof out, &err) == -1 && err != NULL);
+    CHECK(!strcmp(out, "-"));
+    /* an empty match before a multi-byte character resumes after the whole character */
+    CHECK(cui_regex_replace("", 0, "\xc3\xa9", -1, "-", out, sizeof out, &err) == 4);
+    CHECK(!strcmp(out, "-\xc3\xa9-"));
 }
 
 /* ------------------------------------------------------------------------ */
