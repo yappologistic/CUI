@@ -7554,6 +7554,50 @@ static void build_cs(cui_ctx *ui, void *u) {
         c->r = cui_last_rect(ui);
     }
 }
+typedef struct { bool disabled; cui_candle candles[80]; cui_rect rect; } candle_wheel_case;
+
+/** Build a chart whose disabled state can change after wheel routing. */
+static void build_candle_wheel(cui_ctx *ui, void *user) {
+    candle_wheel_case *c = user;
+    cui_push_disabled(ui, c->disabled);
+    cui_candlestick(ui, "candles", c->candles, 80, .height = 180);
+    c->rect = cui_last_rect(ui);
+    cui_pop_disabled(ui);
+}
+
+/** A queued wheel event leaves the disabled chart at its previous viewport. */
+static void test_disabled_candlestick_wheel(void) {
+    printf("candlestick: disabling after wheel routing preserves the viewport\n");
+    cui_ctx *ui = new_ctx();
+    candle_wheel_case c = {0};
+    cui_set_viewport(ui, 480, 240, 1);
+    for (int i = 0; i < 80; i++) {
+        float value = 100 + (float)(i % 17);
+        c.candles[i] = (cui_candle){ value, value + 3, value - 2, value + 1, 0 };
+    }
+    run(ui, build_candle_wheel, &c, 4);
+    cui_vec2 p = center(c.rect);
+    cui_input_mouse_move(ui, p.x, p.y);
+    run(ui, build_candle_wheel, &c, 2);
+    c.disabled = true;
+    run(ui, build_candle_wheel, &c, 1);
+    uint32_t before = frame_hash(ui);
+    c.disabled = false;
+    run(ui, build_candle_wheel, &c, 2);
+    c.disabled = true;
+    cui_input_scroll(ui, 0, 3);
+    run(ui, build_candle_wheel, &c, 1);
+    CHECK(frame_hash(ui) == before);
+    c.disabled = false;
+    run(ui, build_candle_wheel, &c, 2);
+    cui_input_scroll(ui, 0, 3);
+    run(ui, build_candle_wheel, &c, 1);
+    c.disabled = true;
+    run(ui, build_candle_wheel, &c, 1);
+    CHECK(frame_hash(ui) != before);
+    cui_destroy(ui);
+}
+
 static void test_candles(void) {
     cui_ctx *ui = new_ctx();
     enum { N = 100000 };
@@ -8635,6 +8679,7 @@ int main(void) {
     test_diff();
     test_dials();
     test_candles();
+    test_disabled_candlestick_wheel();
     test_month();
     test_tour();
     test_photo();
