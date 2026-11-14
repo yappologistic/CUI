@@ -8224,6 +8224,26 @@ static void test_files(void) {
     cui_destroy(ui);
 }
 
+/* a names buffer filled exactly by the first entry: on Windows the next
+ * conversion only measured, and the entry after it pointed past the buffer */
+static void test_fs_list_full_names(void) {
+    printf("file browser: a names buffer that fills up exactly\n");
+    cui_file_entry ents[64];
+    char names[8192];
+    int n = cui_fs_list(NULL, ".", ents, 64, names, sizeof names, true);
+    CHECK(n > 1);
+    if (n < 2) return;
+    size_t cap = strlen(ents[0].name) + 1;   /* room for the first entry and nothing more */
+    char *exact = malloc(cap);
+    n = cui_fs_list(NULL, ".", ents, 64, exact, cap, true);
+    CHECK(n <= 1);
+    bool inside = true;
+    for (int i = 0; i < n; i++)
+        if (ents[i].name < exact || ents[i].name >= exact + cap || ents[i].name + strlen(ents[i].name) >= exact + cap) inside = false;
+    CHECK(inside);
+    free(exact);
+}
+
 /* ---- terminal ---- */
 static const char *tm_text(const cui_terminal_buffer *t, int i) {
     static char out[512];
@@ -8818,6 +8838,7 @@ int main(void) {
     test_tour();
     test_photo();
     test_files();
+    test_fs_list_full_names();
     test_terminal();
     test_emoji();
     test_atlas_shrink();
