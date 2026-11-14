@@ -57,6 +57,7 @@ What changed in CUI, newest first. Every component mentioned here runs live in t
 
 ### Fixed
 
+- Plain-text code editor lines remain visible after leading spaces or tabs ([#87](https://github.com/yappologistic/CUI/issues/87)).
 - Chat typing dots stay still and stop requesting frames with reduced motion ([#65](https://github.com/yappologistic/CUI/issues/65)).
 - Running task glyphs in agent plans and tool calls stay still with reduced motion ([#65](https://github.com/yappologistic/CUI/issues/65)).
 - Plain spinner arcs, including running jobs and tests, stay still with reduced motion ([#65](https://github.com/yappologistic/CUI/issues/65)).

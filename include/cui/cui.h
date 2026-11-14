@@ -1692,6 +1692,8 @@ CUI_API bool cui_markdown_apply_task(char *text, const cui_markdown_result *resu
  *     if (r.changed) recompile(src);
  *     cui_textf(ui, "Ln %d, Col %d", r.line, r.column);
  *
+ * With .lang = "text", indentation is preserved without syntax colors;
+ * tabs advance to the next tab_size column stop.
  * Lines never wrap; long ones scroll sideways while the gutter stays. Only
  * the lines in view are tokenized and drawn, so files of tens of thousands
  * of lines stay fast. An edit that would not fit in the capacity is refused
