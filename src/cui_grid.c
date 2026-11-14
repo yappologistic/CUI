@@ -633,6 +633,7 @@ bool cui_filter_bar(cui_ctx *ui, const char *id_str, const cui_filter_field *fie
     memset(&mo, 0, sizeof mo);
     mo.icon = CUI_ICON_FILTER; mo.variant = CUI_BUTTON_GHOST;
     int avail = 0;
+    int added = -1;
     for (int k = 0; k < count; k++) if (!selected[k] && !(st->active & (1u << k))) avail++;
     if (avail > 0 && cui_menu_begin(ui, "Filter##add", &mo)) {
         for (int k = 0; k < count; k++) {
@@ -643,13 +644,17 @@ bool cui_filter_bar(cui_ctx *ui, const char *id_str, const cui_filter_field *fie
             cui_push_id_int(ui, k);
             if (cui_menu_item_ex(ui, fields[k].name, &io)) {
                 st->active |= 1u << k;
-                /* open the new chip's value list right away */
-                cui_push_id_int(ui, k);
-                cui_pop_id(ui);
+                added = k;
             }
             cui_pop_id(ui);
         }
         cui_menu_end(ui);
+    }
+    if (added >= 0) {
+        /* Leave the add menu's ID scope before resolving the chip's popup. */
+        cui_push_id_int(ui, added);
+        cui__popup_set(ui, cui_make_id(ui, "chip") ^ 0x3E40u, true);
+        cui_pop_id(ui);
     }
     if (avail > 0) ui->nodes[ui->last_node].h = CUI_PX(30);
     bool any = false;

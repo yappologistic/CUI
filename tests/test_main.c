@@ -2087,6 +2087,46 @@ static void test_table_focus(void) {
     cui_destroy(ui);
 }
 
+/** Draw one filter field whose only value is easy to select from the popup. */
+static void build_filter_handoff(cui_ctx *ui, void *user) {
+    static const char *const options[] = { "Engine" };
+    static const cui_filter_field field = { "Team", NULL, options, 1 };
+    cui_column(ui, .pad = 20) {
+        cui_filter_bar(ui, "team filters", &field, 1, user, NULL, 0);
+    }
+}
+
+/** Selecting a field opens its values without requiring an extra chip click. */
+static void test_filter_handoff(void) {
+    printf("filter bar: selecting a field opens its values\n");
+    cui_ctx *ui = new_ctx();
+    uint32_t selected = 0;
+    run(ui, build_filter_handoff, &selected, 3);
+    key(ui, build_filter_handoff, &selected, CUI_KEY_TAB, 0);
+    key(ui, build_filter_handoff, &selected, CUI_KEY_ENTER, 0);
+    key(ui, build_filter_handoff, &selected, CUI_KEY_DOWN, 0);
+    key(ui, build_filter_handoff, &selected, CUI_KEY_ENTER, 0);
+    run(ui, build_filter_handoff, &selected, 3);
+    CHECK(selected == 0);
+    cui_push_id(ui, "team filters");
+    cui_push_id_int(ui, 0);
+    cui_id chip_id = cui_make_id(ui, "chip");
+    cui_rect chip = cui_get_rect(ui, chip_id);
+    cui_push_id_int(ui, (int)(chip_id ^ 0x3E40u));
+    cui_push_id_int(ui, 0);
+    cui_rect option = cui_get_rect(ui, cui_make_id(ui, "Engine"));
+    cui_pop_id(ui);
+    cui_pop_id(ui);
+    cui_pop_id(ui);
+    cui_pop_id(ui);
+    CHECK(chip.w > 0);
+    CHECK(option.w > 0);
+    cui_vec2 at = center(option);
+    click_at(ui, build_filter_handoff, &selected, at.x, at.y);
+    CHECK(selected == 1);
+    cui_destroy(ui);
+}
+
 static void test_json_tokens(void) {
     printf("JSON viewer: number and escape grammar\n");
     static const struct { const char *json; bool valid; } cases[] = {
@@ -8833,6 +8873,7 @@ int main(void) {
     test_data_grid();
     test_data_grid_shrinks();
     test_table_focus();
+    test_filter_handoff();
     test_json_tokens();
     test_tree_table();
     test_tools();
