@@ -728,6 +728,83 @@ static uint32_t frame_hash(cui_ctx *ui) {
     return h;
 }
 
+/** Check that a settled indicator holds still with reduced motion and resumes normally. */
+static void check_indicator_motion(build_fn build) {
+    cui_ctx *ui = new_ctx();
+    cui_set_viewport(ui, 480, 240, 1);
+    cui_input_mouse_leave(ui);
+    run(ui, build, NULL, 12);
+    uint32_t still = frame_hash(ui);
+    CHECK(!cui_needs_redraw(ui));
+    run(ui, build, NULL, 9);
+    CHECK(frame_hash(ui) == still);
+    CHECK(!cui_needs_redraw(ui));
+
+    cui_set_reduced_motion(ui, false);
+    run(ui, build, NULL, 12);
+    uint32_t moving = frame_hash(ui);
+    CHECK(cui_needs_redraw(ui));
+    run(ui, build, NULL, 9);
+    CHECK(frame_hash(ui) != moving);
+    cui_destroy(ui);
+}
+
+/** Draw the typing indicator on its own so redraws are attributable to its dots. */
+static void build_typing_indicator(cui_ctx *ui, void *unused) {
+    (void)unused;
+    cui_typing_indicator(ui, "Jonas");
+}
+
+/** Reduced motion keeps the typing dots visible and still. */
+static void test_typing_indicator_motion(void) {
+    printf("typing indicator: reduced motion\n");
+    check_indicator_motion(build_typing_indicator);
+}
+
+/** Exercise a running plan step without any other animated controls. */
+static void build_running_plan_step(cui_ctx *ui, void *unused) {
+    (void)unused;
+    static const cui_plan_step step = { "Reading", NULL, CUI_TASK_RUNNING };
+    cui_agent_plan(ui, "plan", &step, 1);
+}
+
+/** Exercise the running glyph through its tool call entry point. */
+static void build_running_tool_call(cui_ctx *ui, void *unused) {
+    (void)unused;
+    cui_tool_call(ui, "tool", "Read file", .status = CUI_TASK_RUNNING);
+}
+
+/** Both callers of the running task glyph respect reduced motion. */
+static void test_running_task_motion(void) {
+    printf("running plan step: reduced motion\n");
+    check_indicator_motion(build_running_plan_step);
+    printf("running tool call: reduced motion\n");
+    check_indicator_motion(build_running_tool_call);
+}
+
+/** Exercise the plain spinner as used for a running pipeline job. */
+static void build_running_pipeline(cui_ctx *ui, void *unused) {
+    (void)unused;
+    static const char *const stages[] = { "Build" };
+    static const cui_pipeline_job job = { "Windows", 0, CUI_JOB_RUNNING, 1.0f, false };
+    cui_pipeline(ui, "pipeline", stages, 1, &job, 1);
+}
+
+/** Exercise the plain spinner as used for a running test. */
+static void build_running_test(cui_ctx *ui, void *unused) {
+    (void)unused;
+    static const cui_test_item items[] = { { "Suite", 0 }, { "Layout", 1, CUI_JOB_RUNNING, -1 } };
+    cui_test_explorer(ui, "tests", items, 2, .height = 180);
+}
+
+/** Both developer views hold their running indicator still with reduced motion. */
+static void test_running_job_motion(void) {
+    printf("running pipeline job: reduced motion\n");
+    check_indicator_motion(build_running_pipeline);
+    printf("running test: reduced motion\n");
+    check_indicator_motion(build_running_test);
+}
+
 static void test_textarea_and_clear(void) {
     printf("text input: textarea wheel, focus flags, clear button undo\n");
     cui_ctx *ui = new_ctx();
@@ -8346,6 +8423,9 @@ int main(void) {
     test_media();
     test_viz();
     test_motion();
+    test_typing_indicator_motion();
+    test_running_task_motion();
+    test_running_job_motion();
     test_ai();
     test_text_capacity();
     test_dialog();

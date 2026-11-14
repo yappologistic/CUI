@@ -528,6 +528,8 @@ None of these returns anything or takes the pointer. `cui_progress` takes a frac
 
 With `dither` the bar is drawn in dots on an 8×8 ordered dither: solid up to the value, then thinning out over the 60 points past its edge, the pattern drifting slowly forward so the edge looks alive. Indeterminate, a soft band of dots sweeps the track instead of a segment. The dots take the emphasis color (the accent, or the text color under the neutral accent) unless a `tone` is set, and the default height is 8 points. The drift moves a whole dot at a time and asks for a frame only then, ten times a second; it stops when the bar is empty or full, and reduced motion holds it still and parks the indeterminate band in the middle.
 
+With reduced motion, the plain ring's arc stays visible and still without requesting another frame. Pipeline jobs and the test explorer use this same ring for running items.
+
 <picture><source media="(prefers-color-scheme: dark)" srcset="images/components/dither-progress-dark.png"><img src="images/components/dither-progress.png" alt="Dither progress"></picture>
 
 ```c
