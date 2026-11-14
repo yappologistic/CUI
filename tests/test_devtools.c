@@ -731,6 +731,106 @@ static void test_trace(void) {
     cui_destroy(ui);
 }
 
+/* the time ruler shared by the flame graph, trace viewer and waterfall: long
+ * ranges step in minutes, hours and days and say so */
+double cui__fl_step(double raw);
+const char *cui__fl_dur(cui_ctx *ui, double s);
+const char *cui__fl_tick(cui_ctx *ui, double t, double step);
+double cui__fl_ruler_step(cui_ctx *ui, float pw, double t0, double t1, double origin);
+float cui__fl_tick_x(float px0, double k, double t0, double origin, double q, double step);
+float cui__text_width(cui_ctx *ui, cui_font font, float size, const char *text, int len, bool tabular);
+static void test_time_ruler(void) {
+    printf("time ruler: steps and units past a minute (hours-long and days-long traces)\n");
+    CHECK(cui__fl_step(0.0007) == 0.001 && cui__fl_step(3) == 5 && cui__fl_step(20) == 20);   /* 1, 2, 5 as before */
+    CHECK(cui__fl_step(21) == 30 && cui__fl_step(31) == 60 && cui__fl_step(61) == 120);
+    CHECK(cui__fl_step(700) == 900 && cui__fl_step(2000) == 3600 && cui__fl_step(4000) == 7200);
+    CHECK(cui__fl_step(9000) == 10800 && cui__fl_step(50000) == 86400);
+    CHECK(cui__fl_step(2 * 86400) == 2 * 86400 && cui__fl_step(3 * 86400) == 5 * 86400);
+    cui_ctx *ui = new_ctx(900, 500);
+    cui_begin_frame(ui, 1.0f / 60.0f);
+    CHECK_STR(cui__fl_dur(ui, 0.0124), "12.4 ms");
+    CHECK_STR(cui__fl_dur(ui, 42), "42.0 s");
+    CHECK_STR(cui__fl_dur(ui, 90), "1.50 min");
+    CHECK_STR(cui__fl_dur(ui, 5400), "1.50 h");
+    CHECK_STR(cui__fl_dur(ui, 33 * 86400.0), "33.0 d");
+    CHECK_STR(cui__fl_tick(ui, 0.25, 0.05), "250 ms");             /* short steps: one unit, as before */
+    CHECK_STR(cui__fl_tick(ui, 1.5, 0.5), "1.5 s");
+    CHECK_STR(cui__fl_tick(ui, 45, 5), "45 s");
+    CHECK_STR(cui__fl_tick(ui, 70, 10), "1 min 10 s");             /* whole-second steps read as a clock past a minute */
+    CHECK_STR(cui__fl_tick(ui, 290, 10), "4 min 50 s");
+    CHECK_STR(cui__fl_tick(ui, 300, 10), "5 min");
+    CHECK_STR(cui__fl_tick(ui, 5400, 1800), "1 h 30 min");
+    CHECK_STR(cui__fl_tick(ui, 33 * 86400.0 + 37800, 1800), "33 d 10 h 30 min");
+    CHECK_STR(cui__fl_tick(ui, 3 * 86400.0, 86400), "3 d");
+    CHECK_STR(cui__fl_tick(ui, 0, 3600), "0 h");
+    CHECK_STR(cui__fl_tick(ui, -90, 30), "-1 min 30 s");
+    cui_end_frame(ui);
+    /* a trace three days long fits, zooms and pans like a short one */
+    static cui_trace_span sp[] = { { "Deploy", 0, 3 * 86400.0, 0, 0 }, { "Build", 3600, 7200, 0, 1 }, { "Test", 90000, 90060, 1, 0 } };
+    tr_ctx c;
+    memset(&c, 0, sizeof c);
+    c.tracks[0].name = "CI"; c.tracks[1].name = "QA"; c.tracks[2].name = "Idle";
+    c.s = sp; c.n = 3; c.sel = -1;
+    run(ui, build_tr, &c, 3);
+    CHECK(c.view.start == 0 && fabs(c.view.end - 3 * 86400.0) < 1e-6);
+    cui_rect r = cui_get_rect(ui, cui_make_id(ui, "trace"));
+    float x, y;
+    CHECK(find(ui, build_tr, &c, r, &c.r.hovered, 1, &x, &y));   /* Build */
+    cui_input_scroll(ui, 0, 4);
+    run(ui, build_tr, &c, 1);
+    CHECK(c.view.end - c.view.start < 3 * 86400.0 * 0.7);
+
+    /* every label in view fits before the next tick, also where a long label ("1 d 23 h 50 min")
+     * comes before a short one ("2 d"): windows around minute, hour and day rollovers */
+    cui_begin_frame(ui, 1.0f / 60.0f);
+    const float fs = cui_theme_get(ui)->text_xs * cui_theme_get(ui)->font_scale;
+    static const double around[] = { 60, 3600, 36000, 86400, 172800, 33 * 86400.0 + 37800 };
+    static const double spans[] = { 90, 600, 1020, 3000, 20000, 200000 };
+    static const float widths[] = { 360, 480, 650, 900, 1400 };
+    int windows = 0, tight = 0;
+    for (int a = 0; a < 6; a++) for (int s = 0; s < 6; s++) for (int w = 0; w < 5; w++) {
+        double t0 = around[a] - spans[s] * 0.93, t1 = t0 + spans[s];
+        double step = cui__fl_ruler_step(ui, widths[w], t0, t1, 0);
+        float k = (float)(widths[w] / spans[s]);
+        for (double q = ceil(t0 / step - 1e-9); q <= floor(t1 / step + 1e-9); q += 1) {
+            const char *lbl = cui__fl_tick(ui, q * step, step);
+            float lw = cui__text_width(ui, CUI_FONT_BODY, fs, lbl, -1, true);
+            if ((float)(step * k) < lw + 16) {
+                if (!tight++) printf("  too tight: %.0f..%.0f s in %.0f pt, step %g s: \"%s\" is %.1f pt, ticks %.1f pt apart\n",
+                                     t0, t1, widths[w], step, lbl, lw, step * k);
+            }
+        }
+        windows++;
+    }
+    CHECK(windows == 180 && tight == 0);
+    CHECK(cui__fl_ruler_step(ui, 650, 171900, 172920, 0) >= 300);   /* "1 d 23 h 50 min" does not fit 2 min apart */
+    /* zoomed to 1e-8 s, 2e7 s after the origin: the tick indices pass 2^53, where adding 1 to a
+     * double no longer moves it; the step ends up coarse enough that neighbouring ticks differ */
+    CHECK(2e7 / cui__fl_ruler_step(ui, 733, 2e7, 2e7 + 1.1e-8, 0) < 4.5e15);
+    /* 0.25 us on 400 points, 2e7 s after an origin 1.8e9 s from zero: the ticks are 1e-7 s, 160
+     * points, apart, also where origin + t would round that step away (it gave both ticks one x);
+     * 2e7 s from the origin a double still carries the step to within a few percent */
+    {
+        double o = 1.8e9, t0 = o + 2e7, k = 400 / 2.5e-7, step = cui__fl_ruler_step(ui, 400, t0, t0 + 2.5e-7, o);
+        double q = ceil((t0 - o) / step - 1e-9);
+        float x0 = cui__fl_tick_x(0, k, t0, o, q, step), x1 = cui__fl_tick_x(0, k, t0, o, q + 1, step);
+        CHECK(fabs((x1 - x0) - step * k) < 0.05 * step * k);
+    }
+    cui_end_frame(ui);
+    /* the same in a trace view, whose first frame paints the view as given: it must return */
+    static cui_trace_track deep_tracks[1] = { { "Lane" } };
+    static cui_trace_span deep_spans[2] = { { "Start", 0, 1, 0, 0 }, { "Late", 2e7, 2e7 + 1, 0, 0 } };
+    cui_trace_view deep = { 2e7, 2e7 + 1e-8, 0 };
+    int deep_sel = -1;
+    for (int i = 0; i < 3; i++) {
+        cui_begin_frame(ui, 1.0f / 60.0f);
+        cui_trace_view(ui, "deep zoom", deep_tracks, 1, deep_spans, 2, &deep, &deep_sel, .height = 300);
+        cui_end_frame(ui);
+    }
+    CHECK(deep.end > deep.start);
+    cui_destroy(ui);
+}
+
 /* ------------------------------------------------------------------------ */
 /* everything, at three widths, both directions, both themes, under random input */
 
@@ -1393,6 +1493,7 @@ int main(void) {
     test_graph();
     test_waterfall();
     test_trace();
+    test_time_ruler();
     test_random();
     test_regex();
     test_regex_noncapture();

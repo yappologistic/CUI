@@ -96,6 +96,7 @@ What changed in CUI, newest first. Every component mentioned here runs live in t
 - Date and color pickers show keyboard focus on their triggers ([#83](https://github.com/yappologistic/CUI/issues/83)).
 - An open color picker reflects external RGB changes and preserves alpha while editing ([#83](https://github.com/yappologistic/CUI/issues/83)).
 - Keyboard focus keeps the wheel labels and ruler scale visible ([#83](https://github.com/yappologistic/CUI/issues/83)).
+- The time ruler of the flame graph, the trace viewer and the network waterfall reads hours-long and days-long captures: past 20 seconds it steps like a clock (30 s, 1, 2, 5, 10, 15 and 30 min, 1, 2, 3, 6 and 12 h, then days) and labels each tick from its largest part down, such as "4 min 50 s" or "33 d 10 h 30 min", where it used to print "2851200 s". Steps under a second keep their labels; with whole-second steps, ticks from a minute on read as minutes and seconds ("1 min 10 s" where it said "70 s"). Span tooltips and the measured range give long durations in min, h or d.
 - The wheel scrolls a text area before its enclosing scroll view, then reaches the outer view at the text area's edges. Diagonal input can scroll the text vertically and the outer view horizontally ([#58](https://github.com/yappologistic/CUI/issues/58)).
 - Tag input enforces its tag limit for every tag in a batch ([#58](https://github.com/yappologistic/CUI/issues/58)).
 - Pasting a different complete one-time code emits another completion event ([#58](https://github.com/yappologistic/CUI/issues/58)).

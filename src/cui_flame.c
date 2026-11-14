@@ -106,12 +106,15 @@ static cui_color cui__fl_fg(cui_ctx *ui, uint32_t key, cui_color fill) {
 
 /* ---- number formatting ---- */
 
-static const char *cui__fl_dur(cui_ctx *ui, double s) {
+const char *cui__fl_dur(cui_ctx *ui, double s) {
     const char *u = "s";
     double v = s;
     if (s < 1e-6) { v = s * 1e9; u = "ns"; }
     else if (s < 1e-3) { v = s * 1e6; u = "\xc2\xb5s"; }
     else if (s < 1) { v = s * 1e3; u = "ms"; }
+    else if (s >= 86400) { v = s / 86400; u = "d"; }
+    else if (s >= 3600) { v = s / 3600; u = "h"; }
+    else if (s >= 60) { v = s / 60; u = "min"; }
     int dec = v >= 100 ? 0 : v >= 10 ? 1 : 2;
     return cui__frame_printf(ui, "%.*f %s", dec, v, u);
 }
@@ -123,48 +126,93 @@ static double cui__fl_nice(double raw) {
     double m = raw / p;
     return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 5 ? 5 : 10) * p;
 }
-static void cui__fl_unit(double step, double *unit, const char **name, int *dec) {
-    if (step >= 0.1) { *unit = 1; *name = "s"; }
-    else if (step >= 1e-5) { *unit = 1e-3; *name = "ms"; }
-    else if (step >= 1e-8) { *unit = 1e-6; *name = "\xc2\xb5s"; }
-    else { *unit = 1e-9; *name = "ns"; }
-    double r = step / *unit;
-    int d = (int)ceil(-log10(r) - 1e-9);
-    *dec = CUI_CLAMP(d, 0, 3);
+/* The ruler step for at least `raw` seconds: 1, 2 or 5 times a power of ten
+ * up to 20 s, then steps a clock reads in (30 s, 1, 2, 5, 10, 15, 30 min,
+ * 1, 2, 3, 6, 12 h), then 1, 2 or 5 times a power of ten days. */
+double cui__fl_step(double raw) {
+    static const double clock[] = { 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 10800, 21600, 43200, 86400 };
+    if (!(raw > 20)) return cui__fl_nice(raw);
+    for (int i = 0; i < (int)(sizeof clock / sizeof clock[0]); i++)
+        if (raw <= clock[i]) return clock[i];
+    return cui__fl_nice(raw / 86400) * 86400;
+}
+/* A tick at `t` seconds on a ruler `step` apart. Steps of a second or more
+ * read like a clock, from the largest part down to the step's own unit, zero
+ * parts left out: "45 s", "4 min 50 s", "1 h 30 min", "33 d 10 h".
+ * Shorter steps count in one unit: "250 ms". */
+const char *cui__fl_tick(cui_ctx *ui, double t, double step) {
+    if (step < 1) {
+        double unit = step >= 0.1 ? 1 : step >= 1e-5 ? 1e-3 : step >= 1e-8 ? 1e-6 : 1e-9;
+        const char *name = step >= 0.1 ? "s" : step >= 1e-5 ? "ms" : step >= 1e-8 ? "\xc2\xb5s" : "ns";
+        int d = (int)ceil(-log10(step / unit) - 1e-9);
+        double v = fabs(t) < 1e-12 ? 0 : t / unit;
+        return cui__frame_printf(ui, "%.*f %s", CUI_CLAMP(d, 0, 3), v, name);
+    }
+    static const struct { double s; const char *name; } parts[] = { { 86400, "d" }, { 3600, "h" }, { 60, "min" }, { 1, "s" } };
+    int last = step >= 86400 ? 0 : step >= 3600 ? 1 : step >= 60 ? 2 : 3;
+    long long n = llround(fabs(t) / parts[last].s);
+    if (n == 0) return cui__frame_printf(ui, "0 %s", parts[last].name);
+    char buf[64];
+    int len = snprintf(buf, sizeof buf, "%s", t < 0 ? "-" : "");
+    bool first = true;
+    for (int i = 0; i <= last; i++) {
+        long long per = llround(parts[i].s / parts[last].s), v = n / per;
+        n %= per;
+        if (!v) continue;
+        len += snprintf(buf + len, sizeof buf - (size_t)len, "%s%lld %s", first ? "" : " ", v, parts[i].name);
+        first = false;
+    }
+    return cui__frame_printf(ui, "%s", buf);
 }
 
 /* The time ruler: ticks a nice step apart with their labels, inside `rr` (its bottom edge is the
  * baseline), and grid lines `grid_h` tall below it. Time t sits at px0 + (t - t0) * pw / (t1 - t0);
  * labels count from `origin`. Returns the step. */
-static double cui__fl_ruler(cui_ctx *ui, cui_rect rr, float px0, float pw, double t0, double t1, double origin, float grid_h) {
+double cui__fl_ruler_step(cui_ctx *ui, float pw, double t0, double t1, double origin) {
     double range = t1 - t0;
     float k = (float)(pw / range);
     float fs = cui__fs(ui, ui->theme.text_xs);
-    double unit; const char *uname; int dec;
     float min_px = 72;
-    double step = cui__fl_nice(range * min_px / pw);
-    cui__fl_unit(step, &unit, &uname, &dec);
-    /* wide labels ("12.42 ms") need more room: thin the ticks until they fit */
-    for (int guard = 0; guard < 4; guard++) {
-        const char *wl = cui__frame_printf(ui, "%.*f %s", dec, (t1 - origin) / unit, uname);
-        float lw = cui__text_width(ui, CUI_FONT_BODY, fs, wl, -1, true);
-        if ((float)(step * k) >= lw + 16) break;
-        step = cui__fl_nice(step * 1.01 * 2);
-        cui__fl_unit(step, &unit, &uname, &dec);
+    double step = cui__fl_step(range * min_px / pw);
+    /* wide labels ("12.42 ms", "1 d 23 h 50 min") need more room: thin the ticks until every label
+     * in view fits before the next tick. Compound labels differ in length from tick to tick ("2 d"
+     * after "1 d 23 h 50 min"), so each one is measured; past 200 ticks the step is surely too fine,
+     * and so it is when the ticks are 2^52 steps or more from the origin, where neighbouring tick
+     * indices stop being distinct doubles. The index counts in an integer, so the loop always ends. */
+    for (int guard = 0; guard < 12; guard++) {
+        double first = ceil((t0 - origin) / step - 1e-9), last = floor((t1 - origin) / step + 1e-9);
+        float lw = 0;
+        bool many = !(last - first <= 200) || !(fabs(first) < 4e15 && fabs(last) < 4e15);
+        for (long long i = 0, n = many || last < first ? -1 : (long long)(last - first); i <= n; i++)
+            lw = fmaxf(lw, cui__text_width(ui, CUI_FONT_BODY, fs, cui__fl_tick(ui, (first + (double)i) * step, step), -1, true));
+        if (!many && (float)(step * k) >= lw + 16) break;
+        step = cui__fl_step(step * 1.01);   /* the next step up: 1, 2, 5, 10 ... 30 s, 1 min, 2 min ... */
     }
+    return step;
+}
+
+/* Where tick q of a ruler `step` apart sits: from the tick's offset from the origin, so a view
+ * of 1e-7 s two billion seconds after it keeps its ticks apart (origin + q * step would round
+ * the step away before t0 is taken off). */
+float cui__fl_tick_x(float px0, double k, double t0, double origin, double q, double step) {
+    return px0 + (float)((q * step - (t0 - origin)) * k);
+}
+
+static double cui__fl_ruler(cui_ctx *ui, cui_rect rr, float px0, float pw, double t0, double t1, double origin, float grid_h) {
+    float k = (float)(pw / (t1 - t0));
+    float fs = cui__fs(ui, ui->theme.text_xs);
+    double step = cui__fl_ruler_step(ui, pw, t0, t1, origin);
     double first = ceil((t0 - origin) / step - 1e-9);
     double last = floor((t1 - origin) / step + 1e-9);
     float fh = cui__font_line_height(ui, CUI_FONT_BODY, fs);
     cui_color grid = cui_alpha(CUI_C(ui, BORDER_SUBTLE), ui->mode == CUI_THEME_DARK ? 0.8f : 1.0f);
-    for (double q = first; q <= last && q - first < 400; q += 1) {
-        double t = origin + q * step;
-        float x = px0 + (float)((t - t0) * k);
-        x = floorf(x);
+    long long ticks = !(last >= first) ? 0 : last - first >= 400 ? 400 : (long long)(last - first) + 1;
+    for (long long i = 0; i < ticks; i++) {   /* an integer index: it always advances */
+        double q = first + (double)i;
+        float x = floorf(cui__fl_tick_x(px0, k, t0, origin, q, step));
         if (grid_h > 0) cui_draw_rect(ui, (cui_rect){ x, rr.y + rr.h + 1, 1, grid_h }, CUI_CORNERS(0), grid);
         cui_draw_rect(ui, (cui_rect){ x, rr.y + rr.h - 5, 1, 5 }, CUI_CORNERS(0), CUI_C(ui, BORDER_STRONG));
-        double v = q * step / unit;
-        if (fabs(v) < 1e-9) v = 0;
-        const char *lbl = cui__frame_printf(ui, "%.*f %s", dec, v, uname);
+        const char *lbl = cui__fl_tick(ui, q * step, step);
         float lw = cui__text_width(ui, CUI_FONT_BODY, fs, lbl, -1, true);
         if (x + 4 + lw <= rr.x + rr.w - 6)
             cui__draw_text_line(ui, CUI_FONT_BODY, fs, x + 4, rr.y + (rr.h - 4 - fh) * 0.5f, CUI_C(ui, TEXT_MUTED), lbl, -1, true);
