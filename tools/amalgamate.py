@@ -19,6 +19,8 @@ become macros the app can set before the implementation:
     CUI_NO_DEFAULT_FONTS    leave out Inter, Geist and Lucide (about 180 KB)
     CUI_NO_STB_IMAGE        leave out PNG and JPEG loading
     CUI_TEXT_SHAPING        Arabic-script shaping and bidi
+    CUI_WITH_LUA            the Lua REPL engine; the console component stays in either way, but
+                            with the macro set you must also compile third_party/lua/*.c
 
 On macOS the window layer is Objective-C: compile cui.c (or the file with CUI_IMPLEMENTATION)
 with -x objective-c -fobjc-arc, or define CUI_NO_APP.
@@ -39,7 +41,8 @@ def library_sources():
     macro that turns them off (the same files CMakeLists.txt picks)."""
     src = os.path.join(ROOT, "src")
     optional = {"cui_font_data.c": "!CUI_NO_DEFAULT_FONTS", "cui_inflate.c": "!CUI_NO_DEFAULT_FONTS",
-                "cui_bidi.c": "CUI_TEXT_SHAPING", "cui_shape.c": "CUI_TEXT_SHAPING"}
+                "cui_bidi.c": "CUI_TEXT_SHAPING", "cui_shape.c": "CUI_TEXT_SHAPING",
+                "cui_lua.c": "CUI_WITH_LUA", "cui_lua_ui.c": "CUI_WITH_LUA"}
     files = []
     for name in sorted(os.listdir(src)):
         if name.endswith(".c"):
