@@ -8,7 +8,6 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 
 static int failures;
 static bool strict;   /* the system always carries out state changes */
@@ -88,7 +87,9 @@ int main(void) {
         return 0;
     }
     const char *backend = cui_app_backend(app);
-    strict = !strcmp(backend, "win32") || !strcmp(backend, "cocoa");
+#if defined(_WIN32) || defined(__APPLE__)
+    strict = true;   /* the system carries out state changes with every backend */
+#endif
     printf("backend=%s strict=%d\n", backend, strict);
     /* before the window manager has placed the window, the placement is still the saved one */
     expect_placement(app, x, y, w, h, CUI_WINDOW_NORMAL, "right after opening");

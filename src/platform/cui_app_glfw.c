@@ -8,11 +8,10 @@ typedef struct {
     GLFWcursor *cursors[CUI_CURSOR_COUNT];
     cui_cursor cursor;
     /* GLFW keeps no normal size and place for a maximized window: noted while it is normal,
-     * in screen coordinates */
+     * the place in screen coordinates and the size in points */
     int normal_x, normal_y, normal_w, normal_h;
     bool normal_pos_known;
     bool geometry_changed;   /* moved or resized: note them after the batch */
-    float points;            /* points per screen coordinate, kept for a minimized window's empty framebuffer */
     bool was_maximized;      /* the state before a minimize */
     bool maximize_after_frame;   /* opening maximized: once the first frame is shown */
 } cui__glfw;
@@ -119,6 +118,33 @@ static bool cui__glfw_positions(void) {
 #endif
 }
 
+/* Notes the window's place where the platform reports it. GLFW 3.3 cannot tell Wayland
+ * apart, so a failed query is taken as no place. */
+static void cui__glfw_note_position(cui__glfw *g) {
+    if (!cui__glfw_positions()) return;
+    int x = 0, y = 0;
+    glfwGetError(NULL);
+    glfwGetWindowPos(g->win, &x, &y);
+    if (glfwGetError(NULL) != GLFW_NO_ERROR) return;
+    g->normal_x = x;
+    g->normal_y = y;
+    g->normal_pos_known = true;
+}
+
+/* Notes the window's size in points, as cui_app_size reports it. Screen coordinates are
+ * pixels on Windows and X11 but points on macOS and Wayland; the framebuffer tells which,
+ * on the monitor the window is on now. */
+static void cui__glfw_note_size(cui__glfw *g) {
+    int ww, wh, fw, fh;
+    float s = 1;
+    glfwGetWindowSize(g->win, &ww, &wh);
+    glfwGetFramebufferSize(g->win, &fw, &fh);
+    cui__glfw_scale(g->win, &s);
+    float points = ww > 0 && fw > 0 && s > 0 ? (float)fw / (float)ww / s : 1.0f;
+    g->normal_w = (int)((float)ww * points + 0.5f);
+    g->normal_h = (int)((float)wh * points + 0.5f);
+}
+
 /* True when the top edge of a window at x, y of width w is in a monitor's work area. */
 static bool cui__glfw_on_screen(int x, int y, int w) {
     int count = 0;
@@ -176,12 +202,16 @@ bool cui__plat_init(cui_app *app) {
     glfwSetDropCallback(g->win, cb_drop);
     glfwSetWindowPosCallback(g->win, cb_geometry);
     glfwSetWindowSizeCallback(g->win, cb_geometry);
-    glfwGetWindowSize(g->win, &g->normal_w, &g->normal_h);
+    g->normal_w = app->desc.width;
+    g->normal_h = app->desc.height;
     if (pl && pl->has_position && cui__glfw_positions() && cui__glfw_on_screen(pl->x, pl->y, g->normal_w)) {
+        glfwGetError(NULL);
         glfwSetWindowPos(g->win, pl->x, pl->y);   /* still hidden: it opens there */
-        g->normal_x = pl->x;
-        g->normal_y = pl->y;
-        g->normal_pos_known = true;
+        if (glfwGetError(NULL) == GLFW_NO_ERROR) {
+            g->normal_x = pl->x;
+            g->normal_y = pl->y;
+            g->normal_pos_known = true;
+        }
     }
     int shapes[CUI_CURSOR_COUNT] = { GLFW_ARROW_CURSOR, GLFW_HAND_CURSOR, GLFW_IBEAM_CURSOR, GLFW_HRESIZE_CURSOR,
                                      GLFW_VRESIZE_CURSOR, GLFW_ARROW_CURSOR, GLFW_ARROW_CURSOR };
@@ -228,6 +258,7 @@ void cui__plat_gl_swap(cui_app *app) {
     glfwSwapBuffers(g->win);
     if (g->maximize_after_frame) {
         g->maximize_after_frame = false;
+        if (!g->normal_pos_known) cui__glfw_note_position(g);   /* the place the system chose */
         glfwMaximizeWindow(g->win);
     }
 }
@@ -254,18 +285,6 @@ void cui__plat_set_title(cui_app *app, const char *title) { glfwSetWindowTitle(c
 void cui__plat_set_size(cui_app *app, int w, int h) { glfwSetWindowSize(cui__g(app)->win, w, h); }
 void *cui__plat_native(cui_app *app) { return cui__g(app)->win; }
 
-/* Screen coordinates are pixels on Windows and X11 but points on macOS and Wayland: the
- * framebuffer tells which. A minimized window's framebuffer can be empty, so the last
- * ratio is kept. */
-static void cui__glfw_note_points(cui__glfw *g) {
-    int ww, wh, fw, fh;
-    float s = 1;
-    glfwGetWindowSize(g->win, &ww, &wh);
-    glfwGetFramebufferSize(g->win, &fw, &fh);
-    cui__glfw_scale(g->win, &s);
-    if (ww > 0 && fw > 0 && s > 0) g->points = (float)fw / (float)ww / s;
-}
-
 void cui__plat_wait(cui_app *app, double timeout) {
     if (timeout < 0) glfwWaitEvents();
     else if (timeout > 0) glfwWaitEventsTimeout(timeout);
@@ -276,12 +295,8 @@ void cui__plat_wait(cui_app *app, double timeout) {
     if (state != CUI_WINDOW_MINIMIZED) g->was_maximized = state == CUI_WINDOW_MAXIMIZED;
     if (g->geometry_changed && state == CUI_WINDOW_NORMAL && glfwGetWindowAttrib(g->win, GLFW_VISIBLE)) {
         g->geometry_changed = false;
-        glfwGetWindowSize(g->win, &g->normal_w, &g->normal_h);
-        cui__glfw_note_points(g);
-        if (cui__glfw_positions()) {
-            glfwGetWindowPos(g->win, &g->normal_x, &g->normal_y);
-            g->normal_pos_known = true;
-        }
+        cui__glfw_note_size(g);
+        cui__glfw_note_position(g);
     }
 }
 
@@ -319,12 +334,10 @@ void cui__plat_set_position(cui_app *app, int x, int y) {
 
 void cui__plat_placement(cui_app *app, cui_window_placement *out) {
     cui__glfw *g = cui__g(app);
-    cui__glfw_note_points(g);
-    float points = g->points > 0 ? g->points : 1.0f;   /* sizes in points, as cui_app_size reports them */
     out->x = g->normal_x;
     out->y = g->normal_y;
-    out->width = (int)((float)g->normal_w * points + 0.5f);
-    out->height = (int)((float)g->normal_h * points + 0.5f);
+    out->width = g->normal_w;
+    out->height = g->normal_h;
     out->has_position = g->normal_pos_known;
     cui_window_state state = cui__plat_window_state(app);
     bool maximized = state == CUI_WINDOW_MAXIMIZED || (state == CUI_WINDOW_MINIMIZED && g->was_maximized);

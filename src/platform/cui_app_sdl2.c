@@ -158,6 +158,11 @@ void cui__plat_show(cui_app *app) {
      * content where it was asked to; a maximized window gets its normal place first */
     const cui_window_placement *pl = app->desc.placement;
     if (s->normal_pos_known) SDL_SetWindowPosition(s->win, s->normal_x, s->normal_y);
+    else if (cui__sdl_positions()) {
+        /* the place the system chose, before a maximize hides it until the window is restored */
+        SDL_GetWindowPosition(s->win, &s->normal_x, &s->normal_y);
+        s->normal_pos_known = true;
+    }
     if (pl && pl->state == CUI_WINDOW_MAXIMIZED) SDL_MaximizeWindow(s->win);
 }
 
@@ -357,7 +362,10 @@ cui_window_state cui__plat_window_state(cui_app *app) {
 }
 
 void cui__plat_set_position(cui_app *app, int x, int y) {
-    if (cui__sdl_positions()) SDL_SetWindowPosition(cui__s(app)->win, x, y);
+    cui__sdl *s = cui__s(app);
+    if (!cui__sdl_positions()) return;
+    s->hold_place_until = 0;   /* the new place replaces the one a restore holds */
+    SDL_SetWindowPosition(s->win, x, y);
 }
 
 void cui__plat_placement(cui_app *app, cui_window_placement *out) {

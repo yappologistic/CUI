@@ -435,6 +435,15 @@ static LRESULT CALLBACK cui__win32_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM l
     return DefWindowProcW(hwnd, msg, wp, lp);
 }
 
+/* The frame around the content at the window's DPI; left and top are negative. */
+static RECT cui__win32_frame(HWND hwnd) {
+    RECT r = { 0, 0, 0, 0 };
+    DWORD style = (DWORD)GetWindowLongW(hwnd, GWL_STYLE);
+    if (cui__AdjustWindowRectExForDpi && cui__GetDpiForWindow) cui__AdjustWindowRectExForDpi(&r, style, FALSE, 0, cui__GetDpiForWindow(hwnd));
+    else AdjustWindowRectEx(&r, style, FALSE, 0);
+    return r;
+}
+
 bool cui__plat_init(cui_app *app) {
     cui__win32_dpi_awareness();
     cui__win32 *w = calloc(1, sizeof *w);
@@ -472,9 +481,12 @@ bool cui__plat_init(cui_app *app) {
     DragAcceptFiles(w->hwnd, TRUE);   /* files dropped from Explorer arrive as WM_DROPFILES */
     w->scale = cui__win32_window_scale(w->hwnd);
     if (w->scale != scale) {
-        RECT r2 = { 0, 0, (LONG)(app->desc.width * w->scale), (LONG)(app->desc.height * w->scale) };
-        AdjustWindowRectEx(&r2, style, FALSE, 0);
-        SetWindowPos(w->hwnd, NULL, 0, 0, r2.right - r2.left, r2.bottom - r2.top, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+        /* the frame at the DPI of the monitor the window opened on, which a saved place can make
+         * another than the primary one */
+        RECT f = cui__win32_frame(w->hwnd);
+        int fw = (int)(app->desc.width * w->scale) + (f.right - f.left);
+        int fh = (int)(app->desc.height * w->scale) + (f.bottom - f.top);
+        SetWindowPos(w->hwnd, NULL, 0, 0, fw, fh, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
     }
     /* the frame was measured at the primary monitor's DPI: place the content exactly */
     if (left != CW_USEDEFAULT) cui__plat_set_position(app, pl->x, pl->y);
@@ -648,26 +660,46 @@ cui_window_state cui__plat_window_state(cui_app *app) {
     return IsIconic(hwnd) ? CUI_WINDOW_MINIMIZED : IsZoomed(hwnd) ? CUI_WINDOW_MAXIMIZED : CUI_WINDOW_NORMAL;
 }
 
-/* The frame around the content at the window's DPI; left and top are negative. */
-static RECT cui__win32_frame(HWND hwnd) {
-    RECT r = { 0, 0, 0, 0 };
-    DWORD style = (DWORD)GetWindowLongW(hwnd, GWL_STYLE);
-    if (cui__AdjustWindowRectExForDpi && cui__GetDpiForWindow) cui__AdjustWindowRectExForDpi(&r, style, FALSE, 0, cui__GetDpiForWindow(hwnd));
-    else AdjustWindowRectEx(&r, style, FALSE, 0);
-    return r;
-}
-
 /* Window placements are in workspace coordinates: screen coordinates less the taskbars along
- * the top and the left of the window's monitor. */
-static POINT cui__win32_workspace_offset(const RECT *r) {
+ * the top and the left of the window's monitor. This is that offset for a monitor. */
+static POINT cui__win32_work_offset(HMONITOR monitor) {
     POINT o = { 0, 0 };
     MONITORINFO mi;
     mi.cbSize = sizeof mi;
-    if (GetMonitorInfoW(MonitorFromRect(r, MONITOR_DEFAULTTONEAREST), &mi)) {
+    if (GetMonitorInfoW(monitor, &mi)) {
         o.x = mi.rcWork.left - mi.rcMonitor.left;
         o.y = mi.rcWork.top - mi.rcMonitor.top;
     }
     return o;
+}
+
+typedef struct cui__win32_workspace_search {
+    RECT workspace;     /* the rectangle in workspace coordinates */
+    POINT offset;
+    bool found;
+} cui__win32_workspace_search;
+
+/* Takes the monitor that a workspace rectangle lands on when converted with that monitor's own
+ * offset: the monitor itself cannot be read from workspace coordinates. */
+static BOOL CALLBACK cui__win32_workspace_monitor(HMONITOR monitor, HDC dc, LPRECT bounds, LPARAM data) {
+    (void)dc; (void)bounds;
+    cui__win32_workspace_search *search = (cui__win32_workspace_search *)data;
+    POINT o = cui__win32_work_offset(monitor);
+    RECT screen = search->workspace;
+    OffsetRect(&screen, o.x, o.y);
+    if (MonitorFromRect(&screen, MONITOR_DEFAULTTONEAREST) != monitor) return TRUE;
+    search->offset = o;
+    search->found = true;
+    return FALSE;
+}
+
+/* The offset from workspace to screen coordinates for a rectangle in workspace coordinates. */
+static POINT cui__win32_workspace_offset(const RECT *workspace) {
+    cui__win32_workspace_search search;
+    memset(&search, 0, sizeof search);
+    search.workspace = *workspace;
+    EnumDisplayMonitors(NULL, NULL, cui__win32_workspace_monitor, (LPARAM)&search);
+    return search.found ? search.offset : cui__win32_work_offset(MonitorFromRect(workspace, MONITOR_DEFAULTTONEAREST));
 }
 
 void cui__plat_set_position(cui_app *app, int x, int y) {
@@ -683,7 +715,7 @@ void cui__plat_set_position(cui_app *app, int x, int y) {
     if (!GetWindowPlacement(hwnd, &wp)) return;
     RECT r = wp.rcNormalPosition;
     RECT moved = { x + f.left, y + f.top, x + f.left + (r.right - r.left), y + f.top + (r.bottom - r.top) };
-    POINT o = cui__win32_workspace_offset(&moved);
+    POINT o = cui__win32_work_offset(MonitorFromRect(&moved, MONITOR_DEFAULTTONEAREST));
     OffsetRect(&moved, -o.x, -o.y);
     wp.rcNormalPosition = moved;
     wp.showCmd = IsIconic(hwnd) ? SW_SHOWMINNOACTIVE : SW_SHOWMAXIMIZED;

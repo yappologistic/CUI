@@ -880,10 +880,19 @@ void cui__plat_wait(cui_app *app, double timeout) {
     if (x->geometry_changed) {
         x->geometry_changed = false;
         if (x->mapped && cui__plat_window_state(app) == CUI_WINDOW_NORMAL) {
-            cui__x11_content_origin(x, &x->normal_x, &x->normal_y);
-            x->normal_pos_known = true;
-            x->normal_w = x->width;
-            x->normal_h = x->height;
+            int px, py;
+            cui__x11_content_origin(x, &px, &py);
+            /* another client can maximize the window between the two queries: keep only a place
+             * read while the window stayed normal, and only with the size it had then */
+            if (cui__plat_window_state(app) == CUI_WINDOW_NORMAL && !XPending(x->dpy)) {
+                x->normal_x = px;
+                x->normal_y = py;
+                x->normal_pos_known = true;
+                x->normal_w = x->width;
+                x->normal_h = x->height;
+            } else {
+                x->geometry_changed = true;   /* try again after the next batch */
+            }
         }
     }
 }
