@@ -1,6 +1,6 @@
 /* X11 backend (Linux, BSD). Uses Xlib for windows and input, XIM for text
- * input, GLX (loaded at runtime) for OpenGL and XPutImage for the software
- * renderer. Links only against libX11. */
+ * input with the candidate window at the caret, GLX (loaded at runtime) for
+ * OpenGL and XPutImage for the software renderer. Links only against libX11. */
 #include "cui_platform.h"
 
 #include <X11/Xlib.h>
@@ -59,6 +59,12 @@ typedef struct {
     int depth;
     XIM im;
     XIC ic;
+    XFontSet ic_fontset;       /* core font set; XIMPreeditPosition needs one for the preedit */
+    XVaNestedList ime_attrs;   /* XNSpotLocation (+ XNFontSet) handed to the IC, updated in place */
+    XPoint ime_spot;           /* caret, in window pixels */
+    bool ime_spot_ok;          /* the IC takes a spot, so the IME opens at the caret */
+    bool ime_spot_set;
+    unsigned long event_mask;
     Atom wm_delete, wm_protocols, net_wm_name, utf8_string, clipboard, targets, cui_sel, net_wm_icon_name;
     Cursor cursors[CUI_CURSOR_COUNT];
     cui_cursor current_cursor;
@@ -130,6 +136,7 @@ static float cui__x11_dpi_scale(Display *dpy) {
 static const char *cui__x11_get_clip(void *user);
 static void cui__x11_set_clip(void *user, const char *utf8);
 static void cui__x11_set_cursor(void *user, cui_cursor c);
+static void cui__x11_text_input_rect(void *user, cui_rect caret);
 
 static bool cui__x11_load_glx(cui__x11 *x) {
     if (!cui__x11_libgl) cui__x11_libgl = dlopen("libGL.so.1", RTLD_NOW | RTLD_GLOBAL);
@@ -142,6 +149,59 @@ static bool cui__x11_load_glx(cui__x11 *x) {
     x->SwapBuffers = (PFN_glXSwapBuffers)dlsym(x->libgl, "glXSwapBuffers");
     x->DestroyContext = (PFN_glXDestroyContext)dlsym(x->libgl, "glXDestroyContext");
     return x->GetProcAddress && x->MakeCurrent && x->SwapBuffers && x->DestroyContext;
+}
+
+/* Input styles to ask for, best first. XIMPreeditPosition is the only one that
+ * gives the input method a spot (XNSpotLocation) to open its candidate list and
+ * its preedit at; XIMPreeditNothing leaves it guessing. A spot needs an
+ * XFontSet, which XIM uses to draw the preedit: CUI draws its own text, so a
+ * font set of the server's default font is enough. Status is never drawn by
+ * CUI. The best style without a spot comes back through `fallback`; the return
+ * value is 0 when the input method lists no style at all. */
+static unsigned long cui__x11_style(XIM im, bool have_fontset, unsigned long *fallback) {
+    unsigned long want[4];
+    int count = 0;
+    if (have_fontset) {
+        want[count++] = XIMPreeditPosition | XIMStatusNothing;
+        want[count++] = XIMPreeditPosition | XIMStatusNone;
+    }
+    want[count++] = XIMPreeditNothing | XIMStatusNothing;
+    want[count++] = XIMPreeditNothing | XIMStatusNone;
+
+    unsigned long style = 0, plain = 0;
+    XIMStyles *styles = NULL;
+    if (XGetIMValues(im, XNQueryInputStyle, &styles, NULL) != NULL || !styles) return 0;
+    for (int w = 0; w < count && !style; w++)
+        for (int i = 0; i < styles->count_styles && !style; i++)
+            if (styles->supported_styles[i] == want[w]) style = want[w];
+    for (int w = 0; w < count && !plain; w++) {
+        if (want[w] & XIMPreeditPosition) continue;
+        for (int i = 0; i < styles->count_styles && !plain; i++)
+            if (styles->supported_styles[i] == want[w]) plain = want[w];
+    }
+    XFree(styles);
+    *fallback = plain;
+    return style;
+}
+
+/* An XIC for the text fields. With a spot the input method is told where the
+ * caret is whenever it moves (see set_text_input_rect below), so the candidate
+ * window opens there instead of at the pointer. */
+static XIC cui__x11_create_ic(cui__x11 *x) {
+    unsigned long plain = 0;
+    unsigned long style = cui__x11_style(x->im, x->ic_fontset != NULL, &plain);
+    if (style & XIMPreeditPosition) {
+        x->ime_attrs = XVaCreateNestedList(0, XNSpotLocation, &x->ime_spot, XNFontSet, x->ic_fontset, NULL);
+        XIC ic = XCreateIC(x->im, XNInputStyle, style, XNClientWindow, x->win, XNFocusWindow, x->win,
+                           XNPreeditAttributes, x->ime_attrs, NULL);
+        if (ic) { x->ime_spot_ok = true; return ic; }
+        /* the input method offered a spot but would not create the IC: old style */
+        XFree(x->ime_attrs);
+        x->ime_attrs = NULL;
+        style = plain;
+    }
+    if (!style) style = XIMPreeditNothing | XIMStatusNothing;   /* the input method is silent; try the old default */
+    return XCreateIC(x->im, XNInputStyle, style, XNClientWindow, x->win, XNFocusWindow, x->win, NULL);
 }
 
 bool cui__plat_init(cui_app *app) {
@@ -189,6 +249,7 @@ bool cui__plat_init(cui_app *app) {
     swa.background_pixel = ((unsigned long)bg.r << 16) | ((unsigned long)bg.g << 8) | bg.b;
     swa.event_mask = ExposureMask | KeyPressMask | KeyReleaseMask | ButtonPressMask | ButtonReleaseMask |
                      PointerMotionMask | EnterWindowMask | LeaveWindowMask | StructureNotifyMask | FocusChangeMask;
+    x->event_mask = swa.event_mask;
     x->width = (int)(app->desc.width * x->scale);
     x->height = (int)(app->desc.height * x->scale);
     x->win = XCreateWindow(x->dpy, root, 0, 0, (unsigned)x->width, (unsigned)x->height, 0, x->depth, InputOutput, x->visual,
@@ -246,7 +307,20 @@ bool cui__plat_init(cui_app *app) {
     XSetLocaleModifiers("");
     x->im = XOpenIM(x->dpy, NULL, NULL, NULL);
     if (!x->im) { XSetLocaleModifiers("@im=none"); x->im = XOpenIM(x->dpy, NULL, NULL, NULL); }
-    if (x->im) x->ic = XCreateIC(x->im, XNInputStyle, XIMPreeditNothing | XIMStatusNothing, XNClientWindow, x->win, XNFocusWindow, x->win, NULL);
+    if (x->im) {
+        char **missing = NULL;
+        int missing_count = 0;
+        char *missing_default = NULL;
+        x->ic_fontset = XCreateFontSet(x->dpy, "-*-*-*-*-*-*-*-*-*-*-*-*-*", &missing, &missing_count, &missing_default);
+        if (missing) XFreeStringList(missing);
+        x->ic = cui__x11_create_ic(x);
+        if (x->ic) {
+            /* events the input method wants while it composes, on top of ours */
+            unsigned long filter = 0;
+            if (XGetICValues(x->ic, XNFilterEvents, &filter, NULL) == NULL && filter)
+                XSelectInput(x->dpy, x->win, x->event_mask | filter);
+        }
+    }
     unsigned int shapes[CUI_CURSOR_COUNT] = { XC_left_ptr, XC_hand2, XC_xterm, XC_sb_h_double_arrow, XC_sb_v_double_arrow, XC_fleur, XC_X_cursor };
     for (int i = 0; i < CUI_CURSOR_COUNT; i++) x->cursors[i] = XCreateFontCursor(x->dpy, shapes[i]);
     x->gc = XCreateGC(x->dpy, x->win, 0, NULL);
@@ -256,6 +330,7 @@ bool cui__plat_init(cui_app *app) {
     pi.get_clipboard = cui__x11_get_clip;
     pi.set_clipboard = cui__x11_set_clip;
     pi.set_cursor = cui__x11_set_cursor;
+    pi.set_text_input_rect = cui__x11_text_input_rect;
     cui_set_platform(app->ui, &pi);
     return true;
 }
@@ -272,8 +347,10 @@ void cui__plat_shutdown(cui_app *app) {
     if (!x) return;
     if (x->ctx) { x->MakeCurrent(x->dpy, None, NULL); x->DestroyContext(x->dpy, x->ctx); }
     if (x->image) { x->image->data = NULL; XDestroyImage(x->image); }
+    if (x->ime_attrs) XFree(x->ime_attrs);
     if (x->ic) XDestroyIC(x->ic);
     if (x->im) XCloseIM(x->im);
+    if (x->ic_fontset) XFreeFontSet(x->dpy, x->ic_fontset);
     for (int i = 0; i < CUI_CURSOR_COUNT; i++) if (x->cursors[i]) XFreeCursor(x->dpy, x->cursors[i]);
     if (x->gc) XFreeGC(x->dpy, x->gc);
     XDestroyWindow(x->dpy, x->win);
@@ -392,6 +469,24 @@ static void cui__x11_set_cursor(void *user, cui_cursor c) {
     x->current_cursor = c;
     XDefineCursor(x->dpy, x->win, x->cursors[c]);
     XFlush(x->dpy);
+}
+
+/* CUI calls this every frame a text field has focus, with the caret in window
+ * points; the input method hears about it only when the caret moved. XIM takes
+ * the spot in window pixels, as xterm and the other XIM clients send it, and
+ * opens the candidate list under it. */
+static void cui__x11_text_input_rect(void *user, cui_rect caret) {
+    cui_app *app = user;
+    cui__x11 *x = cui__x(app);
+    if (!x || !x->ic || !x->ime_spot_ok) return;
+    float s = x->scale;
+    XPoint spot;
+    spot.x = (short)(caret.x * s + 0.5f);
+    spot.y = (short)((caret.y + caret.h) * s + 0.5f);   /* bottom of the line */
+    if (x->ime_spot_set && spot.x == x->ime_spot.x && spot.y == x->ime_spot.y) return;
+    x->ime_spot = spot;
+    x->ime_spot_set = true;
+    XSetICValues(x->ic, XNPreeditAttributes, x->ime_attrs, NULL);
 }
 
 static void cui__x11_set_clip(void *user, const char *utf8) {
