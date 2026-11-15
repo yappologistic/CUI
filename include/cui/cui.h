@@ -4321,7 +4321,15 @@ CUI_API cui_waterfall_result cui_waterfall_ex(cui_ctx *ui, const char *id, const
  * name folds it. Keys: Left and Right step through the selected span's lane,
  * + and - zoom, F fits, Esc clears. Spans must be sorted by track, depth and
  * start (cui_trace_sort), with no overlap within a depth of a track. Like the
- * flame graph, only what is in view is visited. */
+ * flame graph, only what is in view is visited.
+ *
+ * Links draw dependencies between spans (a request and the work it caused, a
+ * message and the turn it woke): a curve from the end of one span to the start
+ * of another, with an arrowhead, across lanes. A link is drawn when the time
+ * range it covers meets the view; an end off screen runs to the edge. A folded
+ * lane's links meet its top row. Links touching the selected or hovered span,
+ * and the link under the pointer (hovered_link), are drawn bright; the rest
+ * subdued. cui_trace_span_rect says where a span was drawn, for overlays. */
 typedef struct cui_trace_track {
     const char *name;          /* the lane's name, in the column on the left */
     bool collapsed;            /* the lane shows only its top row; a click on its name toggles this */
@@ -4335,6 +4343,12 @@ typedef struct cui_trace_span {
     uint32_t color_key;        /* picks the color; 0: hashed from the name */
 } cui_trace_span;
 typedef struct cui_trace_marker { const char *name; double time; cui_tone tone; } cui_trace_marker;
+typedef struct cui_trace_link {
+    int from, to;              /* indices into the spans: from the end of `from` to the start of `to` */
+    cui_tone tone;             /* the curve's color; CUI_TONE_NEUTRAL (0): the emphasis color */
+    float width;               /* line width in points; 0: 1.25 */
+    bool dashed;               /* a weaker or inferred dependency */
+} cui_trace_link;
 typedef struct cui_trace_view {
     double start, end;               /* visible time range; end <= start fits everything */
     float scroll;                    /* points scrolled down */
@@ -4347,15 +4361,27 @@ typedef struct cui_trace_opts {
     float row_height;                /* default 20 */
     const cui_trace_marker *markers; /* moments drawn as lines across every lane, named in a strip under the ruler */
     int marker_count;                /* number of `markers` */
+    const cui_trace_link *links;     /* dependencies drawn as curves between spans */
+    int link_count;                  /* number of `links` */
 } cui_trace_opts;
 typedef struct cui_trace_result {
     bool selection_changed;    /* `*selected` changed this frame (click or keys) */
     bool view_changed;         /* time range, scroll position, or measurement in `*view` changed */
     int hovered;               /* span under the pointer, or -1 */
+    int hovered_link;          /* link under the pointer (when no span is), or -1 */
 } cui_trace_result;
 CUI_API cui_trace_result cui_trace_view_ex(cui_ctx *ui, const char *id, cui_trace_track *tracks, int track_count,
                                            const cui_trace_span *spans, int span_count, cui_trace_view *view, int *selected, const cui_trace_opts *opts);
 CUI_API void cui_trace_sort(cui_trace_span *spans, int count);
+/* Where a span is drawn, in points (zero size when out of view or in a folded
+ * lane below its top row): its time extent and row, as cui_flame_span_rect
+ * gives one; the bar inside is a point narrower, the gap between neighbours,
+ * and a selected sliver is widened to 3 points. trace is the view's id:
+ * cui_last_id(ui) right after the call. Asked right after the call, it
+ * answers at this frame's view in the rectangle of the previous frame, as
+ * this frame is not laid out yet; after cui_end_frame, where this frame drew
+ * it, until the next frame begins. */
+CUI_API cui_rect cui_trace_span_rect(cui_ctx *ui, cui_id trace, const cui_trace_span *span);
 
 /* ---- Regular expressions and the regex tester ---- */
 

@@ -1301,6 +1301,15 @@ Each thread, process or service has a lane of nested spans, drawn like the flame
 
 The trace result's `view_changed` flag also reports updates to the measurement, including when Esc clears it.
 
+Links draw dependencies between spans, such as a request and the work it caused or a message and the job it started. Each `cui_trace_link` names two spans by their index in the sorted array and is drawn as a curve from the end of `from` to the start of `to`, across lanes, with an arrowhead at `to`; a link that runs back in time bends into an S. `tone` picks the color (`CUI_TONE_NEUTRAL` is the emphasis color), `width` the line width and `dashed` marks a weaker or inferred dependency. A link is drawn when the time range it covers meets the view, and an end out of view runs to the edge. Links of a folded lane meet its top row. Links touching the selected or hovered span, and the link under the pointer, are drawn bright and the rest subdued; the result's `hovered_link` says which link the pointer is on when no span is under it, so you can show your own tooltip. `cui_trace_span_rect(ui, cui_last_id(ui), &spans[i])` right after the call says where a span was drawn, for overlays of your own.
+
+```c
+static const cui_trace_link links[] = { { 0, 5 }, { 2, 7, CUI_TONE_WARNING, 0, true } };
+cui_trace_result r = cui_trace_view(ui, "trace", tracks, 3, spans, span_count, &view, &selected,
+                                    .links = links, .link_count = 2);
+if (r.hovered_link >= 0) cui_tooltip(ui, "waits on the upload");
+```
+
 ### Regex tester
 
 A pattern, its flags and a test text, with every match and group highlighted.
