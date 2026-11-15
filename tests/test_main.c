@@ -5922,7 +5922,7 @@ static void build_read_only_plan(cui_ctx *ui, void *user) {
                                            .start_hour = 8, .end_hour = 16, .read_only = true);
 }
 
-/** Read-only tasks and events activate from the keyboard without editing dates. */
+/** Read-only tasks and events can activate without editing dates. */
 static void test_read_only_plan_activation(void) {
     printf("planning: read-only activation without editing\n");
     for (int gantt = 0; gantt < 2; gantt++) {
@@ -5939,6 +5939,22 @@ static void test_read_only_plan_activation(void) {
         CHECK(plan.activated == 0);
         key(ui, build_read_only_plan, &plan, CUI_KEY_SPACE, 0);
         CHECK(plan.activated == 0);
+        if (!gantt) {
+            cui_rect week = rect_of(ui, cui_make_id(ui, "week"));
+            float x = week.x + 60 + 1.5f * (week.w - 60) / 7;
+            float y = week.y + 57 + 2.5f * 52;
+            click_at(ui, build_read_only_plan, &plan, x, y);
+            CHECK(plan.activated == 0);
+
+            /* The pointer moves beyond the drag threshold in the release frame. */
+            cui_input_mouse_button(ui, CUI_MOUSE_LEFT, true);
+            run(ui, build_read_only_plan, &plan, 1);
+            cui_input_mouse_move(ui, x + 12, y);
+            cui_input_mouse_button(ui, CUI_MOUSE_LEFT, false);
+            run(ui, build_read_only_plan, &plan, 1);
+            CHECK(plan.activated == -1);
+            CHECK(plan.event.day == 1 && plan.event.start == 10 && plan.event.end == 11);
+        }
         cui_destroy(ui);
     }
 }

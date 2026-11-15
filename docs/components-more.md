@@ -1639,6 +1639,8 @@ int clicked = cui_week_calendar(ui, "week", monday, events, 2, .start_hour = 8, 
 
 Drag an event to move it (it snaps to 15 minutes and keeps its length) or pull its bottom edge to resize it; the calendar writes the new times into your array. Overlapping events share the day side by side. Today is circled and a line marks the current time. With `read_only`, a click or Enter or Space on a focused event still returns its index. The editing keys do not move or resize it. With the keyboard, Up and Down move a focused event by 15 minutes, Left and Right by a day, and Shift with Up or Down changes its end.
 
+The calendar checks the drag threshold through the release frame in both modes.
+
 ### Month calendar
 
 A month grid with the events of each day, for schedules and planners.

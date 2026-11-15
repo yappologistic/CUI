@@ -2610,7 +2610,8 @@ typedef struct cui_week_opts {
     cui_size height;
     bool read_only;
 } cui_week_opts;
-/* Returns the activated event index or -1. Read-only events still activate. */
+/* Returns the activated event index or -1. Read-only events still activate.
+ * Pointer activation requires staying within the drag threshold through release. */
 CUI_API int cui_week_calendar_ex(cui_ctx *ui, const char *id, cui_date week_start, cui_cal_event *events, int count, const cui_week_opts *opts);
 
 /* Month calendar: a month grid with events. All-day and multi-day events
