@@ -459,7 +459,14 @@ bool cui__plat_init(cui_app *app) {
     WCHAR title[256];
     MultiByteToWideChar(CP_UTF8, 0, app->title, -1, title, 256);
     app->plat = w;
-    w->hwnd = CreateWindowExW(0, wc.lpszClassName, title, style, CW_USEDEFAULT, CW_USEDEFAULT, r.right - r.left, r.bottom - r.top,
+    const cui_window_placement *pl = app->desc.placement;
+    int left = CW_USEDEFAULT, top = CW_USEDEFAULT;
+    if (pl && pl->has_position) {
+        /* only a place whose title bar is on a monitor: one that was unplugged leaves it to Windows */
+        RECT caption = { pl->x + r.left, pl->y + r.top, pl->x + r.right, pl->y };
+        if (MonitorFromRect(&caption, MONITOR_DEFAULTTONULL)) { left = caption.left; top = caption.top; }
+    }
+    w->hwnd = CreateWindowExW(0, wc.lpszClassName, title, style, left, top, r.right - r.left, r.bottom - r.top,
                               NULL, NULL, inst, app);
     if (!w->hwnd) { free(w); app->plat = NULL; return false; }
     DragAcceptFiles(w->hwnd, TRUE);   /* files dropped from Explorer arrive as WM_DROPFILES */
@@ -469,6 +476,8 @@ bool cui__plat_init(cui_app *app) {
         AdjustWindowRectEx(&r2, style, FALSE, 0);
         SetWindowPos(w->hwnd, NULL, 0, 0, r2.right - r2.left, r2.bottom - r2.top, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
     }
+    /* the frame was measured at the primary monitor's DPI: place the content exactly */
+    if (left != CW_USEDEFAULT) cui__plat_set_position(app, pl->x, pl->y);
     RECT cr;
     GetClientRect(w->hwnd, &cr);
     w->width = cr.right; w->height = cr.bottom;
@@ -490,7 +499,8 @@ bool cui__plat_init(cui_app *app) {
 
 void cui__plat_show(cui_app *app) {
     cui__win32 *w = cui__w(app);
-    ShowWindow(w->hwnd, SW_SHOWDEFAULT);
+    const cui_window_placement *pl = app->desc.placement;
+    ShowWindow(w->hwnd, pl && pl->state == CUI_WINDOW_MAXIMIZED ? SW_SHOWMAXIMIZED : SW_SHOWDEFAULT);
     UpdateWindow(w->hwnd);
 }
 
@@ -628,4 +638,72 @@ void cui__plat_gl_release(cui_app *app) {
 void cui__plat_maximize(cui_app *app) {
     cui__win32 *w = cui__w(app);
     if (w && w->hwnd) ShowWindow(w->hwnd, SW_SHOWMAXIMIZED);
+}
+
+void cui__plat_minimize(cui_app *app) { ShowWindow(cui__w(app)->hwnd, SW_MINIMIZE); }
+void cui__plat_restore(cui_app *app) { ShowWindow(cui__w(app)->hwnd, SW_RESTORE); }
+
+cui_window_state cui__plat_window_state(cui_app *app) {
+    HWND hwnd = cui__w(app)->hwnd;
+    return IsIconic(hwnd) ? CUI_WINDOW_MINIMIZED : IsZoomed(hwnd) ? CUI_WINDOW_MAXIMIZED : CUI_WINDOW_NORMAL;
+}
+
+/* The frame around the content at the window's DPI; left and top are negative. */
+static RECT cui__win32_frame(HWND hwnd) {
+    RECT r = { 0, 0, 0, 0 };
+    DWORD style = (DWORD)GetWindowLongW(hwnd, GWL_STYLE);
+    if (cui__AdjustWindowRectExForDpi && cui__GetDpiForWindow) cui__AdjustWindowRectExForDpi(&r, style, FALSE, 0, cui__GetDpiForWindow(hwnd));
+    else AdjustWindowRectEx(&r, style, FALSE, 0);
+    return r;
+}
+
+/* Window placements are in workspace coordinates: screen coordinates less the taskbars along
+ * the top and the left of the window's monitor. */
+static POINT cui__win32_workspace_offset(const RECT *r) {
+    POINT o = { 0, 0 };
+    MONITORINFO mi;
+    mi.cbSize = sizeof mi;
+    if (GetMonitorInfoW(MonitorFromRect(r, MONITOR_DEFAULTTONEAREST), &mi)) {
+        o.x = mi.rcWork.left - mi.rcMonitor.left;
+        o.y = mi.rcWork.top - mi.rcMonitor.top;
+    }
+    return o;
+}
+
+void cui__plat_set_position(cui_app *app, int x, int y) {
+    HWND hwnd = cui__w(app)->hwnd;
+    RECT f = cui__win32_frame(hwnd);
+    if (!IsIconic(hwnd) && !IsZoomed(hwnd)) {
+        SetWindowPos(hwnd, NULL, x + f.left, y + f.top, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+        return;
+    }
+    /* move the normal rectangle: the window keeps its state and goes there when restored */
+    WINDOWPLACEMENT wp;
+    wp.length = sizeof wp;
+    if (!GetWindowPlacement(hwnd, &wp)) return;
+    RECT r = wp.rcNormalPosition;
+    RECT moved = { x + f.left, y + f.top, x + f.left + (r.right - r.left), y + f.top + (r.bottom - r.top) };
+    POINT o = cui__win32_workspace_offset(&moved);
+    OffsetRect(&moved, -o.x, -o.y);
+    wp.rcNormalPosition = moved;
+    wp.showCmd = IsIconic(hwnd) ? SW_SHOWMINNOACTIVE : SW_SHOWMAXIMIZED;
+    SetWindowPlacement(hwnd, &wp);
+}
+
+void cui__plat_placement(cui_app *app, cui_window_placement *out) {
+    cui__win32 *w = cui__w(app);
+    /* the normal rectangle, which also outlasts a snap to half the screen, as Windows' own
+     * windows remember it */
+    WINDOWPLACEMENT wp;
+    wp.length = sizeof wp;
+    if (!GetWindowPlacement(w->hwnd, &wp)) return;
+    RECT r = wp.rcNormalPosition, f = cui__win32_frame(w->hwnd);
+    POINT o = cui__win32_workspace_offset(&r);
+    out->x = r.left + o.x - f.left;
+    out->y = r.top + o.y - f.top;
+    out->width = (int)((float)(r.right - r.left - (f.right - f.left)) / w->scale + 0.5f);
+    out->height = (int)((float)(r.bottom - r.top - (f.bottom - f.top)) / w->scale + 0.5f);
+    out->has_position = true;
+    bool maximized = IsZoomed(w->hwnd) || (IsIconic(w->hwnd) && (wp.flags & WPF_RESTORETOMAXIMIZED));
+    out->state = maximized ? CUI_WINDOW_MAXIMIZED : CUI_WINDOW_NORMAL;
 }

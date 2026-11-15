@@ -66,6 +66,7 @@ typedef struct {
     bool ime_spot_set;
     unsigned long event_mask;
     Atom wm_delete, wm_protocols, net_wm_name, utf8_string, clipboard, targets, cui_sel, net_wm_icon_name;
+    Atom wm_state, net_wm_state, net_wm_maximized_horz, net_wm_maximized_vert, net_wm_hidden, net_active_window;
     Cursor cursors[CUI_CURSOR_COUNT];
     cui_cursor current_cursor;
     int width, height;     /* pixels */
@@ -85,6 +86,10 @@ typedef struct {
     char *clip_owned;
     char *clip_read;
     bool mapped;
+    /* X11 keeps no normal size and place for a maximized window: noted while it is normal */
+    int normal_x, normal_y, normal_w, normal_h;   /* content origin on the root window, size in pixels */
+    bool normal_pos_known;
+    bool geometry_changed;                        /* a ConfigureNotify came: note them after the batch */
     /* drag and drop (XDND) */
     Atom xdnd_aware, xdnd_enter, xdnd_position, xdnd_status, xdnd_leave, xdnd_drop, xdnd_finished,
          xdnd_selection, xdnd_action_copy, uri_list, cui_xdnd;
@@ -252,8 +257,17 @@ bool cui__plat_init(cui_app *app) {
     x->event_mask = swa.event_mask;
     x->width = (int)(app->desc.width * x->scale);
     x->height = (int)(app->desc.height * x->scale);
-    x->win = XCreateWindow(x->dpy, root, 0, 0, (unsigned)x->width, (unsigned)x->height, 0, x->depth, InputOutput, x->visual,
-                           CWColormap | CWBorderPixel | CWBackPixel | CWEventMask, &swa);
+    x->normal_w = x->width;
+    x->normal_h = x->height;
+    const cui_window_placement *pl = app->desc.placement;
+    if (pl && pl->has_position && pl->y >= 0 && pl->y < DisplayHeight(x->dpy, x->screen) &&
+        pl->x < DisplayWidth(x->dpy, x->screen) && pl->x + x->width > 0) {
+        x->normal_x = pl->x;   /* on the screen: a place on a monitor that was unplugged is left to the window manager */
+        x->normal_y = pl->y;
+        x->normal_pos_known = true;
+    }
+    x->win = XCreateWindow(x->dpy, root, x->normal_x, x->normal_y, (unsigned)x->width, (unsigned)x->height, 0, x->depth, InputOutput,
+                           x->visual, CWColormap | CWBorderPixel | CWBackPixel | CWEventMask, &swa);
     if (!x->win) { XCloseDisplay(x->dpy); free(x); app->plat = NULL; return false; }
     x->wm_protocols = XInternAtom(x->dpy, "WM_PROTOCOLS", False);
     x->wm_delete = XInternAtom(x->dpy, "WM_DELETE_WINDOW", False);
@@ -263,6 +277,12 @@ bool cui__plat_init(cui_app *app) {
     x->clipboard = XInternAtom(x->dpy, "CLIPBOARD", False);
     x->targets = XInternAtom(x->dpy, "TARGETS", False);
     x->cui_sel = XInternAtom(x->dpy, "CUI_SELECTION", False);
+    x->wm_state = XInternAtom(x->dpy, "WM_STATE", False);
+    x->net_wm_state = XInternAtom(x->dpy, "_NET_WM_STATE", False);
+    x->net_wm_maximized_horz = XInternAtom(x->dpy, "_NET_WM_STATE_MAXIMIZED_HORZ", False);
+    x->net_wm_maximized_vert = XInternAtom(x->dpy, "_NET_WM_STATE_MAXIMIZED_VERT", False);
+    x->net_wm_hidden = XInternAtom(x->dpy, "_NET_WM_STATE_HIDDEN", False);
+    x->net_active_window = XInternAtom(x->dpy, "_NET_ACTIVE_WINDOW", False);
     XSetWMProtocols(x->dpy, x->win, &x->wm_delete, 1);
     /* accept files dragged from file managers (XDND version 5) */
     x->xdnd_aware = XInternAtom(x->dpy, "XdndAware", False);
@@ -282,7 +302,14 @@ bool cui__plat_init(cui_app *app) {
     }
     XSizeHints *hints = XAllocSizeHints();
     if (hints) {
-        hints->flags = PMinSize;
+        /* static gravity: positions name the content's corner, not the window manager's frame */
+        hints->flags = PMinSize | PWinGravity;
+        hints->win_gravity = StaticGravity;
+        if (x->normal_pos_known) {
+            hints->flags |= USPosition;
+            hints->x = x->normal_x;
+            hints->y = x->normal_y;
+        }
         hints->min_width = (int)(app->desc.min_width * x->scale);
         hints->min_height = (int)(app->desc.min_height * x->scale);
         if (app->desc.fixed_size) {
@@ -335,8 +362,27 @@ bool cui__plat_init(cui_app *app) {
     return true;
 }
 
+/* True while an EWMH window manager runs: it names its check window on the root. */
+static bool cui__x11_has_ewmh(cui__x11 *x) {
+    Atom check = XInternAtom(x->dpy, "_NET_SUPPORTING_WM_CHECK", False), type;
+    int format;
+    unsigned long count, after;
+    unsigned char *data = NULL;
+    bool found = XGetWindowProperty(x->dpy, RootWindow(x->dpy, x->screen), check, 0, 1, False, XA_WINDOW, &type, &format,
+                                    &count, &after, &data) == Success && data && count == 1;
+    if (data) XFree(data);
+    return found;
+}
+
 void cui__plat_show(cui_app *app) {
     cui__x11 *x = cui__x(app);
+    const cui_window_placement *pl = app->desc.placement;
+    if (pl && pl->state == CUI_WINDOW_MAXIMIZED && cui__x11_has_ewmh(x)) {
+        /* EWMH: a window that is not mapped yet asks for its state with the property. Without a
+         * window manager to carry it out, the property would only claim a maximized window. */
+        Atom maximized[2] = { x->net_wm_maximized_horz, x->net_wm_maximized_vert };
+        XChangeProperty(x->dpy, x->win, x->net_wm_state, XA_ATOM, 32, PropModeReplace, (unsigned char *)maximized, 2);
+    }
     XMapWindow(x->dpy, x->win);
     XFlush(x->dpy);
     x->mapped = true;
@@ -461,6 +507,12 @@ void cui__plat_set_size(cui_app *app, int w, int h) {
 }
 
 void *cui__plat_native(cui_app *app) { return (void *)(uintptr_t)cui__x(app)->win; }
+
+/* Where the content's top-left corner is on the root window. */
+static void cui__x11_content_origin(cui__x11 *x, int *px, int *py) {
+    Window child;
+    if (!XTranslateCoordinates(x->dpy, x->win, RootWindow(x->dpy, x->screen), 0, 0, px, py, &child)) *px = *py = 0;
+}
 
 static void cui__x11_set_cursor(void *user, cui_cursor c) {
     cui_app *app = user;
@@ -720,6 +772,7 @@ static void cui__x11_event(cui_app *app, XEvent *ev) {
         if (ev->xselection.property == x->cui_xdnd || (ev->xselection.selection == x->xdnd_selection)) cui__x11_xdnd_selection(app, &ev->xselection);
         break;
     case ConfigureNotify:
+        x->geometry_changed = true;
         if (ev->xconfigure.width != x->width || ev->xconfigure.height != x->height) {
             x->width = ev->xconfigure.width;
             x->height = ev->xconfigure.height;
@@ -823,28 +876,114 @@ void cui__plat_wait(cui_app *app, double timeout) {
         XNextEvent(x->dpy, &ev);
         cui__x11_event(app, &ev);
     }
+    /* after the whole batch, which also carries a state change that came with the move */
+    if (x->geometry_changed) {
+        x->geometry_changed = false;
+        if (x->mapped && cui__plat_window_state(app) == CUI_WINDOW_NORMAL) {
+            cui__x11_content_origin(x, &x->normal_x, &x->normal_y);
+            x->normal_pos_known = true;
+            x->normal_w = x->width;
+            x->normal_h = x->height;
+        }
+    }
 }
 
-void cui__plat_maximize(cui_app *app) {
-    cui__x11 *x = cui__x(app);
-    if (!x || !x->dpy || !x->win) return;
-
-    Atom wm_state = XInternAtom(x->dpy, "_NET_WM_STATE", False);
-    Atom max_horz = XInternAtom(x->dpy, "_NET_WM_STATE_MAXIMIZED_HORZ", False);
-    Atom max_vert = XInternAtom(x->dpy, "_NET_WM_STATE_MAXIMIZED_VERT", False);
-
+/* Asks the window manager to add (1) or remove (0) two _NET_WM_STATE properties. */
+static void cui__x11_send_state(cui__x11 *x, long action, Atom a, Atom b) {
     XEvent e;
     memset(&e, 0, sizeof e);
     e.xclient.type = ClientMessage;
     e.xclient.window = x->win;
-    e.xclient.message_type = wm_state;
+    e.xclient.message_type = x->net_wm_state;
     e.xclient.format = 32;
-    e.xclient.data.l[0] = 1; /* _NET_WM_STATE_ADD */
-    e.xclient.data.l[1] = (long)max_horz;
-    e.xclient.data.l[2] = (long)max_vert;
+    e.xclient.data.l[0] = action;
+    e.xclient.data.l[1] = (long)a;
+    e.xclient.data.l[2] = (long)b;
     e.xclient.data.l[3] = 1; /* source: application */
-
-    XSendEvent(x->dpy, DefaultRootWindow(x->dpy), False,
-               SubstructureRedirectMask | SubstructureNotifyMask, &e);
+    XSendEvent(x->dpy, DefaultRootWindow(x->dpy), False, SubstructureRedirectMask | SubstructureNotifyMask, &e);
     XFlush(x->dpy);
+}
+
+void cui__plat_maximize(cui_app *app) {
+    cui__x11 *x = cui__x(app);
+    if (x && x->dpy && x->win) cui__x11_send_state(x, 1, x->net_wm_maximized_horz, x->net_wm_maximized_vert);
+}
+
+void cui__plat_minimize(cui_app *app) {
+    cui__x11 *x = cui__x(app);
+    XIconifyWindow(x->dpy, x->win, x->screen);
+    XFlush(x->dpy);
+}
+
+void cui__plat_restore(cui_app *app) {
+    cui__x11 *x = cui__x(app);
+    cui_window_state state = cui__plat_window_state(app);
+    if (state == CUI_WINDOW_MAXIMIZED) {
+        cui__x11_send_state(x, 0, x->net_wm_maximized_horz, x->net_wm_maximized_vert);
+    } else if (state == CUI_WINDOW_MINIMIZED) {
+        /* ICCCM: mapping an iconic window makes it normal again; EWMH: activating raises it */
+        XMapWindow(x->dpy, x->win);
+        XEvent e;
+        memset(&e, 0, sizeof e);
+        e.xclient.type = ClientMessage;
+        e.xclient.window = x->win;
+        e.xclient.message_type = x->net_active_window;
+        e.xclient.format = 32;
+        e.xclient.data.l[0] = 1; /* source: application */
+        XSendEvent(x->dpy, DefaultRootWindow(x->dpy), False, SubstructureRedirectMask | SubstructureNotifyMask, &e);
+        XFlush(x->dpy);
+    }
+}
+
+/* Reads _NET_WM_STATE and WM_STATE. A minimized window keeps its maximized properties. */
+static void cui__x11_read_state(cui__x11 *x, bool *maximized, bool *minimized) {
+    bool horz = false, vert = false, hidden = false;
+    Atom type;
+    int format;
+    unsigned long count, after;
+    unsigned char *data = NULL;
+    if (XGetWindowProperty(x->dpy, x->win, x->net_wm_state, 0, 64, False, XA_ATOM, &type, &format, &count, &after, &data) == Success &&
+        data && format == 32) {
+        const Atom *atoms = (const Atom *)data;   /* format 32 arrives as an array of longs */
+        for (unsigned long i = 0; i < count; i++) {
+            if (atoms[i] == x->net_wm_maximized_horz) horz = true;
+            if (atoms[i] == x->net_wm_maximized_vert) vert = true;
+            if (atoms[i] == x->net_wm_hidden) hidden = true;
+        }
+    }
+    if (data) XFree(data);
+    /* ICCCM WM_STATE, for window managers that minimize without _NET_WM_STATE_HIDDEN */
+    data = NULL;
+    if (XGetWindowProperty(x->dpy, x->win, x->wm_state, 0, 2, False, x->wm_state, &type, &format, &count, &after, &data) == Success &&
+        data && format == 32 && count >= 1 && ((const long *)data)[0] == IconicState)
+        hidden = true;
+    if (data) XFree(data);
+    *maximized = horz && vert;
+    *minimized = hidden;
+}
+
+cui_window_state cui__plat_window_state(cui_app *app) {
+    bool maximized, minimized;
+    cui__x11_read_state(cui__x(app), &maximized, &minimized);
+    return minimized ? CUI_WINDOW_MINIMIZED : maximized ? CUI_WINDOW_MAXIMIZED : CUI_WINDOW_NORMAL;
+}
+
+void cui__plat_set_position(cui_app *app, int px, int py) {
+    cui__x11 *x = cui__x(app);
+    XMoveWindow(x->dpy, x->win, px, py);   /* static gravity: the content's corner */
+    XFlush(x->dpy);
+}
+
+void cui__plat_placement(cui_app *app, cui_window_placement *out) {
+    cui__x11 *x = cui__x(app);
+    /* the bounds noted after the last event batch: a live read can catch the window manager
+     * between placing the frame and reporting a new state */
+    bool maximized, minimized;
+    cui__x11_read_state(x, &maximized, &minimized);
+    out->x = x->normal_x;
+    out->y = x->normal_y;
+    out->width = (int)((float)x->normal_w / x->scale + 0.5f);
+    out->height = (int)((float)x->normal_h / x->scale + 0.5f);
+    out->has_position = x->normal_pos_known;
+    out->state = maximized ? CUI_WINDOW_MAXIMIZED : CUI_WINDOW_NORMAL;
 }

@@ -6,6 +6,7 @@ What changed in CUI, newest first. Every component mentioned here runs live in t
 
 ### Added
 
+- Window state and placement: `cui_app_minimize`, `cui_app_restore` (back from maximized or minimized), `cui_app_window_state` and `cui_app_set_position`; `cui_app_placement` reads the state and the normal size and place, also while the window is maximized, and `cui_app_desc.placement` reopens a window there, maximized if it was. See [Reopen where it was](docs/apps.md#reopen-where-it-was).
 - `cui_app_maximize(app)` maximizes the window on every backend, right after `cui_app_create` or on the first frame of a `cui_app_run` callback (`NULL` means the running app), for an app that opens maximized ([#18](https://github.com/yappologistic/CUI/issues/18), [#19](https://github.com/yappologistic/CUI/pull/19)).
 - SQL syntax colors: `.lang = "sql"` in the code block, the code editor and the diff viewer. Keywords, types and `NULL`, `TRUE` and `FALSE` match in any case, as SQL does; `--` starts a comment and `/* */` comments run across lines. The keywords cover standard SQL and common extensions such as `ilike`, `qualify`, `pivot` and `pragma` ([#33](https://github.com/yappologistic/CUI/issues/33)).
 - `cui_dialog` takes `.draggable` and `.resizable`: the header moves the dialog and its edges and corners resize it, inside the window and down to a minimum size; once resized, the footer stays at the bottom edge. Both are off by default, so existing dialogs do not change. See [Dialog](docs/components.md#dialog) ([#63](https://github.com/yappologistic/CUI/pull/63)).

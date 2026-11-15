@@ -56,6 +56,10 @@ if(CUI_WITH_APP)
     add_executable(cui_test_maximize test_maximize.c)
     target_link_libraries(cui_test_maximize PRIVATE cui::cui)
     add_test(NAME cui_test_maximize COMMAND cui_test_maximize)
+
+    add_executable(cui_test_window_state test_window_state.c)
+    target_link_libraries(cui_test_window_state PRIVATE cui::cui)
+    add_test(NAME cui_test_window_state COMMAND cui_test_window_state)
 endif()
 
 add_executable(cui_bench bench.c ../examples/gallery_ui.c ../examples/gallery_more.c)

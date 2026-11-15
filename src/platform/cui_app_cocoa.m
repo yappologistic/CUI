@@ -19,6 +19,11 @@
 @property (nonatomic, strong) NSOpenGLContext *gl;
 @property (nonatomic, assign) cui_app *app;
 @property (nonatomic, assign) cui_cursor cursor;
+/* AppKit keeps the size and place a zoomed window returns to to itself: noted while normal */
+@property (nonatomic, assign) NSRect normal;      /* content rectangle, screen coordinates */
+@property (nonatomic, assign) BOOL holdNormal;    /* zooming: the frames on the way are not normal */
+@property (nonatomic, assign) BOOL wasZoomed;     /* the state before a miniaturize */
+- (void)noteNormal;
 @end
 
 static void *cui__mac_libgl;
@@ -218,8 +223,26 @@ static void cui__mac_wake(void) {
     cui__mac_wake();
     return NSTerminateCancel;
 }
+- (void)noteNormal {
+    if (self.holdNormal) {
+        if (self.window.isZoomed) self.holdNormal = NO;
+        return;
+    }
+    if (!self.window.isZoomed && !self.window.isMiniaturized) self.normal = [self.window contentRectForFrameRect:self.window.frame];
+}
+- (BOOL)windowShouldZoom:(NSWindow *)w toFrame:(NSRect)frame {
+    (void)frame;
+    if (!w.isZoomed) {
+        self.normal = [w contentRectForFrameRect:w.frame];
+        self.holdNormal = YES;
+    }
+    return YES;
+}
+- (void)windowDidMove:(NSNotification *)n { (void)n; [self noteNormal]; }
+- (void)windowWillMiniaturize:(NSNotification *)n { (void)n; self.wasZoomed = self.window.isZoomed; }
 - (void)windowDidResize:(NSNotification *)n {
     (void)n;
+    [self noteNormal];
     if (self.gl) [self.gl update];
     cui_request_redraw(self.app->ui);
     if (self.window.inLiveResize) cui__app_live_frame(self.app);
@@ -320,7 +343,19 @@ bool cui__plat_init(cui_app *app) {
         if (@available(macOS 10.14, *)) {
             w.appearance = [NSAppearance appearanceNamed:app->desc.theme == CUI_THEME_DARK ? NSAppearanceNameDarkAqua : NSAppearanceNameAqua];
         }
-        [w center];
+        const cui_window_placement *pl = app->desc.placement;
+        BOOL placed = NO;
+        if (pl && pl->has_position) {
+            /* placements count y down from the top of the main screen, AppKit up from its bottom */
+            CGFloat top = NSScreen.screens.count ? NSScreen.screens[0].frame.size.height : 0;
+            NSRect content = NSMakeRect(pl->x, top - pl->y - app->desc.height, app->desc.width, app->desc.height);
+            NSRect outer = [w frameRectForContentRect:content];
+            NSRect caption = NSMakeRect(outer.origin.x, NSMaxY(content), outer.size.width, NSMaxY(outer) - NSMaxY(content));
+            for (NSScreen *screen in NSScreen.screens)
+                if (NSIntersectsRect(screen.visibleFrame, caption)) placed = YES;
+            if (placed) [w setFrame:outer display:NO];
+        }
+        if (!placed) [w center];
         CUIView *v = [[CUIView alloc] initWithFrame:frame];
         v.app = app;
         v.wantsBestResolutionOpenGLSurface = YES;
@@ -329,6 +364,7 @@ bool cui__plat_init(cui_app *app) {
         [w makeFirstResponder:v];
         p.window = w;
         p.view = v;
+        p.normal = [w contentRectForFrameRect:w.frame];
         app->plat = (__bridge_retained void *)p;
         cui_platform_iface pi;
         memset(&pi, 0, sizeof pi);
@@ -346,6 +382,8 @@ void cui__plat_show(cui_app *app) {
     CUIPlat *p = cui__p(app);
     [p.window makeKeyAndOrderFront:nil];
     [NSApp activateIgnoringOtherApps:YES];
+    const cui_window_placement *pl = app->desc.placement;
+    if (pl && pl->state == CUI_WINDOW_MAXIMIZED && !p.window.isZoomed) [p.window zoom:nil];
 }
 
 void cui__plat_shutdown(cui_app *app) {
@@ -449,6 +487,40 @@ void cui__plat_wait(cui_app *app, double timeout) {
             if (dark >= 0) cui_set_theme(app->ui, dark ? CUI_THEME_DARK : CUI_THEME_LIGHT);
         }
     }
+}
+
+void cui__plat_minimize(cui_app *app) { [cui__p(app).window miniaturize:nil]; }
+
+void cui__plat_restore(cui_app *app) {
+    NSWindow *w = cui__p(app).window;
+    if (w.isMiniaturized) [w deminiaturize:nil];
+    else if (w.isZoomed) [w zoom:nil];
+}
+
+cui_window_state cui__plat_window_state(cui_app *app) {
+    NSWindow *w = cui__p(app).window;
+    return w.isMiniaturized ? CUI_WINDOW_MINIMIZED : w.isZoomed ? CUI_WINDOW_MAXIMIZED : CUI_WINDOW_NORMAL;
+}
+
+static CGFloat cui__mac_main_top(void) { return NSScreen.screens.count ? NSScreen.screens[0].frame.size.height : 0; }
+
+void cui__plat_set_position(cui_app *app, int x, int y) {
+    NSWindow *w = cui__p(app).window;
+    NSRect content = [w contentRectForFrameRect:w.frame];
+    content.origin = NSMakePoint(x, cui__mac_main_top() - y - content.size.height);
+    [w setFrameOrigin:[w frameRectForContentRect:content].origin];
+}
+
+void cui__plat_placement(cui_app *app, cui_window_placement *out) {
+    CUIPlat *p = cui__p(app);
+    NSRect r = p.normal;
+    bool maximized = p.window.isZoomed || (p.window.isMiniaturized && p.wasZoomed);
+    out->state = maximized ? CUI_WINDOW_MAXIMIZED : CUI_WINDOW_NORMAL;
+    out->x = (int)lround(r.origin.x);
+    out->y = (int)lround(cui__mac_main_top() - NSMaxY(r));
+    out->width = (int)lround(r.size.width);
+    out->height = (int)lround(r.size.height);
+    out->has_position = true;
 }
 
 #pragma clang diagnostic pop

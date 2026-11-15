@@ -32,6 +32,19 @@ cui_app *cui_app_create(const cui_app_desc *desc) {
     if (d->height <= 0) d->height = 720;
     if (d->min_width <= 0) d->min_width = 360;
     if (d->min_height <= 0) d->min_height = 280;
+    if (d->placement) {
+        /* backends read the size from width and height, and only a maximized state at opening */
+        app->placement = *d->placement;
+        d->placement = &app->placement;
+        cui_window_placement *p = &app->placement;
+        if (p->width > 0) d->width = p->width;
+        if (p->height > 0) d->height = p->height;
+        if (d->width < d->min_width) d->width = d->min_width;
+        if (d->height < d->min_height) d->height = d->min_height;
+        p->width = d->width;
+        p->height = d->height;
+        if (p->state != CUI_WINDOW_MAXIMIZED || d->fixed_size) p->state = CUI_WINDOW_NORMAL;
+    }
     cui_theme_mode mode = d->theme;
     if (d->follow_system_theme) {
         int dark = cui__plat_system_dark();
@@ -335,4 +348,21 @@ void cui_app_maximize(cui_app *app) {
     /* a fixed-size window has no maximized state: on Win32 its borders are gone, and other
      * backends would still grow it */
     if (app && !app->desc.fixed_size) cui__plat_maximize(app);
+}
+
+void cui_app_minimize(cui_app *app) { app = cui__app_or_current(app); if (app) cui__plat_minimize(app); }
+void cui_app_restore(cui_app *app) { app = cui__app_or_current(app); if (app) cui__plat_restore(app); }
+void cui_app_set_position(cui_app *app, int x, int y) { app = cui__app_or_current(app); if (app) cui__plat_set_position(app, x, y); }
+
+cui_window_state cui_app_window_state(cui_app *app) {
+    app = cui__app_or_current(app);
+    return app ? cui__plat_window_state(app) : CUI_WINDOW_NORMAL;
+}
+
+bool cui_app_placement(cui_app *app, cui_window_placement *out) {
+    app = cui__app_or_current(app);
+    if (!app || !out) return false;
+    memset(out, 0, sizeof *out);
+    cui__plat_placement(app, out);
+    return true;
 }

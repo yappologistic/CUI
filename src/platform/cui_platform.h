@@ -33,6 +33,7 @@ struct cui_app {
     const char *screenshot_path;  /* CUI_SCREENSHOT: save a PNG and quit */
     int screenshot_frames;
     int frames;
+    cui_window_placement placement;   /* the copy desc.placement points to, when one was given */
 };
 
 /* Implemented by each backend. */
@@ -65,5 +66,13 @@ void cui__app_live_frame(cui_app *app);               /* run one frame from insi
 void cui__app_set_clipboard_cache(cui_app *app, const char *utf8);
 
 void cui__plat_maximize(cui_app *app);
+void cui__plat_minimize(cui_app *app);
+void cui__plat_restore(cui_app *app);
+cui_window_state cui__plat_window_state(cui_app *app);
+void cui__plat_set_position(cui_app *app, int x, int y);
+/* Fills in the normal size and place, and the state: maximized also for a minimized window that
+ * comes back maximized. desc.placement, when set, has already set desc.width and desc.height;
+ * cui__plat_init places the window and cui__plat_show opens it maximized. */
+void cui__plat_placement(cui_app *app, cui_window_placement *out);
 
 #endif
