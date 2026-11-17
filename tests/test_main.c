@@ -6061,6 +6061,15 @@ static void test_read_only_plan_activation(void) {
             cui_input_mouse_move(ui, x + 12, y);
             run(ui, build_read_only_plan, &plan, 1);
             CHECK(plan.activated == 0);
+
+            /* Press, release and further motion all before one frame: still a click. */
+            cui_input_mouse_move(ui, x, y);
+            run(ui, build_read_only_plan, &plan, 1);
+            cui_input_mouse_button(ui, CUI_MOUSE_LEFT, true);
+            cui_input_mouse_button(ui, CUI_MOUSE_LEFT, false);
+            cui_input_mouse_move(ui, x + 12, y);
+            run(ui, build_read_only_plan, &plan, 2);
+            CHECK(plan.activated == 0);
         }
         cui_destroy(ui);
     }

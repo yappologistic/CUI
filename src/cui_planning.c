@@ -551,9 +551,10 @@ static int cui__week_calendar_ex_body(cui_ctx *ui, const char *id_str, cui_date 
         }
         cui_rect er = cui__prev_rect(ui, eid);
         if (r.hovered && ui->mpressed[0] && st->drag == 0) {
-            st->drag = k + 1; st->moved = false; st->press_x = ui->mx; st->press_y = ui->my;
-            st->mode = (!o->read_only && ui->my > er.y + er.h - 7) ? 2 : 1;
-            st->grab = ui->my - er.y;
+            /* the press event's position: the pointer may have moved on before this frame */
+            st->drag = k + 1; st->moved = false; st->press_x = ui->press_x; st->press_y = ui->press_y;
+            st->mode = (!o->read_only && st->press_y > er.y + er.h - 7) ? 2 : 1;
+            st->grab = st->press_y - er.y;
         }
         float lane_w = (dw - 6) / ncol[k], x;
         bool cascade = !lanes[k] && ncol[k] > 1;

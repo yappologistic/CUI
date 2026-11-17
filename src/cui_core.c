@@ -509,6 +509,7 @@ void cui_input_mouse_button(cui_ctx *ui, cui_mouse_button b, bool down) {
     if (down && !ui->mdown[b]) {
         ui->mpressed[b] = true;
         if (b == CUI_MOUSE_LEFT) {
+            ui->press_x = ui->mx; ui->press_y = ui->my;
             if (!ui->pending_clicks.count) {
                 ui->pending_clicks.first_x = ui->mx;
                 ui->pending_clicks.first_y = ui->my;
