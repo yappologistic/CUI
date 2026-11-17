@@ -414,8 +414,10 @@ static int cui__week_calendar_ex_body(cui_ctx *ui, const char *id_str, cui_date 
     /* drag in progress */
     if (st->drag > 0 && st->drag <= count) {
         cui_cal_event *e = &ev[st->drag - 1];
-        /* Motion and release can arrive before the same frame. */
-        if (fabsf(ui->mx - st->press_x) + fabsf(ui->my - st->press_y) > 4) st->moved = true;
+        /* Motion and release can arrive before the same frame: measure up to the release,
+         * not motion after it */
+        float px = ui->mdown[0] ? ui->mx : ui->release_x, py = ui->mdown[0] ? ui->my : ui->release_y;
+        if (fabsf(px - st->press_x) + fabsf(py - st->press_y) > 4) st->moved = true;
         if (ui->mdown[0]) {
             if (st->moved && gr.w > 0 && !o->read_only) {
                 float gy = ui->my - gr.y;

@@ -525,7 +525,10 @@ void cui_input_mouse_button(cui_ctx *ui, cui_mouse_button b, bool down) {
             if (ui->in_frame) cui__flush_clicks(ui);
         }
     }
-    if (!down && ui->mdown[b]) ui->mreleased[b] = true;
+    if (!down && ui->mdown[b]) {
+        ui->mreleased[b] = true;
+        if (b == CUI_MOUSE_LEFT) { ui->release_x = ui->mx; ui->release_y = ui->my; }
+    }
     ui->mdown[b] = down;
 }
 
