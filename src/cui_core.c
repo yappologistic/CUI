@@ -599,6 +599,8 @@ void cui_input_focus(cui_ctx *ui, bool focused) {
     if (!focused) {
         memset(ui->kdown, 0, sizeof ui->kdown);
         for (int i = 0; i < 3; i++) { if (ui->mdown[i]) ui->mreleased[i] = true; ui->mdown[i] = false; }
+        /* the button counts as released where the pointer was last seen */
+        if (ui->mreleased[CUI_MOUSE_LEFT]) { ui->release_x = ui->mx; ui->release_y = ui->my; }
         ui->mods = 0;
     }
     cui__poke(ui);

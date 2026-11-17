@@ -6070,6 +6070,18 @@ static void test_read_only_plan_activation(void) {
             cui_input_mouse_move(ui, x + 12, y);
             run(ui, build_read_only_plan, &plan, 2);
             CHECK(plan.activated == 0);
+
+            /* The window loses focus after motion beyond the threshold, before a frame: a drag,
+             * measured where the pointer was last seen, not where the previous click ended. */
+            cui_input_mouse_move(ui, x, y);
+            run(ui, build_read_only_plan, &plan, 1);
+            cui_input_mouse_button(ui, CUI_MOUSE_LEFT, true);
+            run(ui, build_read_only_plan, &plan, 1);
+            cui_input_mouse_move(ui, x + 12, y);
+            cui_input_focus(ui, false);
+            run(ui, build_read_only_plan, &plan, 1);
+            CHECK(plan.activated == -1);
+            cui_input_focus(ui, true);
         }
         cui_destroy(ui);
     }
