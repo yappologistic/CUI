@@ -343,7 +343,9 @@ void cui__plat_gl_release(cui_app *app) { (void)app; }   /* not used: these keep
 
 void cui__plat_maximize(cui_app *app) {
     cui__sdl *s = cui__s(app);
-    if (s && s->win) SDL_MaximizeWindow(s->win);
+    if (!s || !s->win) return;
+    SDL_MaximizeWindow(s->win);
+    s->was_maximized = true;   /* also for a minimize before the next frame confirms it */
 }
 
 void cui__plat_minimize(cui_app *app) { SDL_MinimizeWindow(cui__s(app)->win); }

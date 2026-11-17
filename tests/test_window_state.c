@@ -154,6 +154,17 @@ int main(void) {
                 reach(app, CUI_WINDOW_NORMAL, "restore after minimizing right after a restore");
             }
         }
+        /* and a maximize between them, all before a frame: the window comes back maximized */
+        cui_app_restore(app);
+        cui_app_maximize(app);
+        cui_app_minimize(app);
+        if (reach(app, CUI_WINDOW_MINIMIZED, "minimize right after a restore and a maximize")) {
+            expect_placement(app, x2, y2, w, h, CUI_WINDOW_MAXIMIZED, "minimized right after a restore and a maximize");
+            cui_app_restore(app);
+            reach(app, CUI_WINDOW_MAXIMIZED, "restore to maximized after a restore and a maximize");
+            cui_app_restore(app);
+            reach(app, CUI_WINDOW_NORMAL, "restore to normal after a restore and a maximize");
+        }
     }
     cui_app_destroy(app);
 
