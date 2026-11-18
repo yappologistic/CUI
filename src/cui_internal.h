@@ -162,6 +162,8 @@ typedef struct cui_text_layout_line { int start, end; float width; } cui_text_la
 
 #ifdef CUI_TEXT_SHAPING
 bool cui__text_needs_shaping(cui_ctx *ui, const char *text, int len);
+void cui__text_intrinsics(cui_ctx *ui, cui_font font, float size, const char *text, int len,
+                           bool tabular, float *preferred, float *minimum);
 #endif
 /* Glyph metrics for layout, in points. */
 float cui__font_line_height(cui_ctx *ui, cui_font font, float size);
