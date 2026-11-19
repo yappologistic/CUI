@@ -12,6 +12,7 @@
  *   animation                        cui_core.c (springs, tweens) and the motion tokens
  *   fonts and text                   cui_text.c, cui_draw.c
  *   draw list                        cui_draw.c (and the ordered dither primitive)
+ *   software screenshots             render/cui_render_sw.c
  *   layout tree                      cui_layout.c (cui_node, building and laying out the tree)
  *   per id state                     cui_core.c (cui_state, garbage collection)
  *   interaction                      cui_core.c (hit testing, focus, cui__interact)
@@ -237,6 +238,11 @@ void cui__draw_dither_rect(cui_ctx *ui, const cui__dither *d, cui_rect r, float 
  * d->origin. Each cell is an exact square of the grid at any scale; a run of cells with the
  * same density in a row is one quad, and cells at 0 draw nothing. */
 void cui__draw_dither_cells(cui_ctx *ui, const cui__dither *d, int i0, int j0, int cols, int rows, const float *density);
+
+/* ---- software screenshots ---- */
+struct cui_sw_renderer;
+void cui__sw_render_screenshot(struct cui_sw_renderer *r, const cui_draw_data *dd,
+                               void *rgba, int stride);
 
 /* ---- layout tree ---- */
 enum {

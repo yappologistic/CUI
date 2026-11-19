@@ -243,6 +243,11 @@ Any CUI app can save a screenshot and exit, which is handy for docs and visual t
 CUI_SCREENSHOT=out.png CUI_SCREENSHOT_FRAMES=60 ./my_app
 ```
 
+To capture from code, call `cui_app_screenshot` with an RGBA buffer large enough
+for the frame. Each capture draws the entire image, even when reusing the
+buffer. [The app screenshot test](../tests/test_app_screenshot.c) checks that a
+second software capture fills the buffer after it has been cleared.
+
 For unit tests, skip the window entirely: create a context with the software renderer, feed input with `cui_input_*` and render into memory. `tests/test_main.c` shows the pattern.
 
 ## Your app's name and icon on Linux

@@ -308,6 +308,7 @@ int cui_app_run(const cui_app_desc *desc, void (*frame)(cui_ctx *ui, void *user)
     return 0;
 }
 
+/** Renders a complete screenshot of the current UI. */
 bool cui_app_screenshot(cui_app *app, void *rgba, int width, int height) {
     const cui_draw_data *dd = cui_get_draw_data(app->ui);
     if (width < dd->width_px || height < dd->height_px || !rgba) return false;
@@ -319,7 +320,8 @@ bool cui_app_screenshot(cui_app *app, void *rgba, int width, int height) {
         cui_gl_render(app->gl, dd, true);
         cui_gl_read_pixels(app->gl, w, h, rgba);
     } else {
-        cui_sw_render(app->sw, dd, rgba, w, h, width * 4, CUI_SW_RGBA);
+        /* The caller may have cleared or reallocated the buffer at the same address. */
+        cui__sw_render_screenshot(app->sw, dd, rgba, width * 4);
     }
     return true;
 }
