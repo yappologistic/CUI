@@ -19,7 +19,7 @@
  * clicks it, types into whatever field has focus, scrolls what scrolls, drags,
  * presses Escape, Tab and arrows, sometimes resizes the window or switches
  * theme, and sometimes leaves it alone for a while. */
-#if defined(__linux__) && !defined(_GNU_SOURCE)
+#if defined(__linux__)
 #define _GNU_SOURCE 1   /* dladdr, for --sites */
 #endif
 #define cui_app_run soak_app_run
@@ -131,6 +131,7 @@ static void live_del(soak_hdr *h) {
     for (size_t j = (i + 1) & (SOAK_LIVE - 1); live_tab[j]; j = (j + 1) & (SOAK_LIVE - 1)) { soak_hdr *x = live_tab[j]; live_tab[j] = NULL; live_add(x); }
 }
 static void dump_sites(void) {
+#if defined(__linux__)
     typedef struct { void *site; size_t bytes; int n; } agg;
     static agg a[4096];
     int na = 0;
@@ -150,6 +151,7 @@ static void dump_sites(void) {
         if (dladdr(a[i].site, &di) && di.dli_fbase) off -= (uintptr_t)di.dli_fbase;
         printf("    %8zu bytes in %4d blocks  0x%lx\n", a[i].bytes, a[i].n, (unsigned long)off);
     }
+#endif
 }
 static bool warm;   /* after the first minute: count calls by caller */
 typedef struct { void *site, *site2; unsigned long calls; size_t bytes; } soak_calls;
@@ -161,6 +163,7 @@ static void count_call(void *site, void *site2, size_t n) {
     }
 }
 static void dump_calls(void) {
+#if defined(__linux__)
     for (int i = 0; i < 512 && calls_tab[i].site; i++) for (int j = i + 1; j < 512 && calls_tab[j].site; j++)
         if (calls_tab[j].calls > calls_tab[i].calls) { soak_calls t = calls_tab[i]; calls_tab[i] = calls_tab[j]; calls_tab[j] = t; }
     printf("  allocation calls after warm-up by caller:\n");
@@ -170,6 +173,7 @@ static void dump_calls(void) {
         if (dladdr(calls_tab[i].site, &di) && di.dli_fbase) { off -= (uintptr_t)di.dli_fbase; off2 -= (uintptr_t)di.dli_fbase; }
         printf("    %8lu calls, %10zu bytes  0x%lx 0x%lx\n", calls_tab[i].calls, calls_tab[i].bytes, (unsigned long)off, (unsigned long)off2);
     }
+#endif
 }
 static void *soak_alloc(size_t n, void *u) {
     (void)u;

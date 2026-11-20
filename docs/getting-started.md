@@ -277,7 +277,7 @@ web/tools/serve.sh                          # then open http://localhost:8765/#/
 
 The app runs on the docs site's page, beside its source, with the theme, renderer and width controls. `web/site/` is plain static files, so any web server can host it. The page draws with WebGL2, or with CUI's software renderer. Two things of the app layer do nothing in the browser yet: `cui_app_file_dialog` (it returns false) and `cui_app_open_url`. [`web/README.md`](../web/README.md) explains the pieces.
 
-Android and iOS are not supported yet. Each needs its own platform layer (an `android_native_app_glue` or UIKit window with touch input and an OpenGL ES or Metal renderer). The core already handles touch-sized layouts, phone widths and the software renderer, so it is a contained piece of work; until then, [Integration](integration.md) shows how to drive CUI from a window and renderer you provide.
+Android and iOS are supported as experimental platform backends: `-DCUI_PLATFORM=android` builds against the NDK (NativeActivity + EGL, touch on the first finger drives the mouse; see `platform/android/` for the Gradle shell, or run `./sideload-apk.sh` to build and install the hello APK on a connected device), and `-DCUI_PLATFORM=ios` builds against UIKit with an EAGLContext (apps include `cui/cui_ios_main.h` to rename their `main`; see `platform/ios/`). Both feed the existing mouse and keyboard input APIs (touch reaches the mouse API only), and both can use the OpenGL ES path of the GL renderer or the software renderer. They need a device or emulator to test and have had less mileage than the desktop backends.
 
 ## Troubleshooting
 

@@ -11,6 +11,8 @@ What changed in CUI, newest first. Every component mentioned here runs live in t
 - Window state and placement: `cui_app_minimize`, `cui_app_restore` (back from maximized or minimized), `cui_app_window_state` and `cui_app_set_position`; `cui_app_placement` reads the state and the normal size and place, also while the window is maximized, and `cui_app_desc.placement` reopens a window there, maximized if it was. See [Reopen where it was](docs/apps.md#reopen-where-it-was).
 - `cui_app_maximize(app)` maximizes the window on every backend, right after `cui_app_create` or on the first frame of a `cui_app_run` callback (`NULL` means the running app), for an app that opens maximized ([#18](https://github.com/yappologistic/CUI/issues/18), [#19](https://github.com/yappologistic/CUI/pull/19)).
 - `cui_wheel_region` and `cui_wheel_take`: a custom canvas can take the mouse wheel to zoom, pan or scroll its own drawing, as the built-in charts and graphs do. Over the area the paint function marks, the wheel stops at the canvas instead of scrolling the page; everywhere else it scrolls as before. A canvas in a disabled scope leaves the wheel to the page, and its paint function sees `cui_is_disabled`. See [Wheel input](docs/custom-components.md#wheel-input).
+- Android and iOS platform backends (experimental). `-DCUI_PLATFORM=android` compiles the library and an example against the NDK as a NativeActivity (`platform/android/` has the Gradle shell; a verified `libhello.so` and APK build come out of it), and `-DCUI_PLATFORM=ios` targets UIKit with an EAGLContext through `platform/ios/ios.toolchain.cmake`; iOS apps include the new `cui/cui_ios_main.h` so the backend can own `UIApplicationMain`. Both backends run the GL renderer in its OpenGL ES 3 mode or the software renderer, map a touch to the mouse, and feed the soft keyboard into `cui_input_text`. On rotation both relayout at the new size and rebuild their drawable (the Android EGL surface, the iOS layer renderbuffer) before the next frame.
+- Raw multi-touch input: `cui_input_touch`, `cui_input_touch_move` and `cui_input_touch_cancel` in, and `cui_touch_count`, `cui_touch_down`, `cui_touch_pressed`, `cui_touch_released` and `cui_touch_pos` out (up to `CUI_TOUCH_MAX` fingers). Backends may still feed the mouse beside it; desktop behavior is unchanged.
 - SQL syntax colors: `.lang = "sql"` in the code block, the code editor and the diff viewer. Keywords, types and `NULL`, `TRUE` and `FALSE` match in any case, as SQL does; `--` starts a comment and `/* */` comments run across lines. The keywords cover standard SQL and common extensions such as `ilike`, `qualify`, `pivot` and `pragma` ([#33](https://github.com/yappologistic/CUI/issues/33)).
 - `cui_dialog` takes `.draggable` and `.resizable`: the header moves the dialog and its edges and corners resize it, inside the window and down to a minimum size; once resized, the footer stays at the bottom edge. Both are off by default, so existing dialogs do not change. See [Dialog](docs/components.md#dialog) ([#63](https://github.com/yappologistic/CUI/pull/63)).
 - `cui_set_clipboard_text` and `cui_get_clipboard_text`: copy from a menu item or a status bar ("Copy path") and read the clipboard for a Paste item, through the same platform hooks the copy button and text fields use ([#32](https://github.com/yappologistic/CUI/issues/32)).
@@ -64,6 +66,16 @@ What changed in CUI, newest first. Every component mentioned here runs live in t
 
 ### Fixed
 
+- The iOS backend rendered nothing on the first launch: iOS sizes a scene
+  without a `UILaunchScreen` at a provisional 320x480 at `[UIScreen
+  mainScreen].bounds`, so the window, view and GL drawable started wrong and
+  only a leave-and-revisit fixed them. iOS example bundles now ship a launch
+  screen plist, and the delegate adopts the scene's real bounds in
+  `applicationDidBecomeActive`; the drawable is re-checked against the laid-out
+  view size every frame. On the simulator `CAEAGLLayer` also never composites
+  (render and present succeed on a black screen), so the backend now falls
+  back to the software renderer there by environment check rather than only by
+  layer class.
 - The file sidebar highlights one enclosing place or volume, so Home and its drive no longer appear selected together. Double-clicks after an idle interval use the receiving frame's time, fixing missed folder opens in an event-driven app.
 - Disabled flame graphs and timeline editors ignore wheel, pointer and keyboard gestures ([#85](https://github.com/yappologistic/CUI/issues/85)).
 - Disabled node editors ignore wheel zoom and cancel in-progress gestures ([#85](https://github.com/yappologistic/CUI/issues/85)).

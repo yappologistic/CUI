@@ -265,6 +265,21 @@ CUI_API void cui_input_scroll(cui_ctx *ui, float dx, float dy);  /* in lines; +d
 CUI_API void cui_input_key(cui_ctx *ui, cui_key key, bool down, int mods);
 CUI_API void cui_input_text(cui_ctx *ui, const char *utf8);
 CUI_API void cui_input_focus(cui_ctx *ui, bool window_focused);
+
+/* Raw multi-touch, for apps and touch-first components. Fingers are numbered
+ * by the platform (0 is usually the first finger to land). The mouse API
+ * keeps working beside this: a backend may feed both. */
+#define CUI_TOUCH_MAX 10
+CUI_API void cui_input_touch(cui_ctx *ui, int finger, bool down, float x, float y);
+CUI_API void cui_input_touch_move(cui_ctx *ui, int finger, float x, float y);
+CUI_API void cui_input_touch_cancel(cui_ctx *ui, int finger);   /* a system gesture stole the finger */
+/* Touches this frame: count, per-finger state and position; finger -1 reads
+ * the first active touch (the one that landed earliest). */
+CUI_API int cui_touch_count(cui_ctx *ui);
+CUI_API bool cui_touch_down(cui_ctx *ui, int finger);
+CUI_API bool cui_touch_pressed(cui_ctx *ui, int finger);   /* landed this frame */
+CUI_API bool cui_touch_released(cui_ctx *ui, int finger);  /* lifted this frame */
+CUI_API cui_vec2 cui_touch_pos(cui_ctx *ui, int finger);
 /* Files dragged from the OS: hover while a drag is over the window (where the
  * platform reports it), then the drop itself. Paths are UTF-8 and copied. */
 CUI_API void cui_input_file_hover(cui_ctx *ui, bool hovering, float x, float y);

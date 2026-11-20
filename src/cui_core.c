@@ -535,6 +535,64 @@ void cui_input_mouse_button(cui_ctx *ui, cui_mouse_button b, bool down) {
 
 void cui_input_scroll(cui_ctx *ui, float dx, float dy) { ui->scroll_dx += dx; ui->scroll_dy += dy; cui__poke(ui); }
 
+/* ---- multi-touch ---- */
+
+static bool cui__touch_slot(cui_ctx *ui, int finger) { return finger >= 0 && finger < CUI_TOUCH_MAX; }
+
+/* the active touch that landed earliest, or -1 when nothing is down */
+static int cui__touch_first(cui_ctx *ui) {
+    int best = -1;
+    for (int i = 0; i < CUI_TOUCH_MAX; i++)
+        if (ui->tdown[i] && (best < 0 || ui->tland[i] < ui->tland[best])) best = i;
+    return best;
+}
+
+void cui_input_touch(cui_ctx *ui, int finger, bool down, float x, float y) {
+    if (!cui__touch_slot(ui, finger)) return;
+    cui__poke(ui);
+    if (down && !ui->tdown[finger]) { ui->tpressed[finger] = true; ui->tland[finger] = ui->tland_seq++; }
+    if (!down && ui->tdown[finger]) ui->treleased[finger] = true;
+    ui->tdown[finger] = down;
+    if (down) { ui->tx[finger] = x; ui->ty[finger] = y; }
+}
+
+void cui_input_touch_move(cui_ctx *ui, int finger, float x, float y) {
+    if (!cui__touch_slot(ui, finger) || !ui->tdown[finger]) return;
+    if (x != ui->tx[finger] || y != ui->ty[finger]) cui__poke(ui);
+    ui->tx[finger] = x; ui->ty[finger] = y;
+}
+
+void cui_input_touch_cancel(cui_ctx *ui, int finger) {
+    if (!cui__touch_slot(ui, finger)) return;
+    cui_input_touch(ui, finger, false, ui->tx[finger], ui->ty[finger]);
+}
+
+int cui_touch_count(cui_ctx *ui) {
+    int n = 0;
+    for (int i = 0; i < CUI_TOUCH_MAX; i++) n += ui->tdown[i];
+    return n;
+}
+
+bool cui_touch_down(cui_ctx *ui, int finger) {
+    if (finger < 0) finger = cui__touch_first(ui);
+    return cui__touch_slot(ui, finger) && ui->tdown[finger];
+}
+bool cui_touch_pressed(cui_ctx *ui, int finger) {
+    if (finger < 0) finger = cui__touch_first(ui);
+    return cui__touch_slot(ui, finger) && ui->tpressed[finger];
+}
+bool cui_touch_released(cui_ctx *ui, int finger) {
+    if (finger < 0) finger = cui__touch_first(ui);
+    return cui__touch_slot(ui, finger) && ui->treleased[finger];
+}
+
+cui_vec2 cui_touch_pos(cui_ctx *ui, int finger) {
+    cui_vec2 v = { -1e6f, -1e6f };
+    if (finger < 0) finger = cui__touch_first(ui);   /* the touch that landed first */
+    if (cui__touch_slot(ui, finger) && ui->tdown[finger]) { v.x = ui->tx[finger]; v.y = ui->ty[finger]; }
+    return v;
+}
+
 void cui_input_key(cui_ctx *ui, cui_key key, bool down, int mods) {
     /* modifiers are sampled at key presses (and modifier-only changes), so a
      * quick shortcut tap released before the next frame still registers */
@@ -913,6 +971,7 @@ void cui_end_frame(cui_ctx *ui) {
 
     /* clear per frame input */
     for (int i = 0; i < 3; i++) { ui->mpressed[i] = false; ui->mreleased[i] = false; }
+    for (int i = 0; i < CUI_TOUCH_MAX; i++) { ui->tpressed[i] = false; ui->treleased[i] = false; }
     ui->scroll_dx = ui->scroll_dy = 0;
     memset(ui->kpressed, 0, sizeof ui->kpressed);
     ui->text_in_len = 0;

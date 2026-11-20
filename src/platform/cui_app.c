@@ -93,10 +93,14 @@ cui_app *cui_app_create(const cui_app_desc *desc) {
     cui_platform_iface pi;
     memset(&pi, 0, sizeof pi);
     pi.user = app;
-    /* backends may already have set clipboard/cursor callbacks */
+    /* merge the missing clipboard callbacks into any callbacks the app
+     * already installed via cui_set_platform, rather than replacing them */
     cui_ctx *ui = app->ui;
     if (!ui->platform.set_clipboard) { pi.set_clipboard = cui__app_set_clip; pi.get_clipboard = cui__app_get_clip; }
-    else pi = ui->platform;
+    else { pi.set_clipboard = ui->platform.set_clipboard; pi.get_clipboard = ui->platform.get_clipboard; }
+    if (ui->platform.set_cursor) pi.set_cursor = ui->platform.set_cursor;
+    if (ui->platform.set_text_input_rect) pi.set_text_input_rect = ui->platform.set_text_input_rect;
+    if (ui->platform.draw_emoji) pi.draw_emoji = ui->platform.draw_emoji;
     cui_set_platform(ui, &pi);
     app->running = true;
     app->last_time = cui__plat_now();
