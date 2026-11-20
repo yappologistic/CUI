@@ -384,6 +384,9 @@ cui_rect cui__xform_rect(cui_ctx *ui, cui_rect r);
 void cui__paint_add_hit(cui_ctx *ui, cui_id id, cui_rect r, uint32_t flags);
 /* From a paint callback: the wheel over r (inside the current clip) goes to id, ahead of any scroll area under it. */
 void cui__paint_wheel_hit(cui_ctx *ui, cui_id id, cui_rect r);
+/* A point where wheel area `id` was drawn, mapped back into its layout space with the transform
+ * it was last painted with (a carousel slide, a sliding panel): wheel anchors use layout rects. */
+cui_vec2 cui__wheel_point(cui_ctx *ui, cui_id id, float x, float y);
 
 /* ---- per id state ---- */
 typedef struct cui_state_entry {

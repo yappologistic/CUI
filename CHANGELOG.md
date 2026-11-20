@@ -64,6 +64,7 @@ What changed in CUI, newest first. Every component mentioned here runs live in t
 
 ### Fixed
 
+- Wheel areas follow their node's transform: the image viewer, knob, fader, emoji grid, trace and graph views, terminal, candlestick chart and `cui_wheel_region` canvases take the wheel where they are drawn, also on a carousel slide past the first, and the image viewer, trace and graph views and candlestick chart zoom around the pointer there ([#100](https://github.com/yappologistic/CUI/issues/100)).
 - The file sidebar highlights one enclosing place or volume, so Home and its drive no longer appear selected together. Double-clicks after an idle interval use the receiving frame's time, fixing missed folder opens in an event-driven app.
 - Disabled flame graphs and timeline editors ignore wheel, pointer and keyboard gestures ([#85](https://github.com/yappologistic/CUI/issues/85)).
 - Disabled node editors ignore wheel zoom and cancel in-progress gestures ([#85](https://github.com/yappologistic/CUI/issues/85)).

@@ -9090,6 +9090,69 @@ static void test_photo(void) {
     cui_destroy(ui);
 }
 
+/* ---- wheel areas inside a moved node ---- */
+/* A carousel draws its slides moved by the slide row's translation; a wheel area must be where the
+ * component is drawn, not where it was laid out. */
+typedef struct { cui_texture tex; cui_image_view view[2]; int slide; cui_id wheel; int takes; } moved_wheel;
+static void paint_moved_wheel(cui_ctx *ui, cui_rect r, void *user) { cui_wheel_region(ui, *(const cui_id *)user, r); }
+static void build_moved_wheel(cui_ctx *ui, void *u) {
+    moved_wheel *m = u;
+    cui_carousel(ui, "photos", 2, &m->slide, .height = 300, .no_arrows = true) {
+        cui_carousel_slide(ui) { cui_image_viewer(ui, "photo-1", m->tex, 1000, 500, &m->view[0], .width = CUI_PX(500), .height = CUI_PX(300), .no_toolbar = true); }
+        cui_carousel_slide(ui) {
+            cui_row(ui) {
+                cui_image_viewer(ui, "photo-2", m->tex, 1000, 500, &m->view[1], .width = CUI_PX(500), .height = CUI_PX(300), .no_toolbar = true);
+                m->wheel = cui_make_id(ui, "canvas-wheel");
+                cui_vec2 d;
+                if (cui_wheel_take(ui, m->wheel, &d)) m->takes++;
+                cui_canvas(ui, "canvas", CUI_PX(200), CUI_PX(300), paint_moved_wheel, &m->wheel, sizeof m->wheel);
+            }
+        }
+    }
+}
+static void test_wheel_in_moved_node(void) {
+    printf("wheel areas and zoom anchors follow their node's translation (a carousel's second slide)\n");
+    static unsigned char px[64 * 64 * 4];
+    memset(px, 200, sizeof px);
+    for (int start = 0; start < 2; start++) {
+        cui_ctx *ui = new_ctx();
+        moved_wheel m = { .slide = start };
+        m.tex = cui_image_create(ui, 64, 64, px);
+        run(ui, build_moved_wheel, &m, 3);
+        const cui_rect car = rect_of(ui, cui_make_id(ui, "photos"));
+        const cui_rect p1 = rect_of(ui, cui_make_id(ui, "photo-1")), p2 = rect_of(ui, cui_make_id(ui, "photo-2"));
+        if (start == 1) CHECK(p2.x > car.x + car.w);   /* laid out outside the carousel, drawn inside it */
+        /* the shown photo is drawn where the first slide's is laid out; the pointer a quarter in */
+        const cui_rect shown = start ? (cui_rect){ p1.x, p2.y, p2.w, p2.h } : p1;
+        const float mx = shown.x + shown.w * 0.25f, my = shown.y + shown.h * 0.5f;
+        const float fit = fminf(shown.w / 1000, shown.h / 500);
+        const float ix = 500 + (mx - (shown.x + shown.w / 2)) / fit;   /* the image point under it */
+        cui_input_mouse_move(ui, mx, my);
+        run(ui, build_moved_wheel, &m, 2);
+        cui_input_scroll(ui, 0, 1);
+        run(ui, build_moved_wheel, &m, 3);
+        const cui_image_view v = m.view[start];
+        CHECK(v.zoom > fit * 1.1f);
+        CHECK(m.view[1 - start].zoom == 0);
+        CHECK_NEAR(v.cx + (mx - (shown.x + shown.w / 2)) / v.zoom, ix, 1.0);   /* it zoomed around the pointer */
+        /* a double-click shows 100% around the pointer, too */
+        click_at(ui, build_moved_wheel, &m, mx, my);
+        click_at(ui, build_moved_wheel, &m, mx, my);
+        run(ui, build_moved_wheel, &m, 3);
+        CHECK_NEAR(m.view[start].zoom, 1, 1e-4);
+        CHECK_NEAR(m.view[start].cx + (mx - (shown.x + shown.w / 2)), ix, 1.0);
+        if (start == 1) {                               /* over the canvas next to it: its wheel region takes it */
+            cui_input_mouse_move(ui, car.x + 600, car.y + 150);
+            run(ui, build_moved_wheel, &m, 2);
+            cui_input_scroll(ui, 0, 1);
+            run(ui, build_moved_wheel, &m, 3);
+            CHECK(m.takes == 1);
+        }
+        cui_image_destroy(ui, m.tex);
+        cui_destroy(ui);
+    }
+}
+
 /* ---- file browser and file picker ---- */
 static const struct { const char *dir, *name; bool folder; uint64_t size; } fb_disk[] = {
     { "/w", "beta", true, 0 }, { "/w", "Alpha", true, 0 }, { "/w", "zeta.txt", false, 30 }, { "/w", "img10.png", false, 900 },
@@ -9833,6 +9896,7 @@ int main(void) {
     test_month();
     test_tour();
     test_photo();
+    test_wheel_in_moved_node();
     test_files();
     test_fs_list_full_names();
     test_terminal();
