@@ -766,7 +766,7 @@ float cui__spring(cui_ctx *ui, cui_spring *s, float target, float duration, floa
     float w = 2.0f * CUI_PI / duration;
     float k = w * w;
     float c = 2.0f * (1.0f - bounce) * w;
-    float dt = ui->dt;
+    float dt = ui->step;
     if (dt > 0.1f) dt = 0.1f;
     int steps = (int)ceilf(dt / (1.0f / 240.0f));
     if (steps < 1) steps = 1;
@@ -786,7 +786,7 @@ float cui__tween(cui_ctx *ui, float *x, float target, float duration) {
     float motion = ui->theme.motion;
     if (motion <= 0.0f || ui->frame <= 1) { *x = target; return target; }
     duration *= motion;
-    float a = 1.0f - expf(-ui->dt * 4.6f / duration);
+    float a = 1.0f - expf(-ui->step * 4.6f / duration);
     *x += (target - *x) * a;
     if (fabsf(*x - target) < 0.002f) *x = target;
     else ui->animating = true;
@@ -819,6 +819,12 @@ void cui_begin_frame(cui_ctx *ui, float dt) {
     if (dt > 3600.0f) dt = 3600.0f;
     ui->in_frame = true;
     ui->dt = CUI_MIN(dt, 0.25f);
+    /* After a frame that asked for no other the host could sleep until input came, and a dt
+     * longer than a frame at 20 Hz is that rest. A transition that starts now (a hover fade, a
+     * spring) takes one 60 Hz frame's step instead and runs its course. A host that draws on
+     * its own at a lower rate keeps its dt, and dt and the clock keep the real time for timers
+     * and cui_delta_time. */
+    ui->step = !ui->wanted_frame && ui->dt > 0.05f ? 1.0f / 60.0f : ui->dt;
     ui->time += dt;
     cui__flush_clicks(ui);
     ui->frame++;
@@ -915,6 +921,7 @@ void cui_end_frame(cui_ctx *ui) {
     for (int i = 0; i < 3; i++) { ui->mpressed[i] = false; ui->mreleased[i] = false; }
     ui->scroll_dx = ui->scroll_dy = 0;
     memset(ui->kpressed, 0, sizeof ui->kpressed);
+    ui->wanted_frame = cui_needs_redraw(ui);
     ui->text_in_len = 0;
     ui->text_in[0] = 0;
     ui->input_this_frame = false;

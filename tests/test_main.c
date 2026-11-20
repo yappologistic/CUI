@@ -365,6 +365,41 @@ static void test_button_click(void) {
     cui_destroy(ui);
 }
 
+/** Render a primary button and sample its fill, clear of the label and border. */
+static int hover_button_frame(cui_ctx *ui, float elapsed) {
+    enum { width = 96, height = 48 };
+    unsigned char pixels[width * height * 4];
+    cui_begin_frame(ui, elapsed);
+    cui_button(ui, "Hover", .variant = CUI_BUTTON_PRIMARY, .width = CUI_PX(80));
+    cui_end_frame(ui);
+    cui_sw_render(g_sw, cui_get_draw_data(ui), pixels, width, height, width * 4, CUI_SW_RGBA);
+    return pixels[(16 * width + 8) * 4];
+}
+
+/** The first hover frame after a quiet second must show an intermediate fill. */
+static void test_button_hover_after_idle(void) {
+    cui_ctx *ui = new_ctx();
+    cui_set_viewport(ui, 96, 48, 1);
+    cui_set_reduced_motion(ui, false);
+    cui_input_mouse_move(ui, 95, 47);
+    const float frame = 1.0f / 60.0f;
+    hover_button_frame(ui, frame);
+    int rest = hover_button_frame(ui, frame);
+    CHECK(!cui_needs_redraw(ui));
+
+    double before = cui_time(ui);
+    cui_input_mouse_move(ui, 8, 16);
+    int first = hover_button_frame(ui, 1.0f);
+    CHECK_NEAR(cui_time(ui) - before, 1.0, 1e-6);
+    for (int i = 0; i < 20; i++) hover_button_frame(ui, frame);
+    int settled = hover_button_frame(ui, frame);
+    CHECK(!cui_needs_redraw(ui));
+    printf("button hover after 1 s idle: red channel at rest %d, first frame %d, settled %d\n",
+           rest, first, settled);
+    CHECK((rest < first && first < settled) || (settled < first && first < rest));
+    cui_destroy(ui);
+}
+
 static void test_keyboard_nav(void) {
     printf("interaction: tab focus and keyboard activation\n");
     cui_ctx *ui = new_ctx();
@@ -7100,7 +7135,17 @@ static void test_hex_view(void) {
     run(ui, build_hex, &h, 20);
     p = hex_cell(ui, 0, 0, false);
     cui_input_mouse_move(ui, p.x, p.y);
+    cui_set_reduced_motion(ui, false);
+    run(ui, build_hex, &h, 90);
+    CHECK(!cui_needs_redraw(ui));
+    CHECK(h.res.hovered == 0);
     cui_input_scroll(ui, 0, -2);
+    cui_begin_frame(ui, 1.0f);
+    build_hex(ui, &h);
+    cui_end_frame(ui);
+    /* Hit testing on the next frame sees the first frame's scroll position. */
+    run(ui, build_hex, &h, 1);
+    CHECK(h.res.hovered > 0 && h.res.hovered < 16 * 6);
     run(ui, build_hex, &h, 20);
     CHECK(h.res.hovered == 16 * 6);
     cui_destroy(ui);
@@ -9764,6 +9809,7 @@ int main(void) {
     test_layout_autogrid();
     test_layout_narrow_table();
     test_button_click();
+    test_button_hover_after_idle();
     test_click_then_keys();
     test_keyboard_nav();
     test_copy_button_focus();

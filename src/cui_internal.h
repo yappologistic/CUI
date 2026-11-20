@@ -494,6 +494,8 @@ struct cui_ctx {
     /* time */
     double time;
     float dt;
+    float step;                /* the step of transitions: dt, or at most one 60 Hz frame after a rest */
+    bool wanted_frame;         /* the last frame asked for the next one: the time since is no rest */
     uint64_t frame;
     bool in_frame;
     bool animating;
