@@ -79,6 +79,8 @@ For a build system other than CMake, or to vendor CUI into a large codebase, use
 
 **The includes differ.** This guide writes `#include <cui/cui.h>` and `#include <cui/cui_app.h>`. With the single-file distribution both are one header beside your code, so write `#include "cui.h"` (or `"cui_single.h"`) in their place and leave the second line out.
 
+**What it leaves out.** The OpenGL and software renderers and the Win32, Cocoa, X11, SDL2 and GLFW window layers are in; the GPU renderers are built with CMake only ([Platforms](platform.md)).
+
 `cui.c` is the whole library, about 78,000 lines, and takes around half a minute to compile. Compile it once and link the object file; your own files then build in a moment:
 
 ```sh
@@ -94,7 +96,8 @@ The window layer for your system is picked by the preprocessor. Before the imple
 
 | CMake option | Default | Meaning |
 |---|---|---|
-| `CUI_PLATFORM` | `auto` | `win32`, `cocoa`, `x11`, `sdl2` or `glfw` |
+| `CUI_PLATFORM` | `auto` | `win32`, `cocoa`, `x11`, `sdl2` or `glfw`. One backend per build; `auto` is `x11` on Linux ([Platforms](platform.md)) |
+| `CUI_D3D12`, `CUI_VULKAN`, `CUI_METAL` | `OFF` | The platform's GPU renderer (`cui_gpu_*`): Direct3D 12 on Windows, Vulkan on Linux, Metal on macOS. Each configures on its own platform only. OpenGL and the software renderer are always built |
 | `CUI_WITH_APP` | `ON` | Build the window layer. Turn off to use only the core in your engine |
 | `CUI_DEFAULT_FONTS` | `ON` | Embed Inter, Geist and Lucide (about 180 KB) |
 | `CUI_STB_IMAGE` | `ON` | PNG and JPEG loading for `cui_image_load` |
@@ -303,6 +306,7 @@ Still stuck? [Open an issue](https://github.com/yappologistic/CUI/issues) with y
 |---|---|
 | `CUI_RENDERER=software` | Use the software renderer even when OpenGL is available |
 | `CUI_RENDERER=opengl` | Keep OpenGL even when it is drawn on the CPU (without it, X11 and Win32 apps on a machine with no GPU switch to the software renderer, which costs several times less there) |
+| `CUI_RENDERER=gpu` | Draws with the platform's GPU renderer (built with `CUI_D3D12`, `CUI_VULKAN` or `CUI_METAL`); its name works too (`d3d12`, `vulkan`, `metal`). `CUI_GPU=nvidia` (part of an adapter's name) picks the GPU, and the renderer says which on stderr. [Performance](performance.md#direct3d-12-vulkan-and-metal-against-opengl) |
 | `CUI_SCALE=2` | Override the display scale |
 | `CUI_THEME=dark` | Start in the dark (or `light`) theme, whatever the app asks for |
 | `CUI_ACCENT=blue` | Start with another accent: `neutral`, `violet`, `blue`, `green`, `amber`, `orange`, `coral`, `rose` |

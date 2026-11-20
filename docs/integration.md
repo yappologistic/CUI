@@ -93,6 +93,17 @@ cui_sw_render(sw, cui_get_draw_data(ui), pixels, width, height, stride_bytes, CU
 
 Renders into any 32 bit buffer, using several threads. Output matches the GPU renderer to within a fraction of a percent. Great for servers, tests, thumbnails and embedded framebuffers. `cui_write_png` saves a buffer.
 
+### Direct3D 12, Vulkan, Metal
+
+```c
+cui_gpu_renderer *gpu = cui_gpu_create(window, true);   /* an HWND, a cui_x11_window *, an NSWindow * */
+cui_ctx *ui = cui_create(&(cui_ctx_desc){ .renderer = cui_gpu_iface(gpu) });
+...
+cui_gpu_render(gpu, cui_get_draw_data(ui));              /* draws and presents */
+```
+
+With `CUI_D3D12` (Windows), `CUI_VULKAN` (Linux) or `CUI_METAL` (macOS): the OpenGL renderer's shader, drawing into a swapchain or layer of its own on the window. The app layer picks it with `CUI_RENDERER_GPU`; [Performance](performance.md#direct3d-12-vulkan-and-metal-against-opengl) has the comparison.
+
 ### Your own renderer
 
 You need two things:
@@ -100,7 +111,7 @@ You need two things:
 1. **Textures.** Implement the three callbacks in `cui_renderer_iface`: create (R8 for the font atlas, RGBA8 for images), update a sub-rectangle, destroy. Return any nonzero handle.
 2. **One draw call per command.** For each `cui_draw_cmd` set the scissor rectangle to `clip` (pixels, top left origin), bind `texture` (0 means `font_atlas`) and draw `index_count` indices starting at `index_offset` as triangles. Blend with premultiplied alpha: `src * 1 + dst * (1 - src_alpha)`.
 
-The vertex format and the reference shader are in [rendering.md](rendering.md). Porting them to Vulkan, Metal, Direct3D 11/12, WebGPU, sokol or bgfx is mostly syntax.
+The vertex format and the reference shader are in [rendering.md](rendering.md). Porting them to WebGPU, sokol, bgfx or Direct3D 11 is mostly syntax; the Direct3D 12, Vulkan and Metal renderers in `src/render/` are three such ports.
 
 ## Threads
 

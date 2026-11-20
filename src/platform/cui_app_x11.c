@@ -54,6 +54,7 @@ typedef struct {
     Display *dpy;
     int screen;
     Window win;
+    cui_x11_window gpu_window;   /* the window as cui_gpu_create takes it (Vulkan) */
     Colormap cmap;
     Visual *visual;
     int depth;
@@ -507,6 +508,15 @@ void cui__plat_set_size(cui_app *app, int w, int h) {
 }
 
 void *cui__plat_native(cui_app *app) { return (void *)(uintptr_t)cui__x(app)->win; }
+
+cui_x11_window *cui__plat_x11_window(cui_app *app) {
+    cui__x11 *x = cui__x(app);
+    x->gpu_window.display = x->dpy;
+    x->gpu_window.window = x->win;
+    x->gpu_window.width = x->width;
+    x->gpu_window.height = x->height;
+    return &x->gpu_window;
+}
 
 /* Where the content's top-left corner is on the root window. */
 static void cui__x11_content_origin(cui__x11 *x, int *px, int *py) {

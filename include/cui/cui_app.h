@@ -37,7 +37,8 @@ typedef struct cui_app cui_app;
 typedef enum cui_renderer_kind {
     CUI_RENDERER_AUTO = 0,     /* OpenGL, or software when there is no GPU (CPU-drawn OpenGL, X11 and Win32) */
     CUI_RENDERER_OPENGL,
-    CUI_RENDERER_SOFTWARE
+    CUI_RENDERER_SOFTWARE,
+    CUI_RENDERER_GPU           /* the platform's GPU renderer, in builds that have it: Direct3D 12 on Windows (CUI_D3D12), Vulkan on Linux (CUI_VULKAN), Metal on macOS (CUI_METAL). Also CUI_RENDERER=gpu, or its name */
 } cui_renderer_kind;
 
 /* How the window is shown. */

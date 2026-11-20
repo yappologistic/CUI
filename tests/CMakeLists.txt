@@ -75,6 +75,15 @@ endif()
 add_executable(cui_bench bench.c ../examples/gallery_ui.c ../examples/gallery_more.c)
 target_link_libraries(cui_bench PRIVATE cui::cui)
 
+# The gallery clicked and scrolled fast in a real window, to compare renderers (see tests/gpu_bench.c); needs a window, so ctest does not run it
+if(CUI_WITH_APP)
+    add_executable(cui_gpu_bench gpu_bench.c ../examples/gallery_ui.c ../examples/gallery_more.c)
+    target_link_libraries(cui_gpu_bench PRIVATE cui::cui)
+    if(WIN32)
+        target_link_libraries(cui_gpu_bench PRIVATE psapi)
+    endif()
+endif()
+
 add_executable(cui_component_shots component_shots.c)
 target_link_libraries(cui_component_shots PRIVATE cui::cui)
 

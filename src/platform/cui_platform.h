@@ -12,6 +12,7 @@ struct cui_app {
     char title[256];
     cui_gl_renderer *gl;
     cui_sw_renderer *sw;
+    struct cui_gpu_renderer *gpu;       /* the platform's GPU renderer (CUI_D3D12, CUI_VULKAN or CUI_METAL builds) */
     uint8_t *sw_pixels;
     int sw_w, sw_h;
     bool software;
