@@ -1,6 +1,7 @@
 /* Window state and placement: opens at a saved place, moves, maximizes, minimizes and restores
  * the window, and reads its state and placement back after each step.
- *   cui_test_window_state
+ *   cui_test_window_state [--custom-title-bar]
+ * --custom-title-bar runs the same steps with cui_app_desc.custom_title_bar.
  * Needs a display; without one it skips. A step the window manager does not carry out within
  * two seconds fails on Windows and macOS and is reported as skipped elsewhere (an X11 window
  * manager without EWMH, or one that cannot minimize). */
@@ -8,6 +9,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 static int failures;
 static bool strict;   /* the system always carries out state changes */
@@ -77,11 +79,12 @@ static void expect_size(cui_app *app, int w, int h, const char *what) {
     expect(close_to(s.x, (float)w) && close_to(s.y, (float)h), line);
 }
 
-int main(void) {
+int main(int argc, char **argv) {
     setvbuf(stdout, NULL, _IONBF, 0);
+    bool custom = argc > 1 && strcmp(argv[1], "--custom-title-bar") == 0;
     const int x = 120, y = 140, w = 520, h = 380;
     cui_window_placement at = { .x = x, .y = y, .width = w, .height = h, .has_position = true };
-    cui_app *app = cui_app_create(&(cui_app_desc){ .title = "CUI window state test", .placement = &at });
+    cui_app *app = cui_app_create(&(cui_app_desc){ .title = "CUI window state test", .placement = &at, .custom_title_bar = custom });
     if (!app) {
         fprintf(stderr, "skip: could not create app (no display?)\n");
         return 0;
@@ -90,7 +93,7 @@ int main(void) {
 #if defined(_WIN32) || defined(__APPLE__)
     strict = true;   /* the system carries out state changes with every backend */
 #endif
-    printf("backend=%s strict=%d\n", backend, strict);
+    printf("backend=%s strict=%d custom_title_bar=%d\n", backend, strict, custom);
     /* before the window manager has placed the window, the placement is still the saved one */
     expect_placement(app, x, y, w, h, CUI_WINDOW_NORMAL, "right after opening");
 
@@ -171,7 +174,7 @@ int main(void) {
     /* a window saved maximized opens maximized and restores to its saved size, also when the app
      * maximizes it as well right after cui_app_create, as an app that opens maximized does */
     at.state = CUI_WINDOW_MAXIMIZED;
-    app = cui_app_create(&(cui_app_desc){ .title = "CUI window state test", .placement = &at });
+    app = cui_app_create(&(cui_app_desc){ .title = "CUI window state test", .placement = &at, .custom_title_bar = custom });
     expect(app != NULL, "open maximized: window created");
     if (app) {
         cui_app_maximize(app);
@@ -187,7 +190,7 @@ int main(void) {
     }
 
     /* a restore right after cui_app_create wins over the saved maximized state */
-    app = cui_app_create(&(cui_app_desc){ .title = "CUI window state test", .placement = &at });
+    app = cui_app_create(&(cui_app_desc){ .title = "CUI window state test", .placement = &at, .custom_title_bar = custom });
     expect(app != NULL, "restore before the first frame: window created");
     if (app) {
         cui_app_restore(app);

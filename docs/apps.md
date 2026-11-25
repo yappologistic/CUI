@@ -44,6 +44,7 @@ cui_app_destroy(app);
 | `follow_system_theme` | Use the system's light or dark setting where the platform reports it. `cui_app_follow_system_theme` turns it on or off while the app runs. |
 | `app_id` | Linux: the name of the app's `.desktop` file without ".desktop", such as "org.example.Notes", so the desktop shows the app's name and icon for the window. See [Your app's name and icon on Linux](getting-started.md#your-apps-name-and-icon-on-linux). |
 | `placement` | Where to open: a placement saved with `cui_app_placement`, so the window reopens with the size, place and maximized state it had. See [Reopen where it was](#reopen-where-it-was). |
+| `custom_title_bar` | The app draws the title bar with `cui_title_bar`: the system's title bar goes, and the window keeps its border, shadow and resizing. On Windows; elsewhere the system's title bar stays. |
 
 ## The window
 

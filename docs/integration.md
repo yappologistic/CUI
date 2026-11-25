@@ -86,10 +86,14 @@ cui_set_platform(ui, &(cui_platform_iface){
     .get_clipboard = my_get_clipboard,           /* returns a string valid until the next call */
     .set_cursor = my_set_cursor,                 /* CUI_CURSOR_ARROW, HAND, TEXT, RESIZE_EW... */
     .set_text_input_rect = my_set_ime_rect,      /* where the IME candidate window should go */
+    .window_frame = my_window_frame,             /* optional: the window has no system title bar */
+    .window_button = my_window_button,           /* optional: minimize, maximize, restore, close */
 });
 ```
 
 CUI calls `set_text_input_rect` every frame a text field has focus, with the caret in window points (top-left origin, one line tall). Place the input method's composition and candidate windows there; the built-in Win32, Cocoa, X11 and SDL2 backends and the docs site do.
+
+A window without the system's title bar, whose content draws one with `cui_title_bar`, needs two more hooks. `window_frame` writes whether the window is maximized and whether it can be resized, and returns true while the system's title bar is gone; without the hook, or when it returns false, `cui_title_bar` is a bar without window buttons. `window_button` carries out a click on minimize, maximize, restore or close. To move the window, the platform asks `cui_title_bar_hit_test(ui, x, y)` with a point in window points, for example in `WM_NCHITTEST` on Windows: `CUI_TITLE_BAR_CAPTION` is the bar's empty space and its title, which move the window and maximize it on a double click, `CUI_TITLE_BAR_MAXIMIZE` is the maximize button, where Windows 11 opens its snap layouts, and `CUI_TITLE_BAR_NONE` is everything else, the controls in the bar, a popup over it, and any point while a control is being dragged. The built-in Win32 backend sets both hooks when the app asks for `cui_app_desc.custom_title_bar`.
 
 Useful queries for your app: `cui_wants_keyboard` (a text field has focus), `cui_wants_mouse` (the pointer is over the UI), `cui_get_cursor`.
 

@@ -958,6 +958,29 @@ void cui_status_bar_progress_ex(cui_ctx *ui, float value, const cui_status_progr
 }
 
 /* ------------------------------------------------------------------------ */
+/* Title bar                                                                */
+/* ------------------------------------------------------------------------ */
+
+cui_title_bar_hit cui_title_bar_hit_test(cui_ctx *ui, float x, float y) {
+    /* between frames the lists hold the last frame; during one (a blocking file dialog keeps
+     * the window's messages coming) they hold the frame before */
+    const cui_hit *hits = ui->in_frame ? ui->prev_hits : ui->hits;
+    int count = ui->in_frame ? ui->prev_hit_count : ui->hit_count;
+    uint64_t last = ui->in_frame ? ui->frame - 1 : ui->frame;
+    if (ui->title_bar.frame < last || ui->active) return CUI_TITLE_BAR_NONE;
+    bool on_bar = false;
+    for (int i = 0; i < ui->title_bar.count && !on_bar; i++)
+        on_bar = cui__rect_contains(cui__prev_rect(ui, ui->title_bar.bars[i]), x, y);
+    if (!on_bar) return CUI_TITLE_BAR_NONE;
+    for (int i = count - 1; i >= 0; i--) {
+        const cui_hit *h = &hits[i];
+        if (!(h->flags & (CUI_NF_INTERACTIVE | CUI_NF_BLOCKER | CUI_NF_HIT_OPAQUE)) || !cui__rect_contains(h->rect, x, y)) continue;
+        return h->id && h->id == ui->title_bar.maximize ? CUI_TITLE_BAR_MAXIMIZE : CUI_TITLE_BAR_NONE;
+    }
+    return CUI_TITLE_BAR_CAPTION;
+}
+
+/* ------------------------------------------------------------------------ */
 /* Document tabs                                                            */
 /* ------------------------------------------------------------------------ */
 

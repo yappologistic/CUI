@@ -693,6 +693,8 @@ struct cui_ctx {
         void *veil;                /* veils nest: each keeps the one around it */
         struct cui__skel_group *skeleton;   /* skeleton groups nest: each keeps the one around it */
     } building;
+    /* the latest frame's cui_title_bar segments and maximize button, for cui_title_bar_hit_test */
+    struct { cui_id bars[4]; int count; cui_id maximize; uint64_t frame; } title_bar;
     cui__text_fx_fn text_fx;       /* set while a node with a text effect paints */
     void *text_fx_data;
     int text_fx_base;              /* byte offset of the line being drawn */

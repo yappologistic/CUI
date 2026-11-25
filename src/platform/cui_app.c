@@ -142,6 +142,8 @@ cui_app *cui_app_create(const cui_app_desc *desc) {
     if (ui->platform.set_cursor) pi.set_cursor = ui->platform.set_cursor;
     if (ui->platform.set_text_input_rect) pi.set_text_input_rect = ui->platform.set_text_input_rect;
     if (ui->platform.draw_emoji) pi.draw_emoji = ui->platform.draw_emoji;
+    if (ui->platform.window_frame) pi.window_frame = ui->platform.window_frame;
+    if (ui->platform.window_button) pi.window_button = ui->platform.window_button;
     cui_set_platform(ui, &pi);
     app->running = true;
     app->last_time = cui__plat_now();
@@ -428,6 +430,24 @@ void cui_app_maximize(cui_app *app) {
 void cui_app_minimize(cui_app *app) { app = cui__app_or_current(app); if (app) cui__plat_minimize(app); }
 void cui_app_restore(cui_app *app) { app = cui__app_or_current(app); if (app) cui__plat_restore(app); }
 void cui_app_set_position(cui_app *app, int x, int y) { app = cui__app_or_current(app); if (app) cui__plat_set_position(app, x, y); }
+
+bool cui__app_window_frame(void *user, cui_window_frame *frame) {
+    cui_app *app = user;
+    if (!app->title_bar) return false;
+    frame->maximized = cui__plat_window_state(app) == CUI_WINDOW_MAXIMIZED;
+    frame->resizable = !app->desc.fixed_size;
+    return true;
+}
+
+void cui__app_window_button(void *user, cui_window_button button) {
+    cui_app *app = user;
+    switch (button) {
+    case CUI_WINDOW_BUTTON_MINIMIZE: cui_app_minimize(app); break;
+    case CUI_WINDOW_BUTTON_MAXIMIZE: cui_app_maximize(app); break;
+    case CUI_WINDOW_BUTTON_RESTORE: cui_app_restore(app); break;
+    case CUI_WINDOW_BUTTON_CLOSE: cui_app_quit(app); break;   /* as the system's close button */
+    }
+}
 
 cui_window_state cui_app_window_state(cui_app *app) {
     app = cui__app_or_current(app);

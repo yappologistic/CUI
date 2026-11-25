@@ -31,6 +31,7 @@ struct cui_app {
     void *frame_user;
     bool in_live_resize;
     void *plat;                /* backend state */
+    bool title_bar;            /* desc.custom_title_bar took effect: the system's title bar is gone */
     char *clipboard;           /* last clipboard string handed to CUI */
     const char *screenshot_path;  /* CUI_SCREENSHOT: save a PNG and quit */
     int screenshot_frames;
@@ -66,6 +67,9 @@ bool cui__plat_open_url(const char *url);
 void cui__app_render(cui_app *app);                   /* end frame (if open), render, present */
 void cui__app_live_frame(cui_app *app);               /* run one frame from inside a resize loop */
 void cui__app_set_clipboard_cache(cui_app *app, const char *utf8);
+/* cui_platform_iface hooks of cui_title_bar, for backends that can drop the system's title bar */
+bool cui__app_window_frame(void *user, cui_window_frame *frame);
+void cui__app_window_button(void *user, cui_window_button button);
 
 void cui__plat_maximize(cui_app *app);
 void cui__plat_minimize(cui_app *app);

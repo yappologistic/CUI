@@ -88,6 +88,11 @@ typedef struct cui_app_desc {
      * not maximized. Copied when the window is created.
      * Default: none, the system picks the place. */
     const cui_window_placement *placement;
+    /* The app draws the title bar with cui_title_bar: the system's title bar goes, and the
+     * window keeps its border, shadow and resizing. On Windows; elsewhere the system's title
+     * bar stays and cui_title_bar is a bar without window buttons.
+     * Default: the system's title bar. */
+    bool custom_title_bar;
 } cui_app_desc;
 
 CUI_API cui_app *cui_app_create(const cui_app_desc *desc);
