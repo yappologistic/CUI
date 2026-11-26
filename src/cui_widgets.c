@@ -254,7 +254,7 @@ cui__btn_colors cui__button_colors(cui_ctx *ui, cui_button_variant v, bool selec
         c.bg = d;
         c.bg_hover = cui_mix(d, CUI_C(ui, BACKGROUND), 0.12f);
         c.bg_press = cui_mix(d, CUI_C(ui, BACKGROUND), 0.05f);
-        c.fg = ui->mode == CUI_THEME_DARK ? cui__rgba(26, 10, 12, 255) : cui__rgba(255, 255, 255, 255);
+        c.fg = cui__on_danger(ui);
         break;
     }
     case CUI_BUTTON_OUTLINE:

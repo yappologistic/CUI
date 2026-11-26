@@ -2188,9 +2188,30 @@ Keyboard: Tab focuses the orb, and Enter or Space clicks it.
 
 ## App chrome
 
-The parts around a desktop window's content: a menu bar, a toolbar, document tabs and a status bar. The bars have no fill of their own and draw a hairline on their inner edge, so they take the color of whatever holds them. In the picture the window's chrome sits in a muted box and the content in a white one.
+The parts around a desktop window's content: a title bar, a menu bar, a toolbar, document tabs and a status bar. The bars have no fill of their own and draw a hairline on their inner edge, so they take the color of whatever holds them. In the picture the window's chrome sits in a muted box and the content in a white one.
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="images/components/app-chrome-dark.png"><img src="images/components/app-chrome.png" alt="Menu bar, toolbar, document tabs and status bar in one window"></picture>
+
+### Title bar
+
+The top row of a window that draws its own title bar, with the app's controls beside the window buttons.
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="images/components/title-bar-dark.png"><img src="images/components/title-bar.png" alt="A window whose sidebar reaches into the title bar with its own segment; the main segment holds back and forward buttons, a search field and settings beside minimize, maximize and close, and the pointer rests on maximize"></picture>
+
+```c
+cui_app_run(&(cui_app_desc){ .title = "Notes", .custom_title_bar = true }, frame, NULL);
+
+/* in frame(): */
+cui_title_bar(ui, "title", .icon = CUI_ICON_NOTEBOOK_PEN, .title = "Notes") {
+    cui_search(ui, "find", query, sizeof query, .size = CUI_SIZE_SM, .width = CUI_PX(240));
+    cui_spacer(ui);
+    if (cui_icon_button(ui, CUI_ICON_SETTINGS, .size = CUI_SIZE_SM, .tooltip = "Settings")) open_settings();
+}
+```
+
+The bar is 40 points high, with an optional `icon` in the accent color and a `title`, then the app's controls, and minimize, maximize or restore, and close at the end. Give the controls `CUI_SIZE_SM`. The empty space and the title move the window and a double click there maximizes or restores it; the controls stay controls, and while one is pressed the bar does not move the window. Close turns red under the pointer, a fixed-size window has no maximize button, and the window buttons are not in the Tab order, as on the system's title bar. While the window is in the background the title and the window buttons dim. Like the other bars it has no fill of its own and a hairline under it (`.no_border` drops it).
+
+The window buttons appear only where the system's title bar is gone: on Windows with [`custom_title_bar`](apps.md#your-own-title-bar). Everywhere else, and in an app without the option, the system keeps its title bar and `cui_title_bar` is the same bar without window buttons, so one layout serves both. A sidebar can reach up into the title bar: give the sidebar's column a segment of its own with `.no_window_buttons` and put the main one at the top of the content beside it. Each segment moves the window; up to four make up the title bar of one frame. [`examples/titlebar.c`](../examples/titlebar.c) shows both.
 
 ### Menu bar
 

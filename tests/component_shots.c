@@ -3595,6 +3595,60 @@ static void scene_status_bar(cui_ctx *ui, int f) {
     }
     frame_wrap(ui, body_status_bar);
 }
+/* The title bar draws its window buttons only where the platform drops the system's title bar:
+ * this hook says it has, as the Win32 backend does with custom_title_bar. Setting it replaces the
+ * other platform hooks of this scene's context, also the web host's in the live docs. */
+static bool shot_window_frame(void *user, cui_window_frame *frame) {
+    (void)user;
+    frame->maximized = false;
+    frame->resizable = true;
+    return true;
+}
+static char tb_query[64];
+static void title_bar_sidebar(cui_ctx *ui) {
+    static const char *const pages[] = { "Home", "Inbox", "Starred" };
+    static const char *const icons[] = { CUI_ICON_HOUSE, CUI_ICON_INBOX, CUI_ICON_STAR };
+    cui_column(ui, .width = CUI_PX(200), .height = CUI_FILL, .bg = CUI_COLOR_SURFACE_MUTED) {
+        cui_title_bar(ui, "side", .icon = CUI_ICON_SQUARE_TERMINAL, .title = "Workspace", .no_window_buttons = true, .no_border = true) {
+            cui_spacer(ui);
+            cui_icon_button(ui, CUI_ICON_PANEL_LEFT, .size = CUI_SIZE_SM, .tooltip = "Hide sidebar");
+        }
+        cui_column(ui, .pad = 8, .gap = 2) {
+            for (int i = 0; i < 3; i++) cui_nav_item(ui, pages[i], .icon = icons[i], .selected = i == 0);
+        }
+    }
+}
+static void body_title_bar(cui_ctx *ui) {
+    WINDOW(ui) {
+        cui_row(ui, .width = CUI_FILL, .height = CUI_FILL) {
+            title_bar_sidebar(ui);
+            cui_separator(ui);
+            cui_column(ui, .width = CUI_FILL, .height = CUI_FILL) {
+                cui_title_bar(ui, "title") {
+                    cui_icon_button(ui, CUI_ICON_ARROW_LEFT, .size = CUI_SIZE_SM, .tooltip = "Back", .disabled = true);
+                    cui_icon_button(ui, CUI_ICON_ARROW_RIGHT, .size = CUI_SIZE_SM, .tooltip = "Forward");
+                    cui_spacer(ui);
+                    cui_search(ui, "find", tb_query, sizeof tb_query, .placeholder = "Search", .size = CUI_SIZE_SM, .width = CUI_PX(240));
+                    cui_spacer(ui);
+                    cui_icon_button(ui, CUI_ICON_SETTINGS, .size = CUI_SIZE_SM, .tooltip = "Settings");
+                }
+                cui_column(ui, .pad = 20, .gap = 6) {
+                    cui_text(ui, "Home", .size = 20, .font = CUI_FONT_MEDIUM);
+                    cui_text(ui, "Drag the empty part of either segment to move the window.", .color = CUI_COLOR_TEXT_MUTED);
+                }
+            }
+        }
+    }
+}
+static void scene_title_bar(cui_ctx *ui, int f) {
+    if (f < 0) {
+        f = -f - 1;
+        if (f == 0) cui_set_platform(ui, &(cui_platform_iface){ .window_frame = shot_window_frame });
+        if (f == 10) { cui_rect r = cui_get_rect(ui, nested_id(ui, "title", "#maximize")); move_to(ui, r, 0.5f, 0.5f); }
+        return;
+    }
+    frame_wrap(ui, body_title_bar);
+}
 static void body_document_tabs(cui_ctx *ui) {
     WINDOW(ui) {
         CHROME_TOP(ui) {
@@ -4734,6 +4788,7 @@ int main(int argc, char **argv) {
         { "app-chrome", scene_app_chrome, 900, 440, true }, { "menu-bar", scene_menu_bar, 640, 360, true },
         { "docking", scene_docking, 960, 560, true },
         { "toolbar", scene_toolbar, 640, 370, true }, { "status-bar", scene_status_bar, 820, 160, true },
+        { "title-bar", scene_title_bar, 820, 280, true },
         { "document-tabs", scene_document_tabs, 720, 230, true },
         { "dot-chart", scene_dot_chart, 900, 280, true, false, CUI_ACCENT_BLUE }, { "chart-annotations", scene_chart_annotations, 860, 300, true, false, CUI_ACCENT_BLUE },
         { "event-track", scene_event_track, 760, 130, true, false, CUI_ACCENT_BLUE }, { "readouts", scene_readouts, 860, 160, true, false, CUI_ACCENT_BLUE },

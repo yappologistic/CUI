@@ -958,6 +958,153 @@ void cui_status_bar_progress_ex(cui_ctx *ui, float value, const cui_status_progr
 }
 
 /* ------------------------------------------------------------------------ */
+/* Title bar                                                                */
+/* ------------------------------------------------------------------------ */
+
+#define CUI__TITLE_BAR_H 40.0f
+#define CUI__WINDOW_BUTTON_W 46.0f   /* as wide as the system's own on Windows */
+#define CUI__TITLE_BARS (int)(sizeof ((cui__title_bar_list *)0)->bars / sizeof (cui_id))
+
+typedef struct { cui_window_frame frame; bool buttons, dim; } cui__title_bar_build;
+typedef struct { cui_window_button kind; cui_color c; } cui__window_glyph;
+
+/* A whole number of device pixels, so the glyph's lines stay sharp. */
+static float cui__window_glyph_snap(const cui_ctx *ui, float v) { return roundf(v * ui->scale) / ui->scale; }
+
+/* The outline of a square with sides s and lines t thick. */
+static void cui__window_glyph_square(cui_ctx *ui, float x, float y, float s, float t, cui_color c) {
+    cui_draw_rect(ui, (cui_rect){ x, y, s, t }, CUI_CORNERS(0), c);
+    cui_draw_rect(ui, (cui_rect){ x, y + s - t, s, t }, CUI_CORNERS(0), c);
+    cui_draw_rect(ui, (cui_rect){ x, y, t, s }, CUI_CORNERS(0), c);
+    cui_draw_rect(ui, (cui_rect){ x + s - t, y, t, s }, CUI_CORNERS(0), c);
+}
+
+/* The 10 point line glyphs of the window buttons: a dash, a square, two squares and a cross. */
+static void cui__paint_window_glyph(cui_ctx *ui, cui_node *n, void *data) {
+    const cui__window_glyph *g = data;
+    float t = fmaxf(1.0f, floorf(ui->scale)) / ui->scale, s = cui__window_glyph_snap(ui, 10);
+    float x = cui__window_glyph_snap(ui, n->rect.x + (n->rect.w - s) * 0.5f);
+    float y = cui__window_glyph_snap(ui, n->rect.y + (n->rect.h - s) * 0.5f);
+    float d = cui__window_glyph_snap(ui, 2);   /* restore: the square behind shows along the top and the right */
+    switch (g->kind) {
+    case CUI_WINDOW_BUTTON_MINIMIZE:
+        cui_draw_rect(ui, (cui_rect){ x, cui__window_glyph_snap(ui, y + s * 0.5f), s, t }, CUI_CORNERS(0), g->c);
+        break;
+    case CUI_WINDOW_BUTTON_MAXIMIZE:
+        cui__window_glyph_square(ui, x, y, s, t, g->c);
+        break;
+    case CUI_WINDOW_BUTTON_RESTORE:
+        cui_draw_rect(ui, (cui_rect){ x + d, y, s - d, t }, CUI_CORNERS(0), g->c);
+        cui_draw_rect(ui, (cui_rect){ x + s - t, y, t, s - d }, CUI_CORNERS(0), g->c);
+        cui__window_glyph_square(ui, x, y + d, s - d, t, g->c);
+        break;
+    case CUI_WINDOW_BUTTON_CLOSE:
+        cui_draw_line(ui, (cui_vec2){ x, y }, (cui_vec2){ x + s, y + s }, t, g->c);
+        cui_draw_line(ui, (cui_vec2){ x + s, y }, (cui_vec2){ x, y + s }, t, g->c);
+        break;
+    }
+}
+
+/* One window button: as high as the bar, no focus stop, and a click leaves the focus where it
+ * was, as on the system's title bar; close turns red under the pointer. Returns true when
+ * clicked. */
+static bool cui__window_button(cui_ctx *ui, const char *id_str, cui_window_button kind, bool dim) {
+    cui_id id = cui_make_id(ui, id_str);
+    cui_interact r = cui__interact(ui, id, CUI_IF_KEEP_FOCUS);
+    float *hover = cui_state(ui, id, sizeof *hover);
+    cui__tween(ui, hover, r.hovered || r.pressed ? 1.0f : 0.0f, CUI__T_HOVER);
+    bool close = kind == CUI_WINDOW_BUTTON_CLOSE;
+    cui_color fg = dim ? CUI_C(ui, TEXT_MUTED) : CUI_C(ui, FOREGROUND);
+    int i = cui__node_new(ui, id);
+    cui_node *n = &ui->nodes[i];
+    n->w = CUI_PX(CUI__WINDOW_BUTTON_W);
+    n->h = CUI_PX(CUI__TITLE_BAR_H);
+    if (close) n->bg = cui_alpha(CUI_C(ui, DANGER), r.pressed ? 0.8f * *hover : *hover);
+    else n->bg = cui_alpha(r.pressed ? CUI_C(ui, ACTIVE) : CUI_C(ui, HOVER), *hover);
+    cui__window_glyph *g = CUI_PAINT_DATA(ui, cui__window_glyph);
+    g->kind = kind;
+    g->c = close ? cui_mix(fg, cui__on_danger(ui), *hover) : fg;
+    n->paint = cui__paint_window_glyph;
+    n->paint_data = g;
+    cui__mark_interactive(ui, i, 0);
+    ui->last_id = id;
+    ui->last_node = i;
+    return r.clicked;
+}
+
+/* Adds a segment to the frame's list that cui_title_bar_hit_test reads. The first segment of a
+ * frame starts the list and keeps the last frame's, which the hit test reads until this one is
+ * whole. */
+static void cui__title_bar_segment(cui_ctx *ui, cui_id id) {
+    cui__title_bar_list *now = &ui->title_bar.now;
+    if (now->frame != ui->frame) {
+        ui->title_bar.before = *now;
+        memset(now, 0, sizeof *now);
+        now->frame = ui->frame;
+    }
+    if (now->count < CUI__TITLE_BARS) now->bars[now->count++] = id;
+}
+
+void cui_title_bar_begin(cui_ctx *ui, const char *id_str, const cui_title_bar_opts *o) {
+    cui_title_bar_opts d;
+    memset(&d, 0, sizeof d);
+    if (!o) o = &d;
+    cui__title_bar_build *b = cui__frame_alloc(ui, sizeof *b);
+    memset(b, 0, sizeof *b);
+    bool custom = ui->platform.window_frame && ui->platform.window_frame(ui->platform.user, &b->frame);
+    b->buttons = custom && !o->no_window_buttons;
+    b->dim = custom && !ui->window_focused;
+    ui->building.title_bar = b;
+
+    cui_id id = cui_make_id(ui, id_str);
+    cui__title_bar_segment(ui, id);
+    int bar = cui__bar_row(ui, id, 0, 0, !o->no_border, false);
+    ui->nodes[bar].h = CUI_PX(CUI__TITLE_BAR_H);
+    ui->nodes[bar].gap = 0;
+    cui__open(ui, bar);
+    cui_push_id(ui, id_str);
+
+    /* the app's part, which the window buttons follow: when the bar is narrow it shrinks below its
+     * content and clips it, so the window buttons stay in the window */
+    int row = cui__node_new(ui, 0);
+    cui_node *n = &ui->nodes[row];
+    n->dir = CUI_ROW;
+    n->align = CUI_ALIGN_CENTER;
+    n->gap = 6;
+    n->pad[1] = n->pad[3] = 8;
+    n->w = CUI_FILL;
+    n->self_align = CUI_ALIGN_STRETCH;
+    n->flags |= CUI_NF_CLIP | CUI_NF_ADAPTIVE;   /* min_w 0: no minimum of its own */
+    cui__open(ui, row);
+    if (o->icon) cui__icon_node(ui, o->icon, 16, b->dim ? CUI_C(ui, TEXT_MUTED) : CUI_C(ui, ACCENT));
+    if (o->title) {
+        int t = cui__text_node(ui, o->title, cui__display_len(o->title), CUI_FONT_MEDIUM, cui__fs(ui, ui->theme.text_sm),
+                               b->dim ? CUI_C(ui, TEXT_MUTED) : CUI_C(ui, FOREGROUND), false);
+        ui->nodes[t].line_height = 1.3f;
+        cui_gap(ui, 6);
+    }
+}
+
+void cui_title_bar_end(cui_ctx *ui) {
+    cui__title_bar_build *b = ui->building.title_bar;
+    cui__close(ui);   /* the app's part */
+    if (b && b->buttons) {
+        int clicked = -1;   /* a cui_window_button */
+        if (cui__window_button(ui, "#minimize", CUI_WINDOW_BUTTON_MINIMIZE, b->dim)) clicked = CUI_WINDOW_BUTTON_MINIMIZE;
+        if (b->frame.resizable) {
+            cui_window_button kind = b->frame.maximized ? CUI_WINDOW_BUTTON_RESTORE : CUI_WINDOW_BUTTON_MAXIMIZE;
+            if (cui__window_button(ui, "#maximize", kind, b->dim)) clicked = (int)kind;
+            ui->title_bar.now.maximize = ui->last_id;
+        }
+        if (cui__window_button(ui, "#close", CUI_WINDOW_BUTTON_CLOSE, b->dim)) clicked = CUI_WINDOW_BUTTON_CLOSE;
+        if (clicked >= 0 && ui->platform.window_button) ui->platform.window_button(ui->platform.user, (cui_window_button)clicked);
+    }
+    cui_pop_id(ui);
+    cui__close(ui);
+    ui->building.title_bar = NULL;
+}
+
+/* ------------------------------------------------------------------------ */
 /* Document tabs                                                            */
 /* ------------------------------------------------------------------------ */
 

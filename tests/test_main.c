@@ -4733,6 +4733,171 @@ static void test_chrome(void) {
     cui_destroy(ui);
 }
 
+typedef struct {
+    bool custom, maximized, resizable, sidebar, dialog;
+    int pressed[4], tool;
+    cui_id tool_id, body_id;
+} tbar_ctx;
+static bool tbar_window_frame(void *u, cui_window_frame *f) {
+    tbar_ctx *t = u;
+    if (!t->custom) return false;
+    f->maximized = t->maximized;
+    f->resizable = t->resizable;
+    return true;
+}
+static void tbar_window_button(void *u, cui_window_button b) { ((tbar_ctx *)u)->pressed[b]++; }
+
+/* A sidebar column whose own segment reaches into the title bar, and the main segment with the
+ * icon, the title, one control and the window buttons. */
+static void build_tbar(cui_ctx *ui, void *u) {
+    tbar_ctx *t = u;
+    cui_row(ui, .width = CUI_FILL, .height = CUI_FILL) {
+        cui_column(ui, .width = CUI_PX(160), .height = CUI_FILL) {
+            if (t->sidebar) cui_title_bar(ui, "side", .no_window_buttons = true) {}
+        }
+        cui_column(ui, .width = CUI_FILL, .height = CUI_FILL) {
+            cui_title_bar(ui, "main", .icon = CUI_ICON_NOTEBOOK_PEN, .title = "Notes") {
+                if (cui_button(ui, "Tool", .size = CUI_SIZE_SM)) t->tool++;
+                t->tool_id = cui_last_id(ui);
+            }
+            cui_button(ui, "Body");
+            t->body_id = cui_last_id(ui);
+            cui_dialog(ui, "Settings", &t->dialog) { cui_text(ui, "Over the title bar"); }
+        }
+    }
+}
+static void build_nothing(cui_ctx *ui, void *u) { (void)ui; (void)u; }
+
+/* A bar narrower than the app's controls in it. */
+static void build_tbar_narrow(cui_ctx *ui, void *u) {
+    float *width = u;
+    cui_column(ui, .width = CUI_PX(*width), .height = CUI_FILL) {
+        cui_title_bar(ui, "main", .title = "Notes") {
+            cui_box(ui, .id = "wide", .width = CUI_PX(300), .height = CUI_PX(24)) {}
+        }
+    }
+}
+
+static cui_ctx *tbar_ctx_new(tbar_ctx *t) {
+    cui_ctx *ui = new_ctx();
+    cui_set_platform(ui, &(cui_platform_iface){ .user = t, .set_clipboard = clip_set, .get_clipboard = clip_get,
+                                                .window_frame = tbar_window_frame, .window_button = tbar_window_button });
+    return ui;
+}
+
+static void test_title_bar(void) {
+    printf("title bar: caption, window buttons, segments and fallback\n");
+    tbar_ctx t = { .custom = true, .resizable = true, .sidebar = true };
+    cui_ctx *ui = tbar_ctx_new(&t);
+    run(ui, build_tbar, &t, 3);
+    cui_rect bar = rect_of(ui, cui_make_id(ui, "main"));
+    cui_rect tool = rect_of(ui, t.tool_id);
+    cui_rect mn = rect_of(ui, scoped_id(ui, "main", "#minimize"));
+    cui_rect mx = rect_of(ui, scoped_id(ui, "main", "#maximize"));
+    cui_rect cl = rect_of(ui, scoped_id(ui, "main", "#close"));
+    CHECK(bar.y == 0 && bar.h == 40);
+    CHECK(mn.w == 46 && mx.w == 46 && cl.w == 46 && mn.h == 40);
+    CHECK(mn.x < mx.x && mx.x < cl.x && cl.x + cl.w == bar.x + bar.w);
+    CHECK(tool.w > 0 && tool.x + tool.w < mn.x);
+
+    /* the empty space and the title move the window; controls and window buttons stay controls,
+     * except that the maximize button is the snap layouts' target */
+    float cy = bar.y + bar.h / 2, gap_x = (tool.x + tool.w + mn.x) / 2;
+    CHECK(cui_title_bar_hit_test(ui, gap_x, cy) == CUI_TITLE_BAR_CAPTION);
+    CHECK(cui_title_bar_hit_test(ui, bar.x + 40, cy) == CUI_TITLE_BAR_CAPTION);
+    CHECK(cui_title_bar_hit_test(ui, center(tool).x, center(tool).y) == CUI_TITLE_BAR_NONE);
+    CHECK(cui_title_bar_hit_test(ui, center(mn).x, cy) == CUI_TITLE_BAR_NONE);
+    CHECK(cui_title_bar_hit_test(ui, center(mx).x, cy) == CUI_TITLE_BAR_MAXIMIZE);
+    CHECK(cui_title_bar_hit_test(ui, center(cl).x, cy) == CUI_TITLE_BAR_NONE);
+    CHECK(cui_title_bar_hit_test(ui, gap_x, bar.y + bar.h + 20) == CUI_TITLE_BAR_NONE);
+    CHECK(cui_title_bar_hit_test(ui, 80, cy) == CUI_TITLE_BAR_CAPTION);   /* the sidebar's segment */
+    CHECK(rect_of(ui, scoped_id(ui, "side", "#close")).w == 0);
+
+    /* while a frame is being built (a blocking file dialog keeps the window's messages coming),
+     * the hit test answers for the last whole frame, also when only the sidebar's segment of the
+     * new one is built yet */
+    cui_begin_frame(ui, 1.0f / 60.0f);
+    cui_title_bar(ui, "side", .no_window_buttons = true) {}
+    CHECK(cui_title_bar_hit_test(ui, gap_x, cy) == CUI_TITLE_BAR_CAPTION);
+    CHECK(cui_title_bar_hit_test(ui, center(mx).x, cy) == CUI_TITLE_BAR_MAXIMIZE);
+    cui_end_frame(ui);
+    run(ui, build_tbar, &t, 2);
+    t.sidebar = false;
+    run(ui, build_tbar, &t, 2);
+    CHECK(cui_title_bar_hit_test(ui, 80, cy) == CUI_TITLE_BAR_NONE);
+
+    /* while a control is pressed and dragged over the bar, the window does not move */
+    cui_input_mouse_move(ui, center(tool).x, center(tool).y);
+    run(ui, build_tbar, &t, 1);
+    cui_input_mouse_button(ui, CUI_MOUSE_LEFT, true);
+    run(ui, build_tbar, &t, 1);
+    cui_input_mouse_move(ui, gap_x, cy);
+    run(ui, build_tbar, &t, 1);
+    CHECK(cui_title_bar_hit_test(ui, gap_x, cy) == CUI_TITLE_BAR_NONE);
+    cui_input_mouse_button(ui, CUI_MOUSE_LEFT, false);
+    run(ui, build_tbar, &t, 2);   /* the control lets go in the frame after the release */
+    CHECK(t.tool == 0);
+    CHECK(cui_title_bar_hit_test(ui, gap_x, cy) == CUI_TITLE_BAR_CAPTION);
+
+    /* the window buttons reach the platform; maximized, the middle one restores */
+    click_at(ui, build_tbar, &t, center(mn).x, cy);
+    click_at(ui, build_tbar, &t, center(mx).x, cy);
+    CHECK(t.pressed[CUI_WINDOW_BUTTON_MINIMIZE] == 1 && t.pressed[CUI_WINDOW_BUTTON_MAXIMIZE] == 1);
+    t.maximized = true;
+    click_at(ui, build_tbar, &t, center(mx).x, cy);
+    click_at(ui, build_tbar, &t, center(cl).x, cy);
+    CHECK(t.pressed[CUI_WINDOW_BUTTON_RESTORE] == 1 && t.pressed[CUI_WINDOW_BUTTON_CLOSE] == 1);
+    CHECK(t.pressed[CUI_WINDOW_BUTTON_MAXIMIZE] == 1);
+
+    /* the window buttons leave the focus where it was (the control pressed above), and Tab
+     * reaches the controls, never the window buttons */
+    CHECK(cui_focused_id(ui) == t.tool_id);
+    cui_input_mouse_move(ui, 400, 400);
+    key(ui, build_tbar, &t, CUI_KEY_TAB, 0);
+    CHECK(cui_focused_id(ui) == t.body_id);
+    key(ui, build_tbar, &t, CUI_KEY_TAB, 0);
+    CHECK(cui_focused_id(ui) == t.tool_id);
+
+    /* a modal dialog covers the bar; a frame without a title bar has no caption */
+    t.dialog = true;
+    run(ui, build_tbar, &t, 3);
+    CHECK(cui_title_bar_hit_test(ui, gap_x, cy) == CUI_TITLE_BAR_NONE);
+    t.dialog = false;
+    run(ui, build_tbar, &t, 3);
+    CHECK(cui_title_bar_hit_test(ui, gap_x, cy) == CUI_TITLE_BAR_CAPTION);
+    run(ui, build_nothing, &t, 1);
+    CHECK(cui_title_bar_hit_test(ui, gap_x, cy) == CUI_TITLE_BAR_NONE);
+
+    /* narrower than its controls, the bar clips them and keeps the window buttons inside */
+    float narrow = 300;
+    run(ui, build_tbar_narrow, &narrow, 3);
+    bar = rect_of(ui, cui_make_id(ui, "main"));
+    cl = rect_of(ui, scoped_id(ui, "main", "#close"));
+    mn = rect_of(ui, scoped_id(ui, "main", "#minimize"));
+    CHECK(bar.w == 300 && cl.x + cl.w == bar.x + bar.w && mn.x == bar.x + bar.w - 3 * 46);
+    CHECK(cui_title_bar_hit_test(ui, center(cl).x, cy) == CUI_TITLE_BAR_NONE);
+
+    /* a fixed-size window has no maximize button */
+    t.resizable = false;
+    run(ui, build_tbar, &t, 3);
+    bar = rect_of(ui, cui_make_id(ui, "main"));
+    mn = rect_of(ui, scoped_id(ui, "main", "#minimize"));
+    cl = rect_of(ui, scoped_id(ui, "main", "#close"));
+    CHECK(mn.x + mn.w == cl.x && cl.x + cl.w == bar.x + bar.w);   /* minimize moved up beside close */
+    CHECK(cui_title_bar_hit_test(ui, center(mx).x, cy) == CUI_TITLE_BAR_NONE);
+    cui_destroy(ui);
+
+    /* where the system draws the title bar it is the same bar without window buttons */
+    tbar_ctx sys = { .custom = false, .resizable = true };
+    ui = tbar_ctx_new(&sys);
+    run(ui, build_tbar, &sys, 3);
+    bar = rect_of(ui, cui_make_id(ui, "main"));
+    CHECK(bar.h == 40 && bar.w > 0);
+    CHECK(rect_of(ui, scoped_id(ui, "main", "#minimize")).w == 0 && rect_of(ui, scoped_id(ui, "main", "#close")).w == 0);
+    CHECK(rect_of(ui, sys.tool_id).w > 0);
+    cui_destroy(ui);
+}
+
 /* docking ---------------------------------------------------------------- */
 
 #define DK_N 4
@@ -11099,6 +11264,7 @@ int main(void) {
     test_reorder();
     test_reorder_shrink();
     test_chrome();
+    test_title_bar();
     test_dock();
     test_virtual_list();
     test_split_minimums();

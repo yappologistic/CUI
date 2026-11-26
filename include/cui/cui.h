@@ -3382,6 +3382,35 @@ CUI_API bool cui_status_bar_item_ex(cui_ctx *ui, const char *label, const cui_st
 typedef struct cui_status_progress_opts { int _; const char *label; bool indeterminate; float width; } cui_status_progress_opts;
 CUI_API void cui_status_bar_progress_ex(cui_ctx *ui, float value, const cui_status_progress_opts *opts);
 
+/* Title bar: the top row of a window that draws its own title bar (cui_app_desc.custom_title_bar),
+ * with an optional icon and title, then the app's controls, and the window buttons (minimize,
+ * maximize or restore, close) at the end. Its empty space and its title move the window, and a
+ * double click there maximizes or restores it, as on the system's title bar. The bar is 40 points
+ * high: give the controls in it CUI_SIZE_SM. Like the other bars it has no fill of its own and a
+ * hairline under it. The title and the window buttons dim while the window is in the background.
+ * Where the system draws the title bar (macOS, X11, SDL2, GLFW, an app without custom_title_bar)
+ * it is the same bar without window buttons, so one layout serves both.
+ *
+ * A sidebar can reach up into the title bar: put a segment with .no_window_buttons at the top of
+ * the sidebar and the main one at the top of the content beside it. Each segment moves the
+ * window; up to four make up the title bar of one frame.
+ *
+ *     cui_title_bar(ui, "title", .icon = CUI_ICON_NOTEBOOK_PEN, .title = "Notes") {
+ *         cui_search(ui, "find", query, sizeof query, .size = CUI_SIZE_SM, .width = CUI_PX(240));
+ *         cui_spacer(ui);
+ *         if (cui_icon_button(ui, CUI_ICON_SETTINGS, .size = CUI_SIZE_SM, .tooltip = "Settings")) ...
+ *     }
+ */
+typedef struct cui_title_bar_opts {
+    int _;
+    const char *icon;          /* before the title, in the accent color */
+    const char *title;         /* the app's or the document's name */
+    bool no_border;            /* no hairline under the bar */
+    bool no_window_buttons;    /* a segment over a sidebar: the window buttons are in another one */
+} cui_title_bar_opts;
+CUI_API void cui_title_bar_begin(cui_ctx *ui, const char *id, const cui_title_bar_opts *opts);
+CUI_API void cui_title_bar_end(cui_ctx *ui);
+
 /* Document tabs: editor style tabs. Clicking selects (*selected is
  * updated), the x or a middle click asks to close, dragging reorders, and
  * the strip scrolls sideways when the tabs do not fit. A dirty tab shows a
@@ -5434,6 +5463,7 @@ CUI_API const cui_draw_data *cui_get_draw_data(cui_ctx *ui);
 #define cui_toolbar_radio(ui, id, icons, n, index, ...) cui_toolbar_radio_ex((ui), (id), (icons), (n), (index), CUI__OPTS(cui_toolbar_radio_opts, __VA_ARGS__))
 #define cui_toolbar_primary(ui, icon, ...)  cui_toolbar_primary_ex((ui), (icon), CUI__OPTS(cui_tool_opts, __VA_ARGS__))
 #define cui_toolbar_cycle(ui, id, items, n, index, ...) cui_toolbar_cycle_ex((ui), (id), (items), (n), (index), CUI__OPTS(cui_tool_opts, __VA_ARGS__))
+#define cui_title_bar(ui, id, ...)          CUI__SCOPE(cui_title_bar_begin((ui), (id), CUI__OPTS(cui_title_bar_opts, __VA_ARGS__)), cui_title_bar_end(ui))
 #define cui_status_bar(ui, id, ...)         CUI__SCOPE(cui_status_bar_begin((ui), (id), CUI__OPTS(cui_status_bar_opts, __VA_ARGS__)), cui_status_bar_end(ui))
 #define cui_status_bar_text(ui, text, ...)  cui_status_bar_text_ex((ui), (text), CUI__OPTS(cui_status_item_opts, __VA_ARGS__))
 #define cui_status_bar_item(ui, label, ...) cui_status_bar_item_ex((ui), (label), CUI__OPTS(cui_status_item_opts, __VA_ARGS__))

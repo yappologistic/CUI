@@ -44,7 +44,7 @@ cui_app_destroy(app);
 | `follow_system_theme` | Use the system's light or dark setting where the platform reports it. `cui_app_follow_system_theme` turns it on or off while the app runs. |
 | `app_id` | Linux: the name of the app's `.desktop` file without ".desktop", such as "org.example.Notes", so the desktop shows the app's name and icon for the window. See [Your app's name and icon on Linux](getting-started.md#your-apps-name-and-icon-on-linux). |
 | `placement` | Where to open: a placement saved with `cui_app_placement`, so the window reopens with the size, place and maximized state it had. See [Reopen where it was](#reopen-where-it-was). |
-| `custom_title_bar` | The app draws the title bar with `cui_title_bar`: the system's title bar goes, and the window keeps its border, shadow and resizing. On Windows; elsewhere the system's title bar stays. |
+| `custom_title_bar` | The app draws the title bar with `cui_title_bar` instead of the system. See [Your own title bar](#your-own-title-bar). |
 
 ## The window
 
@@ -85,6 +85,14 @@ cui_app *next = cui_app_create(&(cui_app_desc){ .title = "Notes", .placement = &
 ```
 
 A placement holds the size and place the window has when it is neither maximized nor minimized, and whether it is maximized, so a window closed maximized reopens maximized and restores to its normal size. For a minimized window it holds the state the window comes back in: one closed from the taskbar reopens maximized if it was minimized from maximized. The size is in points; the position is the top-left corner of the window's content in desktop coordinates (pixels on Windows and X11, points on macOS), only to be passed back. A place on a monitor that is no longer there is left to the system. Wayland lets a window neither read nor choose its place: there `has_position` is false and the compositor places the window.
+
+### Your own title bar
+
+With `.custom_title_bar = true` the system's title bar goes and the app draws one with [`cui_title_bar`](components-more.md#title-bar), with its own controls beside the window buttons. The window keeps its border, shadow and resizing on every edge, the bar's empty space moves it, a double click there maximizes it, and on Windows 11 the maximize button opens the snap layouts. This works on Windows. Everywhere else the system keeps its title bar and `cui_title_bar` is an ordinary bar without window buttons, so the same layout works there. Run [`examples/titlebar.c`](../examples/titlebar.c), and with `--system-frame` to compare.
+
+```c
+cui_app_run(&(cui_app_desc){ .title = "Workspace", .custom_title_bar = true }, frame, NULL);
+```
 
 `cui_app_native_window` returns the system's handle (an `HWND`, an `NSWindow *`, an X11 `Window`, an `SDL_Window *` or a `GLFWwindow *`) for the things CUI does not wrap, such as a window icon or a system tray entry. `cui_app_backend` names the backend in use.
 

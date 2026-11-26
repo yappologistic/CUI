@@ -261,6 +261,7 @@ Complete apps in [`examples/`](examples), each a single C file. They run in the 
 | [`mail`](examples/mail.c) | Three pane inbox, folders, reading pane, compose dialog |
 | [`notes`](examples/notes.c) | Split view, search, context menus, dialogs, shortcuts, file export |
 | [`settings`](examples/settings.c) | Forms, validation, preferences and a danger zone |
+| [`titlebar`](examples/titlebar.c) | A window that draws its own title bar: a sidebar that reaches into it, search and actions beside the window buttons |
 | [`gallery`](examples/gallery_ui.c) | Every component, light and dark, all accents |
 
 <table>
