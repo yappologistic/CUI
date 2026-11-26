@@ -53,6 +53,62 @@ static cui_vec2 center(cui_rect r) { cui_vec2 c = { r.x + r.w / 2, r.y + r.h / 2
 
 /* ------------------------------------------------------------------------ */
 
+/* The clip API: cui_push_clip_checked reports whether the push was applied,
+ * and cui_current_clip reports the clip that is really in effect. */
+static void test_clip_api(void) {
+    printf("clip api: checked push and the clip in effect\n");
+    cui_ctx *ui = new_ctx();
+
+    /* The clip stack is set up when a frame begins: the viewport clip takes
+     * the first of the 64 slots the stack holds. */
+    cui_begin_frame(ui, 1.0f / 60.0f);
+
+    /* Nothing pushed: the clip in effect is the whole viewport. */
+    cui_rect full = cui_current_clip(ui);
+    CHECK_NEAR(full.w, 800, 0.01);
+    CHECK_NEAR(full.h, 600, 0.01);
+
+    cui_rect r = { 10, 20, 100, 50 };
+    CHECK(cui_push_clip_checked(ui, r) == true);
+    cui_rect one = cui_current_clip(ui);
+    CHECK_NEAR(one.x, 10, 0.01);
+    CHECK_NEAR(one.y, 20, 0.01);
+    CHECK_NEAR(one.w, 100, 0.01);
+    CHECK_NEAR(one.h, 50, 0.01);
+
+    /* A second clip intersects with the first: the clip in effect is the
+     * intersection of every clip on the stack. */
+    CHECK(cui_push_clip_checked(ui, (cui_rect){ 50, 30, 100, 50 }) == true);
+    cui_rect both = cui_current_clip(ui);
+    CHECK_NEAR(both.x, 50, 0.01);
+    CHECK_NEAR(both.y, 30, 0.01);
+    CHECK_NEAR(both.w, 60, 0.01);
+    CHECK_NEAR(both.h, 40, 0.01);
+
+    cui_pop_clip(ui);
+    cui_rect back = cui_current_clip(ui);
+    CHECK_NEAR(back.x, 10, 0.01);
+    CHECK_NEAR(back.w, 100, 0.01);
+
+    /* cui_push_clip keeps its old behaviour: it pushes and says nothing. */
+    cui_pop_clip(ui);
+    cui_push_clip(ui, r);
+    cui_rect pushed = cui_current_clip(ui);
+    CHECK_NEAR(pushed.x, 10, 0.01);
+    CHECK_NEAR(pushed.w, 100, 0.01);
+    cui_pop_clip(ui);
+
+    /* The stack is 64 deep and the viewport clip takes one slot, so 63
+     * pushes fit; the next one is refused, and it must not be popped. */
+    for (int i = 0; i < 63; i++) CHECK(cui_push_clip_checked(ui, r) == true);
+    CHECK(cui_push_clip_checked(ui, r) == false);
+
+    CHECK(cui_current_clip(NULL).w == 0);
+
+    cui_end_frame(ui);
+    cui_destroy(ui);
+}
+
 static void test_color(void) {
     printf("color\n");
     cui_color w = cui_oklch(1, 0, 0, 1), b = cui_oklch(0, 0, 0, 1);
@@ -10964,6 +11020,7 @@ static void test_touch_api(void) {
  * exit status to CTest if any check in the suite fails. */
 int main(void) {
     g_sw = cui_sw_create();
+    test_clip_api();
     test_color();
     test_touch_api();
     test_state_store_grow();
