@@ -11,12 +11,18 @@ android {
         targetSdk 35
         versionCode 1
         versionName '1.0'
+        manifestPlaceholders cuiLibName: project.findProperty('CUI_ANDROID_APP') ?: 'hello'
+        buildConfigField "String", "LIB_NAME", '"' + (project.findProperty('CUI_ANDROID_APP') ?: 'hello') + '"'
         externalNativeBuild {
             cmake {
-                arguments '-DCUI_ANDROID_APP=hello'
+                arguments "-DCUI_ANDROID_APP=${project.findProperty('CUI_ANDROID_APP') ?: 'hello'}"
                 abiFilters 'arm64-v8a', 'armeabi-v7a', 'x86_64'
             }
         }
+    }
+
+    buildFeatures {
+        buildConfig true
     }
 
     externalNativeBuild {

@@ -6,6 +6,8 @@ What changed in CUI, newest first. Every component mentioned here runs live in t
 
 ### Added
 
+- Android soft keyboards (swipe typing, Gboard) now type reliably: the backend's `CuiActivity` bridges `commitText`, `setComposingText` and `deleteSurroundingText` over JNI into the frame queue; the composing span is diffed in Java so each normal keystroke commits only its new tail (zero lag, no doubling), span rewrites (autocorrect, swipe suggestions) delete what was typed and re-commit, and soft-key key events (backspace after a commit, arrows, enter) are forwarded from `sendKeyEvent`, since they never reach the native input queue. Text arrives as real UTF-16→UTF-8 (emoji included; they render as wide spaces until the text pipeline grows an emoji path). `ALooper_wake` on each queue push removes the cursor-blink-length delay.
+
 - `cui_app_desc.custom_title_bar`: on Windows the system's title bar goes and the app draws its own, while the window keeps its border, shadow, resizing on every edge and its size, place and maximized state. A platform layer of your own takes part through `cui_platform_iface.window_frame` and `.window_button`, and moves the window over what `cui_title_bar_hit_test` calls the caption. `cui_title_bar`, the component that draws the bar, follows in its own change; until then such a window has no caption to drag it by. See [Platform services](docs/integration.md#platform-services) ([#134](https://github.com/yappologistic/CUI/pull/134)).
 
 ### Fixed
