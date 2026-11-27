@@ -500,6 +500,8 @@ Fuzzy search with ranking, grouped results, Up/Down to move, Enter to run, Esc t
 
 Returns the index of the chosen command in your array, on the frame it is chosen, and -1 otherwise. `palette` is your `bool`: the palette shows while it is true, and choosing a command, a click outside and the close key set it to false. Each `cui_command` is a title, an icon, a group and a shortcut, and any but the title may be `NULL`. Group headings show while the search is empty, one above each run of commands with the same group, so keep those commands next to each other in the array. The shortcut is only shown as a hint: binding it is `cui_shortcut` in your own code.
 
+`cui_command_palette_query(ui)` answers what is typed in the search field, or `""` while the palette is closed, so an app can offer a command made from the text, such as "Open https://..." for a pasted link. Read it before the palette call in the same id scope, where it is the text as of the last frame, and put that command first in the array: the list keeps array order among equal matches. The field holds 1023 bytes.
+
 ## Alert
 
 An inline message in a tone of information, success, warning or danger, which can be dismissed.

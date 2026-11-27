@@ -1272,6 +1272,10 @@ typedef struct cui_command {
 /* Spotlight style command palette. Returns the index of the chosen command,
  * or -1. Open it with a shortcut: if (cui_shortcut(ui, CUI_MOD_PRIMARY, CUI_KEY_K)) open = true; */
 CUI_API int cui_command_palette(cui_ctx *ui, bool *open, const cui_command *commands, int count);
+/* The text typed into the palette's search field, or "" while it is closed. Call it in the same
+ * id scope as cui_command_palette; before that call it is the text as of the last frame. The
+ * string is the palette's own and changes with its next call. */
+CUI_API const char *cui_command_palette_query(cui_ctx *ui);
 
 /* ------------------------------------------------------------------------ */
 /* More components                                                          */
