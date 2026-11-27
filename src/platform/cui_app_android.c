@@ -179,6 +179,12 @@ static cui_key cui__android_key(int32_t code) {
     case AKEYCODE_COMMA: return CUI_KEY_COMMA;
     case AKEYCODE_PERIOD: return CUI_KEY_PERIOD;
     case AKEYCODE_SLASH: return CUI_KEY_SLASH;
+    case AKEYCODE_LEFT_BRACKET: return CUI_KEY_LEFT_BRACKET;
+    case AKEYCODE_RIGHT_BRACKET: return CUI_KEY_RIGHT_BRACKET;
+    case AKEYCODE_SEMICOLON: return CUI_KEY_SEMICOLON;
+    case AKEYCODE_APOSTROPHE: return CUI_KEY_APOSTROPHE;
+    case AKEYCODE_BACKSLASH: return CUI_KEY_BACKSLASH;
+    case AKEYCODE_GRAVE: return CUI_KEY_GRAVE;
     default: return CUI_KEY_NONE;
     }
 }

@@ -1738,15 +1738,15 @@ static int cui__km_layout(cui__km_key *out, int cap) {
                             { "F4", CUI_KEY_F4, 0, 1 }, { NULL, 0, 0, 0.5f }, { "F5", CUI_KEY_F5, 0, 1 }, { "F6", CUI_KEY_F6, 0, 1 }, { "F7", CUI_KEY_F7, 0, 1 },
                             { "F8", CUI_KEY_F8, 0, 1 }, { NULL, 0, 0, 0.5f }, { "F9", CUI_KEY_F9, 0, 1 }, { "F10", CUI_KEY_F10, 0, 1 }, { "F11", CUI_KEY_F11, 0, 1 },
                             { "F12", CUI_KEY_F12, 0, 1 } };
-    static const K r1[] = { { "`", 0, 0, 1 }, { "1", CUI_KEY_1, 0, 1 }, { "2", CUI_KEY_2, 0, 1 }, { "3", CUI_KEY_3, 0, 1 }, { "4", CUI_KEY_4, 0, 1 },
+    static const K r1[] = { { "`", CUI_KEY_GRAVE, 0, 1 }, { "1", CUI_KEY_1, 0, 1 }, { "2", CUI_KEY_2, 0, 1 }, { "3", CUI_KEY_3, 0, 1 }, { "4", CUI_KEY_4, 0, 1 },
                             { "5", CUI_KEY_5, 0, 1 }, { "6", CUI_KEY_6, 0, 1 }, { "7", CUI_KEY_7, 0, 1 }, { "8", CUI_KEY_8, 0, 1 }, { "9", CUI_KEY_9, 0, 1 },
                             { "0", CUI_KEY_0, 0, 1 }, { "-", CUI_KEY_MINUS, 0, 1 }, { "=", CUI_KEY_EQUAL, 0, 1 }, { "Bksp", CUI_KEY_BACKSPACE, 0, 2 } };
     static const K r2[] = { { "Tab", CUI_KEY_TAB, 0, 1.5f }, { "Q", CUI_KEY_Q, 0, 1 }, { "W", CUI_KEY_W, 0, 1 }, { "E", CUI_KEY_E, 0, 1 }, { "R", CUI_KEY_R, 0, 1 },
                             { "T", CUI_KEY_T, 0, 1 }, { "Y", CUI_KEY_Y, 0, 1 }, { "U", CUI_KEY_U, 0, 1 }, { "I", CUI_KEY_I, 0, 1 }, { "O", CUI_KEY_O, 0, 1 },
-                            { "P", CUI_KEY_P, 0, 1 }, { "[", 0, 0, 1 }, { "]", 0, 0, 1 }, { "\\", 0, 0, 1.5f } };
+                            { "P", CUI_KEY_P, 0, 1 }, { "[", CUI_KEY_LEFT_BRACKET, 0, 1 }, { "]", CUI_KEY_RIGHT_BRACKET, 0, 1 }, { "\\", CUI_KEY_BACKSLASH, 0, 1.5f } };
     static const K r3[] = { { "Caps", 0, 0, 1.75f }, { "A", CUI_KEY_A, 0, 1 }, { "S", CUI_KEY_S, 0, 1 }, { "D", CUI_KEY_D, 0, 1 }, { "F", CUI_KEY_F, 0, 1 },
                             { "G", CUI_KEY_G, 0, 1 }, { "H", CUI_KEY_H, 0, 1 }, { "J", CUI_KEY_J, 0, 1 }, { "K", CUI_KEY_K, 0, 1 }, { "L", CUI_KEY_L, 0, 1 },
-                            { ";", 0, 0, 1 }, { "'", 0, 0, 1 }, { "Enter", CUI_KEY_ENTER, 0, 2.25f } };
+                            { ";", CUI_KEY_SEMICOLON, 0, 1 }, { "'", CUI_KEY_APOSTROPHE, 0, 1 }, { "Enter", CUI_KEY_ENTER, 0, 2.25f } };
     static const K r4[] = { { "Shift", 0, CUI_MOD_SHIFT, 2.25f }, { "Z", CUI_KEY_Z, 0, 1 }, { "X", CUI_KEY_X, 0, 1 }, { "C", CUI_KEY_C, 0, 1 }, { "V", CUI_KEY_V, 0, 1 },
                             { "B", CUI_KEY_B, 0, 1 }, { "N", CUI_KEY_N, 0, 1 }, { "M", CUI_KEY_M, 0, 1 }, { ",", CUI_KEY_COMMA, 0, 1 }, { ".", CUI_KEY_PERIOD, 0, 1 },
                             { "/", CUI_KEY_SLASH, 0, 1 }, { "Shift", 0, CUI_MOD_SHIFT, 2.75f } };

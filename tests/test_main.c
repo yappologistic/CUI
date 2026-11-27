@@ -10960,6 +10960,26 @@ static void test_touch_api(void) {
     cui_destroy(ui);
 }
 
+static void test_punctuation_keys(void) {
+    printf("keyboard: punctuation keys work with cui_key_pressed and cui_shortcut\n");
+    static const cui_key keys[] = {
+        CUI_KEY_LEFT_BRACKET, CUI_KEY_RIGHT_BRACKET, CUI_KEY_SEMICOLON,
+        CUI_KEY_APOSTROPHE, CUI_KEY_BACKSLASH, CUI_KEY_GRAVE
+    };
+    cui_ctx *ui = new_ctx();
+    for (int i = 0; i < (int)(sizeof keys / sizeof keys[0]); i++) {
+        cui_begin_frame(ui, 1.0f / 60.0f);
+        cui_input_key(ui, keys[i], true, CUI_MOD_CTRL);
+        CHECK(cui_key_down(ui, keys[i]));
+        CHECK(cui_key_pressed(ui, keys[i]));
+        CHECK(cui_shortcut(ui, CUI_MOD_CTRL, keys[i]));
+        cui_input_key(ui, keys[i], false, 0);
+        CHECK(!cui_key_down(ui, keys[i]));
+        cui_end_frame(ui);
+    }
+    cui_destroy(ui);
+}
+
 /** Share one software renderer across the test contexts and return a failing
  * exit status to CTest if any check in the suite fails. */
 int main(void) {
@@ -11117,6 +11137,7 @@ int main(void) {
     test_truncated_tooltip_covered();
     test_number_roll();
     test_long_number_roll();
+    test_punctuation_keys();
     test_stress();
     test_atlas_pressure();
     cui_sw_destroy(g_sw);

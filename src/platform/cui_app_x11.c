@@ -645,6 +645,12 @@ static cui_key cui__x11_key(KeySym ks) {
     case XK_comma: return CUI_KEY_COMMA;
     case XK_period: return CUI_KEY_PERIOD;
     case XK_slash: return CUI_KEY_SLASH;
+    case XK_bracketleft: return CUI_KEY_LEFT_BRACKET;
+    case XK_bracketright: return CUI_KEY_RIGHT_BRACKET;
+    case XK_semicolon: return CUI_KEY_SEMICOLON;
+    case XK_apostrophe: return CUI_KEY_APOSTROPHE;
+    case XK_backslash: return CUI_KEY_BACKSLASH;
+    case XK_grave: return CUI_KEY_GRAVE;
     default: return CUI_KEY_NONE;
     }
 }

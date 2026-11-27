@@ -63,6 +63,12 @@ static cui_key cui__glfw_key(int k) {
     case GLFW_KEY_COMMA: return CUI_KEY_COMMA;
     case GLFW_KEY_PERIOD: return CUI_KEY_PERIOD;
     case GLFW_KEY_SLASH: return CUI_KEY_SLASH;
+    case GLFW_KEY_LEFT_BRACKET: return CUI_KEY_LEFT_BRACKET;
+    case GLFW_KEY_RIGHT_BRACKET: return CUI_KEY_RIGHT_BRACKET;
+    case GLFW_KEY_SEMICOLON: return CUI_KEY_SEMICOLON;
+    case GLFW_KEY_APOSTROPHE: return CUI_KEY_APOSTROPHE;
+    case GLFW_KEY_BACKSLASH: return CUI_KEY_BACKSLASH;
+    case GLFW_KEY_GRAVE_ACCENT: return CUI_KEY_GRAVE;
     default: return CUI_KEY_NONE;
     }
 }
