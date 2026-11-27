@@ -1079,6 +1079,68 @@ static void test_time_ruler(void) {
     cui_destroy(ui);
 }
 
+typedef struct {
+    cui_trace_track tracks[30];
+    cui_trace_span spans[30];
+    cui_trace_view view;
+    cui_trace_result r;
+    int sel;
+} tr_scroll_ctx;
+static void build_tr_scroll(cui_ctx *ui, void *u) {
+    tr_scroll_ctx *c = u;
+    c->r = cui_trace_view(ui, "trace-scroll", c->tracks, 30, c->spans, 30, &c->view, &c->sel, .height = 200, .row_height = 20);
+}
+static void test_trace_wheel_scroll_zoom(void) {
+    printf("trace viewer: overflowing vertical scroll, Ctrl+wheel zoom (plot+gutter+dx jitter), Shift+wheel pan\n");
+    tr_scroll_ctx c;
+    memset(&c, 0, sizeof c);
+    for (int i = 0; i < 30; i++) {
+        c.tracks[i] = (cui_trace_track){ "Lane", false };
+        c.spans[i] = (cui_trace_span){ "Work", 0.0, 10.0, i, 0, 0 };
+    }
+    c.sel = -1;
+    cui_ctx *ui = new_ctx(900, 400);
+    run(ui, build_tr_scroll, &c, 3);
+    cui_rect r = cui_get_rect(ui, cui_make_id(ui, "trace-scroll"));
+    /* plain vertical wheel over the plot scrolls lanes vertically without changing time range */
+    move(ui, build_tr_scroll, &c, r.x + r.w * 0.6f, r.y + r.h * 0.5f);
+    cui_input_scroll(ui, 0.1f, -1.0f);   /* minor dx jitter must not hijack vertical scroll */
+    run(ui, build_tr_scroll, &c, 1);
+    CHECK(fabsf(c.view.scroll - 60.0f) < 1e-3f);
+    CHECK(fabs(c.view.start - 0.0) < 1e-12 && fabs(c.view.end - 10.0) < 1e-12);
+    /* Ctrl+wheel zooms horizontally around the pointer even with dx jitter, without scrolling */
+    cui_input_key(ui, CUI_KEY_NONE, true, CUI_MOD_CTRL);
+    cui_input_scroll(ui, 0.3f, 3.0f);
+    run(ui, build_tr_scroll, &c, 1);
+    cui_input_key(ui, CUI_KEY_NONE, false, 0);
+    run(ui, build_tr_scroll, &c, 1);
+    double zoomed = c.view.end - c.view.start;
+    CHECK(fabs(zoomed - 10.0 / pow(1.12, 3.0)) < 1e-9);
+    CHECK(fabsf(c.view.scroll - 60.0f) < 1e-3f);
+    /* Ctrl+wheel over the lane gutter also zooms horizontally rather than scrolling vertically */
+    move(ui, build_tr_scroll, &c, r.x + 20.0f, r.y + r.h * 0.5f);
+    cui_input_key(ui, CUI_KEY_NONE, true, CUI_MOD_CTRL);
+    cui_input_scroll(ui, 0.0f, 2.0f);
+    run(ui, build_tr_scroll, &c, 1);
+    cui_input_key(ui, CUI_KEY_NONE, false, 0);
+    run(ui, build_tr_scroll, &c, 1);
+    double zoomed2 = c.view.end - c.view.start;
+    CHECK(zoomed2 < zoomed * 0.85);
+    CHECK(fabsf(c.view.scroll - 60.0f) < 1e-3f);
+    /* Shift+wheel pans horizontally using the dominant axis even with opposite-sign dx jitter */
+    move(ui, build_tr_scroll, &c, r.x + r.w * 0.6f, r.y + r.h * 0.5f);
+    double s0 = c.view.start;
+    cui_input_key(ui, CUI_KEY_NONE, true, CUI_MOD_SHIFT);
+    cui_input_scroll(ui, 0.1f, -1.0f);
+    run(ui, build_tr_scroll, &c, 1);
+    cui_input_key(ui, CUI_KEY_NONE, false, 0);
+    run(ui, build_tr_scroll, &c, 1);
+    CHECK(c.view.start > s0);
+    CHECK(fabs((c.view.end - c.view.start) - zoomed2) < 1e-9);
+    CHECK(fabsf(c.view.scroll - 60.0f) < 1e-3f);
+    cui_destroy(ui);
+}
+
 /* ------------------------------------------------------------------------ */
 /* everything, at three widths, both directions, both themes, under random input */
 
@@ -1799,6 +1861,7 @@ int main(void) {
     test_trace_links();
     test_trace_links_move();
     test_time_ruler();
+    test_trace_wheel_scroll_zoom();
     test_random();
     test_regex();
     test_regex_noncapture();

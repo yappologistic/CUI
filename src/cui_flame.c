@@ -1541,25 +1541,32 @@ static double cui__tr_time_at(const cui__trf *f, float x) {
     return f->v->start + (double)(x - f->c.plot_x) / f->c.plot_w * (f->v->end - f->v->start);
 }
 
-/* wheel over the plot zooms around the pointer, Shift or a sideways scroll pans; over the
- * lane names it scrolls the lanes */
+/* wheel: Ctrl/Cmd zooms horizontally around the pointer; Shift or predominantly horizontal scroll
+ * pans; plain vertical wheel scrolls lanes when they overflow (or over the lane gutter),
+ * otherwise zooms horizontally around the pointer */
 static void cui__trf_wheel(cui__trf *f) {
     cui_ctx *ui = f->ui;
     cui_trace_view *v = f->v;
     if (!(ui->scroll_target == f->wid && ui->hot_layer == ui->current_layer && (ui->scroll_dx != 0 || ui->scroll_dy != 0))) return;
     double range = v->end - v->start;
     const float mx = cui__wheel_point(ui, f->wid).x;   /* the pointer in layout space */
-    if (mx < f->R.x + f->c.gutter) v->scroll -= ui->scroll_dy * 40;
-    else if (ui->scroll_dx != 0 || (ui->mods & CUI_MOD_SHIFT)) {
-        float dl = ui->scroll_dx != 0 ? ui->scroll_dx : ui->scroll_dy;
-        double dt = (double)dl * 40.0 / f->c.plot_w * range;
-        v->start -= dt; v->end -= dt;
-    } else {
+    bool zoom_mod = (ui->mods & (CUI_MOD_CTRL | CUI_MOD_PRIMARY)) != 0;
+    bool shift_mod = (ui->mods & CUI_MOD_SHIFT) != 0;
+    bool can_vscroll = f->c.rows * f->c.row_h > f->c.body_h + 0.5f;
+    bool horiz = !zoom_mod && (shift_mod || (ui->scroll_dx != 0 && fabsf(ui->scroll_dx) >= fabsf(ui->scroll_dy)));
+    bool zoom = (zoom_mod && ui->scroll_dy != 0) || (!horiz && !(mx < f->R.x + f->c.gutter || can_vscroll));
+    if (zoom) {
         double z = pow(1.12, (double)ui->scroll_dy);
         double nr = CUI_MIN(range / z, f->c.dmax - f->c.dmin);
         double u = CUI_CLAMP((double)(mx - f->c.plot_x) / f->c.plot_w, 0.0, 1.0);
         double tm = v->start + u * range;
         v->start = tm - u * nr; v->end = v->start + nr;
+    } else if (horiz) {
+        float dl = fabsf(ui->scroll_dx) >= fabsf(ui->scroll_dy) ? ui->scroll_dx : ui->scroll_dy;
+        double dt = (double)dl * 40.0 / f->c.plot_w * range;
+        v->start -= dt; v->end -= dt;
+    } else {
+        v->scroll -= ui->scroll_dy * f->c.row_h * 3.0f;
     }
     ui->scroll_dx = ui->scroll_dy = 0;
     f->user_moved = true;
