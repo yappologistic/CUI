@@ -393,6 +393,10 @@ void cui__paint_add_hit(cui_ctx *ui, cui_id id, cui_rect r, uint32_t flags);
 void cui__paint_wheel_hit(cui_ctx *ui, cui_id id, cui_rect r);
 /* The screen pointer in the layout space of wheel area `id`, using its last paint transform. */
 cui_vec2 cui__wheel_point(cui_ctx *ui, cui_id id);
+/* A horizontal-time chart supplies the default for its hovered region. */
+typedef enum { CUI__CHART_ROWS, CUI__CHART_PAN, CUI__CHART_ZOOM } cui__chart_action;
+cui__chart_action cui__chart_wheel(cui_ctx *ui, bool rows);
+float cui__chart_pan_delta(cui_ctx *ui);
 
 /* ---- per id state ---- */
 typedef struct cui_state_entry {

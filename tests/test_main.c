@@ -6394,7 +6394,7 @@ typedef struct {
     cui_curve_key keys[4][16]; bool sel[4][16];
     cui_timeline_clip clips[4];
     cui_timeline_track *big; int big_n;
-    float time, in, out, width;
+    float time, in, out, width, origin;
     bool range, toggles, free_drag;
     cui_timeline_view view;
     int cur_t, cur_k;
@@ -6406,7 +6406,7 @@ typedef struct {
 static void build_tl(cui_ctx *ui, void *u) {
     tl_ctx *a = u;
     cui_column(ui, .pad = 20) {
-        a->r = cui_timeline_editor(ui, "tl", a->big ? a->big : a->tr, a->big ? a->big_n : a->n, &a->time, .end = 4, .fps = 24,
+        a->r = cui_timeline_editor(ui, "tl", a->big ? a->big : a->tr, a->big ? a->big_n : a->n, &a->time, .start = a->origin, .end = a->origin + 4, .fps = 24,
                                    .view = &a->view, .current_track = &a->cur_t, .current_key = &a->cur_k, .width = CUI_PX(a->width),
                                    .in = a->range ? &a->in : NULL, .out = a->range ? &a->out : NULL, .toggles = a->toggles,
                                    .free_drag = a->free_drag);
@@ -6478,6 +6478,105 @@ static void test_disabled_timeline_wheel(void) {
     cui_input_scroll(ui, 0, 2);
     run(ui, build_tl, &a, 1);
     CHECK(a.view.end - a.view.start < 4);
+    cui_destroy(ui);
+}
+
+/* Given a zoomed editor with more tracks than fit, place the pointer, then send one gesture. */
+static void tl_wheel_at(cui_ctx *ui, tl_ctx *a, float x, float y, int mods, float dx, float dy) {
+    a->view = (cui_timeline_view){ 1, 3, 40 };
+    cui_input_mouse_move(ui, x, y);
+    tl_mods(ui, mods);
+    run(ui, build_tl, a, 1);
+    cui_input_scroll(ui, dx, dy);
+    run(ui, build_tl, a, 1);
+    tl_mods(ui, 0);
+}
+
+static void test_timeline_wheel_regions(void) {
+    printf("timeline: overflowing tracks, ruler zoom and gutter gestures\n");
+    cui_ctx *ui = new_ctx();
+    tl_ctx a;
+    tl_setup(&a);
+    cui_timeline_track tracks[24] = { 0 };
+    a.big = tracks; a.big_n = 24;
+    run(ui, build_tl, &a, 3);
+    tl_map m = tl_map_of(ui, &a);
+    float x = m.px + 0.75f * m.pw, body_y = m.by + 70, gutter = m.rx + 40;
+    /* When an almost vertical wheel crosses the body, then only rows move. */
+    tl_wheel_at(ui, &a, x, body_y, 0, 0.2f, -1);
+    CHECK(a.view.scroll == 80 && a.view.start == 1 && a.view.end == 3);
+    /* When the same gesture crosses the time ruler, then zoom around the displayed time. */
+    tl_wheel_at(ui, &a, x, m.ry + 14, 0, -0.2f, 1);
+    double z = 2 / 1.12;
+    CHECK_NEAR(a.view.end - a.view.start, z, 1e-5);
+    CHECK_NEAR(a.view.start + 0.75 * z, 2.5, 1e-5);
+    CHECK(a.view.scroll == 40 && !a.r.time_changed);
+    /* When Ctrl+Shift+wheel crosses the gutter, then zoom wins, anchored at the left edge. */
+    tl_wheel_at(ui, &a, gutter, body_y, CUI_MOD_CTRL | CUI_MOD_SHIFT, -0.1f, 1);
+    CHECK_NEAR(a.view.start, 1, 1e-5);
+    CHECK_NEAR(a.view.end, 1 + z, 1e-5);
+    CHECK(a.view.scroll == 40);
+    /* When Shift is held in the gutter, then pan by dy, ignoring small sideways jitter. */
+    tl_wheel_at(ui, &a, gutter, body_y, CUI_MOD_SHIFT, 0.1f, -1);
+    CHECK_NEAR(a.view.start, 1 + 80 / m.pw, 1e-5);
+    CHECK_NEAR(a.view.end - a.view.start, 2, 1e-5);
+    CHECK(a.view.scroll == 40);
+    /* When Shift is held on a horizontal gesture, a little vertical drift cannot reverse the pan. */
+    tl_wheel_at(ui, &a, gutter, body_y, CUI_MOD_SHIFT, -1, 0.1f);
+    CHECK_NEAR(a.view.start, 1 + 80 / m.pw, 1e-5);
+    CHECK_NEAR(a.view.end - a.view.start, 2, 1e-5);
+    CHECK(a.view.scroll == 40);
+    /* When horizontal motion dominates, then pan by dx even over the ruler. */
+    tl_wheel_at(ui, &a, x, m.ry + 14, 0, -1, 0.2f);
+    CHECK_NEAR(a.view.start, 1 + 80 / m.pw, 1e-5);
+    CHECK_NEAR(a.view.end - a.view.start, 2, 1e-5);
+    CHECK(a.view.scroll == 40);
+    /* Given times where adjacent floats are a second apart, a wheel burst must not collapse
+     * the interval to zero and refit the sequence. Another notch at the limit must not pan. */
+    a.big = NULL; a.n = 0; a.origin = a.time = 8388608.0f;
+    a.view = (cui_timeline_view){ a.origin, a.origin + 4, 0 };
+    cui_input_mouse_move(ui, m.px + 0.5f * m.pw, m.ry + 14);
+    run(ui, build_tl, &a, 2);
+    cui_input_scroll(ui, 0, 500);
+    run(ui, build_tl, &a, 1);
+    CHECK(a.view.end - a.view.start == 1);
+    float limit = a.view.start;
+    cui_input_scroll(ui, 0, 500);
+    run(ui, build_tl, &a, 1);
+    CHECK(a.view.start == limit && a.view.end == limit + 1);
+    cui_destroy(ui);
+}
+
+typedef struct { cui_node_view host; float x, y, time; cui_id timeline; cui_timeline_view view; } tl_hosted;
+static void build_hosted_timeline(cui_ctx *ui, void *u) {
+    tl_hosted *a = u;
+    if (cui_node_editor_begin(ui, "editor", &a->host, .height = CUI_PX(480))) {
+        cui_node_begin(ui, 1, &a->x, &a->y, "Tracks", .width = 340);
+        cui_node_content(ui) {
+            cui_timeline_editor(ui, "tracks", NULL, 0, &a->time, .view = &a->view, .end = 4, .width = CUI_PX(300));
+            a->timeline = cui_last_id(ui);
+        }
+        cui_node_end(ui);
+        cui_node_editor_end(ui);
+    }
+}
+
+static void test_hosted_timeline_wheel(void) {
+    /* Given an enlarged timeline with a narrow (40 point) track list, */
+    cui_ctx *ui = new_ctx();
+    tl_hosted a = { .host = { .zoom = 1.5f }, .x = 20, .y = 20 };
+    run(ui, build_hosted_timeline, &a, 4);
+    cui_rect r = cui_get_rect(ui, a.timeline);
+    CHECK(r.w == 300);
+    /* When wheeling three quarters along the painted ruler, beyond its unscaled box, */
+    cui_input_mouse_move(ui, r.x + 1.5f * (50 + (r.w - 60) * 0.75f), r.y + 1.5f * 14);
+    run(ui, build_hosted_timeline, &a, 1);
+    cui_input_scroll(ui, 0, 1);
+    run(ui, build_hosted_timeline, &a, 1);
+    /* Then only the child zooms, with the same time still under the pointer. */
+    CHECK(a.host.zoom == 1.5f);
+    CHECK_NEAR(a.view.end - a.view.start, 4 / 1.12, 1e-4);
+    CHECK_NEAR(a.view.start + 0.75 * (a.view.end - a.view.start), 3, 1e-4);
     cui_destroy(ui);
 }
 
@@ -8446,6 +8545,72 @@ static void test_disabled_flame_wheel(void) {
     cui_input_scroll(ui, 0, 2);
     run(ui, build_flame, &f, 1);
     CHECK(f.view.end - f.view.start < 10);
+    cui_destroy(ui);
+}
+
+/** Plain vertical wheel scrolls overflowing rows; Ctrl+wheel zooms and Shift+wheel pans. */
+static void test_flame_wheel_vertical_scroll(void) {
+    printf("flame graph: vertical wheel scrolls overflowing rows, Ctrl+wheel zooms\n");
+    cui_flame_span deep[30];
+    for (int i = 0; i < 30; i++) deep[i] = (cui_flame_span){ "row", 0, 10, i, 0 };
+    cui_ctx *ui = new_ctx();
+    flame_ctx f = { .s = deep, .n = 30, .sel = -1, .height = 200 };
+    run(ui, build_flame, &f, 3);
+    cui_vec2 at = center(rect_of(ui, f.id));
+    cui_input_mouse_move(ui, at.x, at.y);
+    run(ui, build_flame, &f, 1);
+    /* Given overflowing rows, when a vertical gesture has slight dx jitter, then only rows move. */
+    cui_input_scroll(ui, 0.1f, -1);
+    run(ui, build_flame, &f, 1);
+    CHECK_NEAR(f.view.scroll, 60.0f, 1e-3f);
+    CHECK_NEAR(f.view.start, 0, 1e-12);
+    CHECK_NEAR(f.view.end, 10, 1e-12);
+    CHECK(f.last.view_changed);
+    /* plain wheel up scrolls back and clamps at 0 */
+    cui_input_scroll(ui, 0, 2);
+    run(ui, build_flame, &f, 1);
+    CHECK_NEAR(f.view.scroll, 0.0f, 1e-3f);
+    /* Ctrl+wheel zooms horizontally around the pointer without scrolling vertically */
+    cui_input_key(ui, CUI_KEY_NONE, true, CUI_MOD_CTRL);
+    cui_input_scroll(ui, 0.1f, 3);
+    run(ui, build_flame, &f, 1);
+    cui_input_key(ui, CUI_KEY_NONE, false, 0);
+    run(ui, build_flame, &f, 1);
+    double range = f.view.end - f.view.start;
+    CHECK_NEAR(range, 10.0 / pow(1.12, 3), 1e-9);
+    CHECK_NEAR(f.view.scroll, 0.0f, 1e-3f);
+    /* Shift+wheel pans horizontally without scrolling vertically */
+    double s0 = f.view.start;
+    cui_input_key(ui, CUI_KEY_NONE, true, CUI_MOD_SHIFT);
+    cui_input_scroll(ui, 0.1f, -1);
+    run(ui, build_flame, &f, 1);
+    cui_input_key(ui, CUI_KEY_NONE, false, 0);
+    run(ui, build_flame, &f, 1);
+    CHECK(f.view.start > s0);
+    CHECK_NEAR(f.view.end - f.view.start, range, 1e-12);
+    CHECK_NEAR(f.view.scroll, 0.0f, 1e-3f);
+    /* Given overflowing rows, when wheeling on the top time ruler, then zoom at the pointer. */
+    cui_rect r = rect_of(ui, f.id);
+    cui_input_mouse_move(ui, at.x, r.y + 5);
+    run(ui, build_flame, &f, 1);
+    double mid = (f.view.start + f.view.end) * 0.5;
+    cui_input_scroll(ui, 0, 2);
+    run(ui, build_flame, &f, 1);
+    CHECK_NEAR(f.view.end - f.view.start, range / pow(1.12, 2), 1e-9);
+    CHECK_NEAR((f.view.start + f.view.end) * 0.5, mid, 1e-9);
+    CHECK_NEAR(f.view.scroll, 0, 1e-3f);
+    /* Given spans at an absolute timestamp, a sub-ULP zoom stops at adjacent timestamps. */
+    const double epoch = 2000000000.0;
+    for (int i = 0; i < 30; i++) { deep[i].start = epoch; deep[i].end = epoch + 10; }
+    f.view = (cui_flame_view){ .start = epoch, .end = epoch + 10 };
+    run(ui, build_flame, &f, 2);
+    cui_input_scroll(ui, 0, 500);
+    run(ui, build_flame, &f, 1);
+    CHECK(f.view.end == nextafter(f.view.start, epoch + 10));
+    double limit = f.view.start;
+    cui_input_scroll(ui, 0, 500);
+    run(ui, build_flame, &f, 1);
+    CHECK(f.view.start == limit && f.view.end == nextafter(limit, epoch + 10));
     cui_destroy(ui);
 }
 
@@ -11070,8 +11235,11 @@ int main(void) {
     test_disabled_node_editor_wheel();
     test_flame();
     test_disabled_flame_wheel();
+    test_flame_wheel_vertical_scroll();
     test_disabled_flame_shrinks();
     test_disabled_timeline_wheel();
+    test_timeline_wheel_regions();
+    test_hosted_timeline_wheel();
     test_curve_eval();
     test_curve_editor();
     test_gradient();

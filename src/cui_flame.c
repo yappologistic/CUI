@@ -269,15 +269,7 @@ static void cui__paint_flame(cui_ctx *ui, cui_node *n, void *data) {
     cui__fl_state *st = p->st;
     cui_rect r = n->rect;
     /* the wheel goes to the graph while the pointer is over its visible part */
-    if (p->sid) {
-        cui_rect clip = ui->dl.clip_stack[ui->dl.clip_depth - 1];
-        float s = ui->scale;
-        cui_rect cp = { clip.x / s, clip.y / s, clip.w / s, clip.h / s };
-        cui_scroll_state *ss = cui_state(ui, p->sid, sizeof *ss);
-        ss->view_w = r.w; ss->view_h = r.h;
-        ss->content_w = r.w + 1e6f; ss->content_h = r.h + 1e6f;
-        cui__paint_add_hit(ui, p->sid, cui__rect_intersect(r, cp), CUI_NF_SCROLL_X | CUI_NF_SCROLL_Y);
-    }
+    if (p->sid) cui__paint_wheel_hit(ui, p->sid, r);
     float rad = ui->theme.radius_panel;
     float px0 = r.x + CUI__FL_PADX, pw = CUI_MAX(1.0f, r.w - 2 * CUI__FL_PADX);
     double range = p->t1 - p->t0;
@@ -465,24 +457,40 @@ static void cui__flf_extent(cui__flf *f) {
     c->body_h = f->has_rect ? CUI_MAX(1.0f, R.h - CUI__FL_RULER - 1 - 2 * CUI__FL_PADY) : 200;
 }
 
-/* wheel: zoom around the pointer; Shift or a sideways scroll pans */
+/* Keep the anchor fixed without first adding it to a large absolute timestamp. */
+static void cui__fl_wheel_zoom(double *start, double *end, double nr, double u) {
+    double s = *start + u * ((*end - *start) - nr), e = s + nr;
+    /* At large absolute timestamps even the minimum range can round to zero. Keep a pair
+     * of adjacent times inside the old view, rather than letting the clamp refit everything. */
+    if (e == s) {
+        if (s < *end) e = nextafter(s, *end);
+        else s = nextafter(e, *start);
+    }
+    *start = s; *end = e;
+}
+
+/* The ruler zooms regardless of stack depth; the overflowing body scrolls rows. */
 static void cui__flf_wheel(cui__flf *f) {
     cui_ctx *ui = f->ui;
     cui_flame_view *v = f->v;
     if (!(ui->scroll_target == f->sid && ui->hot_layer == ui->current_layer && (ui->scroll_dx != 0 || ui->scroll_dy != 0))) return;
     double range = f->range;
-    bool pan = ui->scroll_dx != 0 || (ui->mods & CUI_MOD_SHIFT);
-    if (pan) {
-        float dl = ui->scroll_dx != 0 ? ui->scroll_dx : ui->scroll_dy;
+    cui_vec2 at = cui__wheel_point(ui, f->sid);
+    bool overflow = f->c.rows * f->c.row_h > f->c.body_h + 0.5f;
+    cui__chart_action action = cui__chart_wheel(ui, overflow && at.y >= f->c.body_y - CUI__FL_PADY);
+    if (action == CUI__CHART_PAN) {
+        float dl = cui__chart_pan_delta(ui);
         double dt = (double)dl * 40.0 / f->c.plot_w * range;
         v->start -= dt; v->end -= dt;
+    } else if (action == CUI__CHART_ROWS) {
+        v->scroll -= ui->scroll_dy * f->c.row_h * 3.0f;
+        cui__fl_clamp_scroll(&f->c, v);
     } else {
         double z = pow(1.12, (double)ui->scroll_dy);
         double nr = CUI_MAX(range / z, f->min_range);
         nr = CUI_MIN(nr, f->c.dmax - f->c.dmin);
-        double u = (double)(f->mx - f->c.plot_x) / f->c.plot_w;
-        double tm = v->start + u * range;
-        v->start = tm - u * nr; v->end = v->start + nr;
+        double u = CUI_CLAMP((double)(at.x - f->c.plot_x) / f->c.plot_w, 0.0, 1.0);
+        cui__fl_wheel_zoom(&v->start, &v->end, nr, u);
     }
     ui->scroll_dx = ui->scroll_dy = 0;
     f->user_moved = true;
@@ -1461,7 +1469,7 @@ static void cui__paint_trace(cui_ctx *ui, cui_node *n, void *data) {
     float G = p->gutter, rad = ui->theme.radius_panel;
     float head = CUI__FL_RULER + p->marks_h;
     cui_rect plot = { r.x + G, r.y + head + 1, CUI_MAX(0.0f, r.w - G - 1), CUI_MAX(0.0f, r.h - head - 2) };
-    cui__paint_wheel_hit(ui, p->wid, (cui_rect){ r.x, r.y + head, r.w, r.h - head });
+    if (p->wid) cui__paint_wheel_hit(ui, p->wid, r);
     float px0 = plot.x + CUI__FL_PADX, pw = CUI_MAX(1.0f, plot.w - 2 * CUI__FL_PADX);
     double range = fp->t1 - fp->t0;
     float k = range > 0 ? (float)(pw / range) : 0;
@@ -1541,25 +1549,29 @@ static double cui__tr_time_at(const cui__trf *f, float x) {
     return f->v->start + (double)(x - f->c.plot_x) / f->c.plot_w * (f->v->end - f->v->start);
 }
 
-/* wheel over the plot zooms around the pointer, Shift or a sideways scroll pans; over the
- * lane names it scrolls the lanes */
+/* The time header includes the marker strip. Its intersection with the lane gutter belongs to the gutter. */
 static void cui__trf_wheel(cui__trf *f) {
     cui_ctx *ui = f->ui;
     cui_trace_view *v = f->v;
     if (!(ui->scroll_target == f->wid && ui->hot_layer == ui->current_layer && (ui->scroll_dx != 0 || ui->scroll_dy != 0))) return;
     double range = v->end - v->start;
-    const float mx = cui__wheel_point(ui, f->wid).x;   /* the pointer in layout space */
-    if (mx < f->R.x + f->c.gutter) v->scroll -= ui->scroll_dy * 40;
-    else if (ui->scroll_dx != 0 || (ui->mods & CUI_MOD_SHIFT)) {
-        float dl = ui->scroll_dx != 0 ? ui->scroll_dx : ui->scroll_dy;
+    cui_vec2 at = cui__wheel_point(ui, f->wid);
+    bool gutter = at.x < f->R.x + f->c.gutter;
+    bool body = at.y >= f->c.body_y - CUI__FL_PADY;
+    bool overflow = f->c.rows * f->c.row_h > f->c.body_h + 0.5f;
+    cui__chart_action action = cui__chart_wheel(ui, gutter || (body && overflow));
+    if (action == CUI__CHART_ZOOM) {
+        double z = pow(1.12, (double)ui->scroll_dy);
+        double extent = f->c.dmax - f->c.dmin;
+        double nr = CUI_CLAMP(range / z, extent * 1e-9, extent);
+        double u = CUI_CLAMP((double)(at.x - f->c.plot_x) / f->c.plot_w, 0.0, 1.0);
+        cui__fl_wheel_zoom(&v->start, &v->end, nr, u);
+    } else if (action == CUI__CHART_PAN) {
+        float dl = cui__chart_pan_delta(ui);
         double dt = (double)dl * 40.0 / f->c.plot_w * range;
         v->start -= dt; v->end -= dt;
     } else {
-        double z = pow(1.12, (double)ui->scroll_dy);
-        double nr = CUI_MIN(range / z, f->c.dmax - f->c.dmin);
-        double u = CUI_CLAMP((double)(mx - f->c.plot_x) / f->c.plot_w, 0.0, 1.0);
-        double tm = v->start + u * range;
-        v->start = tm - u * nr; v->end = v->start + nr;
+        v->scroll -= ui->scroll_dy * f->c.row_h * 3.0f;
     }
     ui->scroll_dx = ui->scroll_dy = 0;
     f->user_moved = true;
@@ -1854,7 +1866,7 @@ static void cui__trf_build(cui__trf *f, int *node, cui__tr_paint **out) {
     fp->empty = c->n == 0;
     cui__tween(ui, &f->st->fl.focus, f->bi.focus_visible ? 1.0f : 0.0f, CUI__T_FOCUS);
     fp->focus = f->st->fl.focus;
-    p->wid = f->wid; p->gutter = c->gutter; p->marks_h = head - CUI__FL_RULER;
+    p->wid = cui_is_disabled(ui) ? 0 : f->wid; p->gutter = c->gutter; p->marks_h = head - CUI__FL_RULER;
     p->st = f->st;
     p->mark0 = v->mark_start; p->mark1 = v->mark_end;
     p->hover_lane = f->bi.hovered && f->mx < f->R.x + c->gutter ? f->hov_track : -1;
@@ -1963,7 +1975,7 @@ cui_trace_result cui_trace_view_ex(cui_ctx *ui, const char *id_str, cui_trace_tr
     f.bi = cui__interact(ui, f.id, CUI_IF_FOCUSABLE | CUI_IF_DRAG);
     f.mx = ui->mx; f.my = ui->my;
     if (f.has_rect) {
-        cui__trf_wheel(&f);
+        if (!cui_is_disabled(ui)) cui__trf_wheel(&f);
         cui__trf_pointer(&f);
         if (f.bi.focused && !ui->edit_prev) cui__trf_keys(&f);
         if (f.user_moved) cui__tr_layout(ui, c, o);   /* a lane folded or unfolded */

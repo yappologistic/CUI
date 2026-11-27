@@ -10,6 +10,7 @@ What changed in CUI, newest first. Every component mentioned here runs live in t
 
 ### Fixed
 
+- The flame graph, trace viewer and timeline editor now scroll overflowing rows with the wheel, zoom over the time ruler or with Ctrl/Cmd, and pan time with Shift or a sideways wheel. Slight trackpad drift no longer chooses a different action. See [Navigating time charts](docs/chart-navigation.md).
 - An installed CUI whose headers go somewhere other than `include` (`-DCMAKE_INSTALL_INCLUDEDIR=headers`) records that directory in its CMake package, so `find_package(cui)` finds `cui/cui.h` ([#135](https://github.com/yappologistic/CUI/pull/135)).
 
 ## 2026-11-25 · 1.5: phones, GPU renderers and many fixes

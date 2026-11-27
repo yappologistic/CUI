@@ -3782,8 +3782,9 @@ CUI_API void cui_hex_view_goto(cui_ctx *ui, const char *id, size_t offset);
  * The spans need to be valid only during the call. color_key picks the color
  * (0: hashed from the name), so the same function keeps its color.
  *
- * Mouse: the wheel zooms around the pointer, Shift+wheel or a sideways scroll
- * pans, drag pans (sideways and, for deep stacks, up and down). Click selects
+ * Mouse: wheel scrolls overflowing rows; on the ruler or when all rows fit it
+ * zooms at the pointer. Ctrl/Cmd+vertical wheel zooms; Shift+wheel or a sideways
+ * scroll pans time. Drag pans sideways and up/down. Click selects
  * a span (empty space clears), double-click zooms to fit it (on empty space:
  * fits everything). Hover shows a tooltip: name, duration and its share of
  * the parent (or of the view, at depth 0).
@@ -4121,8 +4122,9 @@ CUI_API int cui_seed_field_ex(cui_ctx *ui, const char *label, uint32_t *seed, bo
  * selected keys to move them, by whole frames (hold Shift to move freely);
  * double-click a row to add a key there (on the curve, so the motion is
  * kept); drag a clip to move it, its ends to trim it; click a track name to
- * select its keys. The wheel zooms time around the pointer, Shift+wheel or a
- * sideways scroll pans, the wheel over the track list scrolls the rows, and
+ * select its keys. Wheel scrolls the track list or overflowing rows. On the
+ * time ruler or when all rows fit in the plot, it zooms at the pointer.
+ * Ctrl/Cmd+vertical wheel zooms anywhere, Shift+wheel or sideways scroll pans time, and
  * a middle-button drag pans both ways. Hovering a key shows its time and
  * value.
  * Keys when focused: Left/Right step the playhead a frame (Shift: 10),
@@ -4476,8 +4478,10 @@ CUI_API cui_waterfall_result cui_waterfall_ex(cui_ctx *ui, const char *id, const
 
 /* A tracing timeline: one lane per thread, process or service, each with its
  * nested spans, on one time ruler, with markers (frames, GC pauses, deploys)
- * drawn across every lane. Wheel zooms around the pointer, Shift+wheel or a
- * drag pans, click selects a span, Shift+drag measures a time range. A lane's
+ * drawn across every lane. Wheel scrolls the gutter or overflowing rows; the
+ * ruler, marker strip and a plot whose rows fit zoom at the pointer. Ctrl/Cmd
+ * plus vertical wheel zooms anywhere. Shift+wheel or sideways scroll pans time. Drag
+ * pans, click selects a span, Shift+drag measures a time range. A lane's
  * name folds it. Keys: Left and Right step through the selected span's lane,
  * + and - zoom, F fits, Esc clears. Spans must be sorted by track, depth and
  * start (cui_trace_sort), with no overlap within a depth of a track. Like the

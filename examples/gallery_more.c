@@ -1508,7 +1508,7 @@ static void devtools_trace(cui_ctx *ui) {
 }
 
 static void page_devtools(cui_ctx *ui) {
-    section(ui, "Trace viewer", "Wheel zooms, drag pans, Shift+drag measures, a lane's name folds it.");
+    section(ui, "Trace viewer", "Wheel scrolls lanes; wheel on the ruler zooms. Drag pans, Shift+drag measures.");
     devtools_trace(ui);
     section(ui, "Network waterfall", "Hover a bar for its timing; Up and Down move the selection.");
     devtools_waterfall(ui);

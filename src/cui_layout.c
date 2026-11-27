@@ -1098,6 +1098,18 @@ cui_vec2 cui__wheel_point(cui_ctx *ui, cui_id id) {
     return (cui_vec2){ (p.x - wx->ox) / wx->scale, (p.y - wx->oy) / wx->scale };
 }
 
+/** Choose one camera action even when a trackpad reports both wheel axes. */
+cui__chart_action cui__chart_wheel(cui_ctx *ui, bool rows) {
+    if (ui->scroll_dy != 0 && (ui->mods & (CUI_MOD_CTRL | CUI_MOD_PRIMARY))) return CUI__CHART_ZOOM;
+    if ((ui->mods & CUI_MOD_SHIFT) || (ui->scroll_dx != 0 && fabsf(ui->scroll_dx) >= fabsf(ui->scroll_dy))) return CUI__CHART_PAN;
+    return rows ? CUI__CHART_ROWS : CUI__CHART_ZOOM;
+}
+
+/** Backends can report Shift+wheel in either axis. Use the larger motion, not incidental drift. */
+float cui__chart_pan_delta(cui_ctx *ui) {
+    return fabsf(ui->scroll_dx) >= fabsf(ui->scroll_dy) ? ui->scroll_dx : ui->scroll_dy;
+}
+
 void cui_wheel_region(cui_ctx *ui, cui_id id, cui_rect rect) {
     if (!cui_is_disabled(ui)) cui__paint_wheel_hit(ui, id, rect);   /* a disabled canvas leaves the wheel to the page */
 }

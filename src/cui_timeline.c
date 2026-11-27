@@ -263,16 +263,7 @@ static void cui__tl_vline(cui_ctx *ui, cui_rect pr, float rad, float x, float y0
 static void cui__paint_timeline(cui_ctx *ui, cui_node *n, void *data) {
     cui__tl_paint *p = data;
     cui_rect r = n->rect;
-    /* the wheel goes to the editor while the pointer is over its visible part */
-    if (p->sid) {
-        cui_rect clip = ui->dl.clip_stack[ui->dl.clip_depth - 1];
-        float s = ui->scale;
-        cui_rect cp = { clip.x / s, clip.y / s, clip.w / s, clip.h / s };
-        cui_scroll_state *ss = cui_state(ui, p->sid, sizeof *ss);
-        ss->view_w = r.w; ss->view_h = r.h;
-        ss->content_w = r.w + 1e6f; ss->content_h = r.h + 1e6f;
-        cui__paint_add_hit(ui, p->sid, cui__rect_intersect(r, cp), CUI_NF_SCROLL_X | CUI_NF_SCROLL_Y);
-    }
+    if (p->sid) cui__paint_wheel_hit(ui, p->sid, r);
     cui__tl_geo g = cui__tl_geo_of(r, p->row_h, p->track_w, p->toggles);
     bool dark = ui->mode == CUI_THEME_DARK;
     float rad = ui->theme.radius_panel, sc = ui->scale;
@@ -729,8 +720,8 @@ typedef struct {
 static float cui__tle_t_at(const cui__tle_frame *f, double x) { return (float)(f->v->start + (x - f->g.plot_x) / f->k); }
 static int cui__tle_row_at(const cui__tle_frame *f, float y) { return (int)floorf((y - f->g.body_y + f->v->scroll) / f->row_h); }
 
-/* wheel: zoom time around the pointer; Shift or sideways pans; over the list, scroll the rows.
- * The middle button pans both ways. */
+/* The left list and overflowing body scroll tracks; the ruler zooms time.
+ * The middle button pans both axes without editing a key or clip. */
 static void cui__tle_wheel_and_pan(cui__tle_frame *f) {
     cui_ctx *ui = f->ui;
     cui__tl_state *st = f->st;
@@ -738,19 +729,25 @@ static void cui__tle_wheel_and_pan(cui__tle_frame *f) {
     float mx = f->mx, my = f->my;
     if (ui->scroll_target == f->sid && ui->hot_layer == ui->current_layer && (ui->scroll_dx != 0 || ui->scroll_dy != 0)) {
         double range = v->end - v->start;
-        if (mx < f->g.area_x && ui->scroll_dx == 0) {
+        cui_vec2 at = cui__wheel_point(ui, f->sid);
+        bool overflow = f->nr * f->row_h > f->g.body_h + 0.5f;
+        cui__chart_action action = cui__chart_wheel(ui, at.x < f->g.area_x || (at.y >= f->g.body_y && overflow));
+        if (action == CUI__CHART_ROWS) {
             v->scroll -= ui->scroll_dy * 40.0f;
-        } else if (ui->scroll_dx != 0 || f->shift) {
-            float dl = ui->scroll_dx != 0 ? ui->scroll_dx : ui->scroll_dy;
-            double dt = (double)dl * 40.0 / f->g.plot_w * range;
+        } else if (action == CUI__CHART_PAN) {
+            double dt = (double)cui__chart_pan_delta(ui) * 40.0 / f->g.plot_w * range;
             v->start = (float)(v->start - dt); v->end = (float)(v->end - dt);
         } else {
             double z = pow(1.12, (double)ui->scroll_dy);
             double nrng = CUI_MIN(CUI_MAX(range / z, (double)f->min_range), (double)(f->s1 - f->s0));
-            double u = (double)(mx - f->g.plot_x) / f->g.plot_w;
-            double tm = v->start + u * range;
-            double ns = tm - u * nrng;
-            v->start = (float)ns; v->end = (float)(ns + nrng);
+            double u = CUI_CLAMP((double)(at.x - f->g.plot_x) / f->g.plot_w, 0.0, 1.0);
+            float s = (float)(v->start + u * (range - nrng)), e = (float)((double)s + nrng);
+            /* A fractional frame can be smaller than a float at this time position. */
+            if (e == s) {
+                if (s < v->end) e = nextafterf(s, v->end);
+                else s = nextafterf(e, v->start);
+            }
+            v->start = s; v->end = e;
         }
         ui->scroll_dx = ui->scroll_dy = 0;
         f->user_moved = true;

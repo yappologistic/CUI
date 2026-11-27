@@ -1079,6 +1079,116 @@ static void test_time_ruler(void) {
     cui_destroy(ui);
 }
 
+typedef struct {
+    cui_trace_track tracks[30];
+    cui_trace_span spans[30];
+    cui_trace_view view;
+    cui_trace_result r;
+    int sel;
+} tr_scroll_ctx;
+static void build_tr_scroll(cui_ctx *ui, void *u) {
+    tr_scroll_ctx *c = u;
+    const cui_trace_marker mark = { .time = c->spans[0].start + 5, .name = "Midpoint" };
+    c->r = cui_trace_view(ui, "trace-scroll", c->tracks, 30, c->spans, 30, &c->view, &c->sel,
+                          .height = 200, .row_height = 20, .markers = &mark, .marker_count = 1);
+}
+static void build_disabled_tr_scroll(cui_ctx *ui, void *u) {
+    cui_push_disabled(ui, true);
+    build_tr_scroll(ui, u);
+    cui_pop_disabled(ui);
+}
+static void test_trace_wheel_scroll_zoom(void) {
+    printf("trace viewer: overflowing vertical scroll, Ctrl+wheel zoom (plot+gutter+dx jitter), Shift+wheel pan\n");
+    tr_scroll_ctx c;
+    memset(&c, 0, sizeof c);
+    for (int i = 0; i < 30; i++) {
+        c.tracks[i] = (cui_trace_track){ "Lane", false };
+        c.spans[i] = (cui_trace_span){ "Work", 0.0, 10.0, i, 0, 0 };
+    }
+    c.sel = -1;
+    cui_ctx *ui = new_ctx(900, 400);
+    run(ui, build_tr_scroll, &c, 3);
+    cui_rect r = cui_get_rect(ui, cui_make_id(ui, "trace-scroll"));
+    /* plain vertical wheel over the plot scrolls lanes vertically without changing time range */
+    move(ui, build_tr_scroll, &c, r.x + r.w * 0.6f, r.y + r.h * 0.5f);
+    cui_input_scroll(ui, 0.1f, -1.0f);   /* minor dx jitter must not hijack vertical scroll */
+    run(ui, build_tr_scroll, &c, 1);
+    CHECK(fabsf(c.view.scroll - 60.0f) < 1e-3f);
+    CHECK(fabs(c.view.start - 0.0) < 1e-12 && fabs(c.view.end - 10.0) < 1e-12);
+    /* Ctrl+wheel zooms horizontally around the pointer even with dx jitter, without scrolling */
+    cui_input_key(ui, CUI_KEY_NONE, true, CUI_MOD_CTRL);
+    cui_input_scroll(ui, 0.3f, 3.0f);
+    run(ui, build_tr_scroll, &c, 1);
+    cui_input_key(ui, CUI_KEY_NONE, false, 0);
+    run(ui, build_tr_scroll, &c, 1);
+    double zoomed = c.view.end - c.view.start;
+    CHECK(fabs(zoomed - 10.0 / pow(1.12, 3.0)) < 1e-9);
+    CHECK(fabsf(c.view.scroll - 60.0f) < 1e-3f);
+    /* Ctrl+wheel over the lane gutter also zooms horizontally rather than scrolling vertically */
+    move(ui, build_tr_scroll, &c, r.x + 20.0f, r.y + r.h * 0.5f);
+    cui_input_key(ui, CUI_KEY_NONE, true, CUI_MOD_CTRL);
+    cui_input_scroll(ui, 0.0f, 2.0f);
+    run(ui, build_tr_scroll, &c, 1);
+    cui_input_key(ui, CUI_KEY_NONE, false, 0);
+    run(ui, build_tr_scroll, &c, 1);
+    double zoomed2 = c.view.end - c.view.start;
+    CHECK(zoomed2 < zoomed * 0.85);
+    CHECK(fabsf(c.view.scroll - 60.0f) < 1e-3f);
+    /* Shift+wheel pans horizontally without changing zoom or vertical scroll */
+    move(ui, build_tr_scroll, &c, r.x + r.w * 0.6f, r.y + r.h * 0.5f);
+    double s0 = c.view.start;
+    cui_input_key(ui, CUI_KEY_NONE, true, CUI_MOD_SHIFT);
+    cui_input_scroll(ui, 0.1f, -1.0f);
+    run(ui, build_tr_scroll, &c, 1);
+    cui_input_key(ui, CUI_KEY_NONE, false, 0);
+    run(ui, build_tr_scroll, &c, 1);
+    CHECK(c.view.start > s0);
+    CHECK(fabs((c.view.end - c.view.start) - zoomed2) < 1e-9);
+    CHECK(fabsf(c.view.scroll - 60.0f) < 1e-3f);
+    /* Given overflowing lanes, when wheeling over the top-left corner, then the gutter scrolls. */
+    move(ui, build_tr_scroll, &c, r.x + 20, r.y + 5);
+    cui_input_scroll(ui, 0, -1);
+    run(ui, build_tr_scroll, &c, 1);
+    CHECK(fabsf(c.view.scroll - 120) < 1e-3f);
+    CHECK(fabs((c.view.end - c.view.start) - zoomed2) < 1e-9);
+    /* When the same wheel moves over the time ruler, then time zooms rather than scrolling lanes. */
+    move(ui, build_tr_scroll, &c, r.x + r.w * 0.6f, r.y + 5);
+    cui_input_scroll(ui, 0, 2);
+    run(ui, build_tr_scroll, &c, 1);
+    CHECK(fabs((c.view.end - c.view.start) - zoomed2 / pow(1.12, 2)) < 1e-9);
+    CHECK(fabsf(c.view.scroll - 120) < 1e-3f);
+    /* Given a marker strip, when a large wheel burst zooms far past the limit, then it stops
+     * at the minimum time range instead of wrapping back out to the entire capture. */
+    move(ui, build_tr_scroll, &c, r.x + r.w * 0.6f, r.y + 30);
+    cui_input_scroll(ui, 0, 500);
+    run(ui, build_tr_scroll, &c, 1);
+    CHECK(fabs((c.view.end - c.view.start) - 1e-8) < 1e-12);
+    CHECK(fabsf(c.view.scroll - 120) < 1e-3f);
+    /* Another inward notch at maximum zoom must not pan the marker under the pointer. */
+    const double at_limit = c.view.start;
+    cui_input_scroll(ui, 0, 2);
+    run(ui, build_tr_scroll, &c, 1);
+    CHECK(fabs(c.view.start - at_limit) < 1e-14);
+    /* Given a routed ruler gesture, when the chart becomes disabled, then its time stays put. */
+    double before = c.view.end - c.view.start;
+    cui_input_scroll(ui, 0, -2);
+    run(ui, build_disabled_tr_scroll, &c, 1);
+    CHECK(c.view.end - c.view.start == before);
+    /* Given a ten-second capture near Unix time 2e9, zoom below the double's precision. */
+    const double epoch = 2000000000.0;
+    for (int i = 0; i < 30; i++) { c.spans[i].start = epoch; c.spans[i].end = epoch + 10; }
+    c.view = (cui_trace_view){ .start = epoch, .end = epoch + 10 };
+    run(ui, build_tr_scroll, &c, 2);
+    cui_input_scroll(ui, 0, 500);
+    run(ui, build_tr_scroll, &c, 1);
+    CHECK(c.view.end == nextafter(c.view.start, epoch + 10));
+    double limit = c.view.start;
+    cui_input_scroll(ui, 0, 500);
+    run(ui, build_tr_scroll, &c, 1);
+    CHECK(c.view.start == limit && c.view.end == nextafter(limit, epoch + 10));
+    cui_destroy(ui);
+}
+
 /* ------------------------------------------------------------------------ */
 /* everything, at three widths, both directions, both themes, under random input */
 
@@ -1799,6 +1909,7 @@ int main(void) {
     test_trace_links();
     test_trace_links_move();
     test_time_ruler();
+    test_trace_wheel_scroll_zoom();
     test_random();
     test_regex();
     test_regex_noncapture();
