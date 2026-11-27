@@ -6,6 +6,7 @@ What changed in CUI, newest first. Every component mentioned here runs live in t
 
 ### Added
 
+- JSON viewer: a click selects a value, and `cui_json_view_selected_path` and `cui_json_view_selected_value` answer its path (`items[2].name`) and its text (a string decoded, or the JSON of an object or array), so an app can copy one value from a document. Object and array rows still fold on a click. See [JSON viewer](docs/components-more.md#json-viewer).
 - `cui_app_desc.custom_title_bar`: on Windows the system's title bar goes and the app draws its own, while the window keeps its border, shadow, resizing on every edge and its size, place and maximized state. A platform layer of your own takes part through `cui_platform_iface.window_frame` and `.window_button`, and moves the window over what `cui_title_bar_hit_test` calls the caption. `cui_title_bar`, the component that draws the bar, follows in its own change; until then such a window has no caption to drag it by. See [Platform services](docs/integration.md#platform-services) ([#134](https://github.com/yappologistic/CUI/pull/134)).
 
 ### Fixed

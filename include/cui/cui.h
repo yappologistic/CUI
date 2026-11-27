@@ -1775,6 +1775,14 @@ typedef struct cui_json_opts {
     float max_height;          /* points; taller content scrolls. 0 shows everything */
 } cui_json_opts;
 CUI_API bool cui_json_view_ex(cui_ctx *ui, const char *id, const char *json, const cui_json_opts *opts);
+/* The node a click selected in the JSON viewer, NULL until one is. Its path is dotted keys with
+ * [i] for array items, ["..."] for a key that isn't a plain name, and "" for the root:
+ * "items[2].name". Its value is a string's text without the quotes and with its escapes
+ * decoded, a number, true, false or null as written, or the JSON text of an object or array.
+ * Call them in the same id scope as cui_json_view. Before that call in a frame they answer the
+ * selection as of the last frame. The strings are the viewer's own and change with its next call. */
+CUI_API const char *cui_json_view_selected_path(cui_ctx *ui, const char *id);
+CUI_API const char *cui_json_view_selected_value(cui_ctx *ui, const char *id);
 
 /* ---- Markdown view ---- */
 
