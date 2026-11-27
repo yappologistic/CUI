@@ -751,7 +751,7 @@ bool cui_wheel_take(cui_ctx *ui, cui_id id, cui_vec2 *delta) {
     ui->scroll_dx = ui->scroll_dy = 0;   /* consumed */
     return true;
 }
-bool cui_wants_keyboard(cui_ctx *ui) { return ui->edit != NULL; }
+bool cui_wants_keyboard(cui_ctx *ui) { return ui->edit != NULL || (ui->in_frame && ui->edit_prev); }
 bool cui_wants_mouse(cui_ctx *ui) { return ui->hot != 0 || ui->active != 0; }
 
 /* In the core, not in a component file: the Win32 backend calls it from WM_NCHITTEST in every

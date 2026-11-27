@@ -400,7 +400,8 @@ CUI_API cui_vec2 cui_mouse_pos(cui_ctx *ui);
 CUI_API bool cui_mouse_down(cui_ctx *ui, cui_mouse_button b);
 CUI_API bool cui_mouse_clicked(cui_ctx *ui, cui_mouse_button b);
 /* True when a text field has keyboard focus (so the app should not treat
- * typing as shortcuts). */
+ * typing as shortcuts). Safe to call at any point in a frame, including before
+ * the focused text field is built. */
 CUI_API bool cui_wants_keyboard(cui_ctx *ui);
 CUI_API bool cui_wants_mouse(cui_ctx *ui);
 

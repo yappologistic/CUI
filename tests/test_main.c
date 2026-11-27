@@ -3989,6 +3989,36 @@ static void test_dialog_escape_after_edit(void) {
     cui_destroy(ui);
 }
 
+typedef struct { char text[32]; bool wants_before; int hotkey_hits; } wants_kb_ctx;
+static void build_wants_kb(cui_ctx *ui, void *u) {
+    wants_kb_ctx *c = u;
+    c->wants_before = cui_wants_keyboard(ui);
+    if (!c->wants_before && cui_key_pressed(ui, CUI_KEY_M)) c->hotkey_hits++;
+    cui_input(ui, "Filter", c->text, sizeof c->text, .autofocus = true);
+}
+
+/** cui_wants_keyboard stays true before the focused input renders on the next frame. */
+static void test_wants_keyboard_frame_order(void) {
+    printf("keyboard: cui_wants_keyboard is true before focused input builds\n");
+    cui_ctx *ui = new_ctx();
+    wants_kb_ctx c;
+    memset(&c, 0, sizeof c);
+    run(ui, build_wants_kb, &c, 1);
+    CHECK(!c.wants_before && cui_wants_keyboard(ui));
+    /* typing 'm' on the next frame must not fire an app hotkey checked before cui_input */
+    cui_input_key(ui, CUI_KEY_M, true, 0);
+    cui_input_text(ui, "m");
+    run(ui, build_wants_kb, &c, 1);
+    cui_input_key(ui, CUI_KEY_M, false, 0);
+    CHECK(c.wants_before && c.hotkey_hits == 0 && strcmp(c.text, "m") == 0);
+    /* Escape unfocuses the field; after end_frame and on the next frame it is false again */
+    key(ui, build_wants_kb, &c, CUI_KEY_ESCAPE, 0);
+    CHECK(!cui_wants_keyboard(ui));
+    key(ui, build_wants_kb, &c, CUI_KEY_M, 0);
+    CHECK(!c.wants_before && c.hotkey_hits == 1);
+    cui_destroy(ui);
+}
+
 typedef struct { bool open, draggable, resizable; int inside; cui_id button; } dlg_move_ctx;
 
 static void build_dialog_move(cui_ctx *ui, void *u) {
@@ -11087,6 +11117,7 @@ int main(void) {
     test_text_capacity();
     test_dialog();
     test_dialog_escape_after_edit();
+    test_wants_keyboard_frame_order();
     test_dialog_drag();
     test_dialog_resize();
     test_dialog_resize_footer_and_window();
