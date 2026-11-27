@@ -1582,7 +1582,7 @@ bool cui_color_picker(cui_ctx *ui, const char *id_str, cui_color *value) {
 /* Command palette                                                          */
 /* ------------------------------------------------------------------------ */
 
-typedef struct { char query[128]; int highlight; bool was_open; cui_spring t; } cui__palette_state;
+typedef struct { char query[1024]; int highlight; bool was_open; cui_spring t; } cui__palette_state;   /* query: room for a pasted URL */
 
 static int cui__fuzzy(const char *text, const char *q) {
     /* subsequence match; higher is better, -1 = no match */
@@ -1603,6 +1603,12 @@ static int cui__fuzzy(const char *text, const char *q) {
         if (!found) return -1;
     }
     return score;
+}
+
+/** The search text while the palette is open; reset when it opens again. */
+const char *cui_command_palette_query(cui_ctx *ui) {
+    cui__palette_state *st = cui_state(ui, cui_make_id(ui, "#command-palette"), sizeof *st);
+    return st->was_open ? st->query : "";
 }
 
 /** Keep the exit transition visible without accepting commands from it. */
@@ -1767,6 +1773,7 @@ int cui_command_palette(cui_ctx *ui, bool *open, const cui_command *cmds, int co
     if (!is_open) cui_pop_disabled(ui);
     cui__float_end(ui);
     if (chosen >= 0 && open) { *open = false; ui->kpressed[CUI_KEY_ENTER] = 0; }
+    if (!open || !*open) st->was_open = false;   /* closed by this call: the query reads "", and reopening starts empty */
     return chosen;
 }
 

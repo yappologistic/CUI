@@ -2734,6 +2734,53 @@ static void test_palette_close(void) {
     cui_destroy(ui);
 }
 
+typedef struct { bool open; int selected; char query[1100]; char after[1100]; char trace[1100]; } palette_query_case;
+
+/** Read the query first, then offer a command built from it, as an app adding "Open <query>" does. */
+static void build_palette_query(cui_ctx *ui, void *user) {
+    palette_query_case *c = user;
+    snprintf(c->query, sizeof c->query, "%s", cui_command_palette_query(ui));
+    snprintf(c->trace, sizeof c->trace, "Open %s", c->query);
+    cui_command cmds[2] = { { .title = c->trace }, { .title = "Settings" } };
+    int n = c->query[0] ? 2 : 1;
+    int k = cui_command_palette(ui, &c->open, c->query[0] ? cmds : cmds + 1, n);
+    if (k >= 0) c->selected = c->query[0] ? k : k + 1;
+    snprintf(c->after, sizeof c->after, "%s", cui_command_palette_query(ui));
+}
+
+/** The query reads back in full, longer than the old 128 bytes, is empty once closed, even in the
+ *  frame that closed it, and a palette reopened right away starts empty. */
+static void test_palette_query(void) {
+    printf("command palette: the query reads back, and a command made from it is chosen\n");
+    cui_ctx *ui = new_ctx();
+    palette_query_case c = { .selected = -1 };
+    run(ui, build_palette_query, &c, 2);
+    CHECK(strcmp(c.query, "") == 0);
+    c.open = true;
+    run(ui, build_palette_query, &c, 3);
+    CHECK(strcmp(c.query, "") == 0);
+    char url[301];
+    memset(url, 'a', 300); url[300] = 0;
+    memcpy(url, "https://", 8);
+    for (int k = 0; k < 3; k++) {   /* a frame's text input holds 255 bytes, so type it in three parts */
+        char part[101];
+        memcpy(part, url + k * 100, 100); part[100] = 0;
+        type(ui, build_palette_query, &c, part);
+    }
+    run(ui, build_palette_query, &c, 1);
+    CHECK(strlen(c.query) == 300 && strcmp(c.query, url) == 0);
+    key(ui, build_palette_query, &c, CUI_KEY_ENTER, 0);
+    CHECK(c.selected == 0 && !c.open);
+    CHECK(strcmp(c.after, "") == 0);   /* read after the call that closed it */
+    c.open = true;
+    run(ui, build_palette_query, &c, 1);
+    CHECK(strcmp(c.query, "") == 0 && strcmp(c.after, "") == 0);   /* reopened at once: no old text */
+    c.open = false;
+    run(ui, build_palette_query, &c, 60);
+    CHECK(strcmp(c.query, "") == 0);
+    cui_destroy(ui);
+}
+
 static void test_disclosure(void) {
     printf("disclosure: hover card, confirm popover, expandables, toc, banner, checklist\n");
     cui_ctx *ui = new_ctx();
@@ -11029,6 +11076,7 @@ int main(void) {
     test_disclosure();
     test_expandable_focus();
     test_palette_close();
+    test_palette_query();
     test_confirm_popover_keyboard();
     test_checklist();
     test_data_grid();
