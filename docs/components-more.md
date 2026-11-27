@@ -1069,6 +1069,19 @@ if (r.selection_changed && selected >= 0)
     show_details(&spans[selected]);       /* name, duration, children... */
 ```
 
+By default `color_key` cycles through six theme series colors. For seven categories, pass seven distinct hues to `cui_flame_graph_palette` instead. Theme tokens and literal RGBA colors can share a palette:
+
+```c
+const cui_color colors[] = { CUI_COLOR_SERIES(0), CUI_COLOR_SERIES(1), CUI_COLOR_SERIES(2),
+                             CUI_COLOR_SERIES(3), CUI_COLOR_SERIES(4), CUI_COLOR_SERIES(5), CUI_RGB(0xc73535) };
+cui_span_palette palette = { colors, 7 };
+cui_flame_graph_palette(ui, "capture", spans, span_count, &view, &selected, palette, .height = 240);
+```
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="images/components/span-palette-dark.png"><img src="images/components/span-palette.png" alt="The same seven steps, first with six default hues where Read and Present share a hue, then with a seven-color palette"></picture>
+
+The effective key is `color_key` when nonzero and a hash of the name otherwise. For a palette of length `n`, `key % n` selects the hue and `(key / n) % 3` selects its shade. Keys `n` through `2*n-1` give each category a distinct hue in the same shade. The array need only live through the call. Use a named palette as above (or parenthesize the whole compound literal so its comma stays inside the macro argument). Existing `cui_flame_graph` and `cui_trace_view` calls keep their six colors and shades; neither options struct changes.
+
 A time ruler along the top picks its unit from the zoom (ns, µs, ms or s; past 20 seconds it steps like a clock and labels ticks as "4 min 50 s" or "33 d 10 h") and thins its ticks on a narrow panel; faint lines carry the ticks down through the rows. Spans take their color from the series palette, hashed from the name (or from `color_key` when you set one) so a function keeps its color across frames; the selected span gets the accent outline. Labels show inside spans that have room and are cut with an ellipsis, staying in the visible part of a span that runs off the edge. Spans thinner than a point are merged with their neighbours into a quiet gray run, so a capture zoomed out never turns into noise.
 
 The wheel zooms around the pointer, Shift+wheel or a sideways scroll pans, and dragging pans sideways and, for stacks deeper than the panel, up and down. Click a span to select it (empty space clears the selection); double-click it to zoom until it fills the view, or double-click empty space to fit everything. Hovering a span shows its name, its duration and its share of its parent (or of the view, for the top row). With the graph focused, Left and Right move to the previous or next span in the row, Up to the parent and Down to the first child, and the view follows the selection; Shift+Left and Right pan, + and - zoom, Enter or Space zooms to the selection, Home or F fits everything, and Esc fits everything or, when everything is already in view, clears the selection. Zooming to a span and fitting animate, and snap with reduced motion.
@@ -1350,6 +1363,8 @@ cui_trace_view(ui, "trace", tracks, 3, spans, span_count, &view, &selected,
 Each thread, process or service has a lane of nested spans, drawn like the flame graph and sharing its colors and ruler. Markers (vsync, a GC pause, a deploy) run across every lane, with their names in a strip under the ruler. The wheel zooms around the pointer, Shift+wheel pans, and over the lane names the wheel scrolls the lanes. Dragging pans, a click selects, and a double click zooms to a span. Shift+drag measures a range, which `view.mark_start` and `mark_end` hold and the ruler labels with its length. A click on a lane's name folds it to its top row, and `collapsed` keeps that in your track array. With the viewer focused, Left and Right step along the row, Up goes to the parent and Down to the first child. + and - zoom, Enter zooms to the selection, F fits, and Esc clears the measurement and then the selection. Only the rows and spans in view are visited, and spans thinner than a point merge into runs, so 200,000 spans take under a millisecond a frame. Below 560 points the lane names get a narrower column.
 
 The trace result's `view_changed` flag also reports updates to the measurement, including when Esc clears it.
+
+Use `cui_trace_view_palette(ui, id, tracks, track_count, spans, span_count, &view, &selected, palette)` with the same [span palette](#flame-graph) and keys as the flame graph to keep category colors consistent. Ordinary named options still follow the palette.
 
 Links draw dependencies between spans, such as a request and the work it caused or a message and the job it started. Each `cui_trace_link` names two spans by their index in the sorted array and is drawn as a curve from the end of `from` to the start of `to`, across lanes, with an arrowhead at `to`; a link that runs back in time bends into an S. `tone` picks the color (`CUI_TONE_NEUTRAL` is the emphasis color), `width` the line width and `dashed` marks a weaker or inferred dependency. A link is drawn when the time range it covers meets the view, and an end out of view runs to the edge. Links of a folded lane meet its top row. Links touching the selected or hovered span, and the link under the pointer, are drawn bright and the rest subdued; the result's `hovered_link` says which link the pointer is on when no span is under it, so you can show your own tooltip. `cui_trace_span_rect(ui, cui_last_id(ui), &spans[i])` right after the call says where a span was drawn, for overlays of your own.
 

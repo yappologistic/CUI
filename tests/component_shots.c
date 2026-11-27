@@ -2205,7 +2205,27 @@ static void body_flame(cui_ctx *ui) {
     }
 }
 
+/* The first and last steps deliberately share a hue in the six-color view. */
+SCENE(span_palette) {
+    const cui_flame_span steps[] = {
+        { "Read", 0, 1, 0, 7 }, { "Decode", 1, 2, 0, 8 }, { "Parse", 2, 3, 0, 9 },
+        { "Shape", 3, 4, 0, 10 }, { "Layout", 4, 5, 0, 11 }, { "Draw", 5, 6, 0, 12 }, { "Present", 6, 7, 0, 13 }
+    };
+    const cui_color colors[] = { CUI_COLOR_SERIES(0), CUI_COLOR_SERIES(1), CUI_COLOR_SERIES(2),
+                                 CUI_COLOR_SERIES(3), CUI_COLOR_SERIES(4), CUI_COLOR_SERIES(5), CUI_RGB(0xc73535) };
+    cui_span_palette palette = { colors, 7 };
+    cui_column(ui, .width = CUI_FILL, .gap = 6) {
+        cui_text(ui, "Default: six series colors", .font = CUI_FONT_MEDIUM);
+        cui_flame_graph(ui, "default", steps, 7, NULL, NULL, .height = 56);
+    }
+    cui_column(ui, .width = CUI_FILL, .gap = 6) {
+        cui_text(ui, "Custom: seven colors", .font = CUI_FONT_MEDIUM);
+        cui_flame_graph_palette(ui, "custom", steps, 7, NULL, NULL, palette, .height = 56);
+    }
+}
+
 /* ---- more charts ---- */
+
 static float viz_traffic[7 * 24], viz_days[364];
 static void viz_data(void) {
     static bool done;
@@ -4716,7 +4736,7 @@ int main(int argc, char **argv) {
         { "carousel", scene_carousel, 700, 300, true }, { "compare-stack", scene_compare_stack, 860, 320, true },
         { "kanban", scene_kanban, 920, 480, true }, { "week-calendar", scene_week_calendar, 960, 520, true },
         { "gantt", scene_gantt, 1000, 360, true }, { "node-editor", scene_node_editor, 1000, 540, true },
-        { "flame-graph", scene_flame, 1000, 300, true },
+        { "flame-graph", scene_flame, 1000, 300, true }, { "span-palette", scene_span_palette, 720, 242, true },
         { "regex-tester", scene_dev2_regex, 760, 330, true }, { "test-explorer", scene_dev2_tests, 800, 560, true }, { "stack-trace", scene_dev2_stack, 800, 400, true }, { "request-bar", scene_dev2_request, 800, 270, true }, { "uptime", scene_dev2_uptime, 900, 380, true }, { "time-histogram", scene_dev2_histogram, 940, 250, true }, { "coverage", scene_dev2_coverage, 860, 430, true }, { "blame", scene_dev2_blame, 940, 380, true }, { "feature-flags", scene_dev2_flags, 900, 320, true }, { "api-explorer", scene_dev2_api, 860, 510, true },
         { "kv-editor", scene_dev_kv, 720, 300, true }, { "problems", scene_dev_problems, 800, 410, true }, { "pipeline", scene_dev_pipeline, 960, 240, true }, { "query-builder", scene_dev_query, 760, 330, true }, { "schedule-picker", scene_dev_schedule, 600, 270, true }, { "keymap", scene_dev_keymap, 960, 420, true }, { "commit-graph", scene_dev_commits, 960, 380, true }, { "graph-view", scene_dev_graph, 1000, 400, true }, { "waterfall", scene_dev_waterfall, 1000, 420, true }, { "trace-view", scene_dev_trace, 1000, 380, true },
         { "heatmap", scene_heatmap, 900, 330, true }, { "calendar-heatmap", scene_calendar_heatmap, 880, 220, true },

@@ -3803,6 +3803,13 @@ typedef struct cui_flame_view {
     double start, end;         /* visible time range; end <= start fits every span */
     float scroll;              /* rows scrolled off the top, in points */
 } cui_flame_view;
+/* Span colors for a flame graph or trace viewer. A nonempty palette replaces
+ * the six series colors. A span uses colors[key % count] and cycles through
+ * three shades with key / count. Entries may be theme tokens or RGBA colors;
+ * the array need only live through the call. A null or empty palette uses
+ * the theme series and their original shades. */
+typedef struct cui_span_palette { const cui_color *colors; int count; } cui_span_palette;
+
 typedef struct cui_flame_opts {
     int _;
     cui_size width;            /* default fill */
@@ -3819,6 +3826,9 @@ typedef struct cui_flame_result {
 /* selected: index into spans, -1 for none (may be NULL). */
 CUI_API cui_flame_result cui_flame_graph_ex(cui_ctx *ui, const char *id, const cui_flame_span *spans, int count,
                                             cui_flame_view *view, int *selected, const cui_flame_opts *opts);
+CUI_API cui_flame_result cui_flame_graph_palette_ex(cui_ctx *ui, const char *id, const cui_flame_span *spans, int count,
+                                                    cui_flame_view *view, int *selected,
+                                                    cui_span_palette palette, const cui_flame_opts *opts);
 /* Sorts spans into the order the graph needs: by depth, then start (longer
  * first on ties). */
 CUI_API void cui_flame_sort(cui_flame_span *spans, int count);
@@ -4532,6 +4542,9 @@ typedef struct cui_trace_result {
 } cui_trace_result;
 CUI_API cui_trace_result cui_trace_view_ex(cui_ctx *ui, const char *id, cui_trace_track *tracks, int track_count,
                                            const cui_trace_span *spans, int span_count, cui_trace_view *view, int *selected, const cui_trace_opts *opts);
+CUI_API cui_trace_result cui_trace_view_palette_ex(cui_ctx *ui, const char *id, cui_trace_track *tracks, int track_count,
+                                                   const cui_trace_span *spans, int span_count, cui_trace_view *view, int *selected,
+                                                   cui_span_palette palette, const cui_trace_opts *opts);
 CUI_API void cui_trace_sort(cui_trace_span *spans, int count);
 /* Where a span is drawn, in points (zero size when out of view or in a folded
  * lane below its top row): its time extent and row, as cui_flame_span_rect
@@ -5467,6 +5480,8 @@ CUI_API const cui_draw_data *cui_get_draw_data(cui_ctx *ui);
 #define cui_waterfall(ui, id, requests, count, ...) cui_waterfall_ex((ui), (id), (requests), (count), CUI__OPTS(cui_waterfall_opts, __VA_ARGS__))
 #define cui_trace_view(ui, id, tracks, track_count, spans, span_count, view, selected, ...) \
     cui_trace_view_ex((ui), (id), (tracks), (track_count), (spans), (span_count), (view), (selected), CUI__OPTS(cui_trace_opts, __VA_ARGS__))
+#define cui_trace_view_palette(ui, id, tracks, track_count, spans, span_count, view, selected, palette, ...) \
+    cui_trace_view_palette_ex((ui), (id), (tracks), (track_count), (spans), (span_count), (view), (selected), (palette), CUI__OPTS(cui_trace_opts, __VA_ARGS__))
 #define cui_regex_tester(ui, id, pat, pcap, text, tcap, ...) cui_regex_tester_ex((ui), (id), (pat), (pcap), (text), (tcap), CUI__OPTS(cui_regex_tester_opts, __VA_ARGS__))
 #define cui_test_explorer(ui, id, items, n, ...) cui_test_explorer_ex((ui), (id), (items), (n), CUI__OPTS(cui_test_explorer_opts, __VA_ARGS__))
 #define cui_stack_trace(ui, id, frames, n, ...) cui_stack_trace_ex((ui), (id), (frames), (n), CUI__OPTS(cui_stack_trace_opts, __VA_ARGS__))
@@ -5486,6 +5501,8 @@ CUI_API const cui_draw_data *cui_get_draw_data(cui_ctx *ui);
 #define cui_api_explorer(ui, id, endpoints, n, ...) cui_api_explorer_ex((ui), (id), (endpoints), (n), CUI__OPTS(cui_api_explorer_opts, __VA_ARGS__))
 #define cui_flame_graph(ui, id, spans, count, view, selected, ...) \
     cui_flame_graph_ex((ui), (id), (spans), (count), (view), (selected), CUI__OPTS(cui_flame_opts, __VA_ARGS__))
+#define cui_flame_graph_palette(ui, id, spans, count, view, selected, palette, ...) \
+    cui_flame_graph_palette_ex((ui), (id), (spans), (count), (view), (selected), (palette), CUI__OPTS(cui_flame_opts, __VA_ARGS__))
 /* curve and gradient editors */
 #define cui_curve_editor(ui, id, keys, count, cap, ...) cui_curve_editor_ex((ui), (id), (keys), (count), (cap), CUI__OPTS(cui_curve_opts, __VA_ARGS__))
 #define cui_gradient_editor(ui, id, stops, count, cap, ...) cui_gradient_editor_ex((ui), (id), (stops), (count), (cap), CUI__OPTS(cui_gradient_opts, __VA_ARGS__))

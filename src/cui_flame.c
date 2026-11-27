@@ -89,19 +89,28 @@ static int cui__fl_first_child(const cui_flame_span *s, int n, int i) {
 
 /* ---- colors: the series palette, hashed so a name keeps its color ---- */
 
-static uint32_t cui__fl_name_key(const char *name, uint32_t color_key) {
-    return color_key ? color_key : cui__hash_str(name ? name : "", 0xF1A3u);
-}
-static uint32_t cui__fl_key(const cui_flame_span *sp) { return cui__fl_name_key(sp->name, sp->color_key); }
-static cui_color cui__fl_fill(cui_ctx *ui, uint32_t key, bool hover) {
+/* Resolve one hue for both the bar and its label; selected spans use the same path. */
+static void cui__fl_style_item(cui_ctx *ui, cui__fl_item *it, cui_span_palette palette,
+                               const char *name, uint32_t key, bool hover, double width) {
     static const float light[3] = { 0.30f, 0.38f, 0.46f }, dark[3] = { 0.34f, 0.42f, 0.50f };
-    cui_color tone = ui->theme.colors[CUI_TOKEN_SERIES_1 + key % 6];
-    float k = (ui->mode == CUI_THEME_DARK ? dark : light)[(key / 6) % 3] + (hover ? 0.12f : 0.0f);
-    return cui_mix(CUI_C(ui, SURFACE), tone, k);
-}
-static cui_color cui__fl_fg(cui_ctx *ui, uint32_t key, cui_color fill) {
-    cui_color tone = ui->theme.colors[CUI_TOKEN_SERIES_1 + key % 6];
-    return cui__legible(cui_mix(CUI_C(ui, FOREGROUND), tone, 0.3f), fill, 4.5f);
+    if (!key) key = cui__hash_str(name ? name : "", 0xF1A3u);
+    cui_color tone;
+    uint32_t band;
+    if (palette.colors && palette.count > 0) {
+        uint32_t n = (uint32_t)palette.count;
+        tone = cui_color_of(ui, palette.colors[key % n]);
+        band = key / n;
+    } else {
+        tone = ui->theme.colors[CUI_TOKEN_SERIES_1 + key % 6];
+        band = key / 6;
+    }
+    float k = (ui->mode == CUI_THEME_DARK ? dark : light)[band % 3] + (hover ? 0.12f : 0.0f);
+    it->fill = cui_mix(CUI_C(ui, SURFACE), tone, k);
+    if (width >= CUI__FL_LABEL && name && name[0]) {
+        it->fg = cui__legible(cui_mix(CUI_C(ui, FOREGROUND), tone, 0.3f), it->fill, 4.5f);
+        it->label_len = (int)strlen(name);
+        it->label = cui__frame_strdup(ui, name, it->label_len);
+    }
 }
 
 /* ---- number formatting ---- */
@@ -414,6 +423,7 @@ static void cui__fl_reveal(const cui__fl_ctx *c, cui_flame_view *v, int i, doubl
 typedef struct {
     cui_ctx *ui;
     const cui_flame_opts *o;
+    cui_span_palette palette;
     cui_flame_result *res;
     cui_id id, sid;
     cui__fl_state *st;
@@ -647,19 +657,13 @@ static cui__fl_paint *cui__flf_build_panel(cui__flf *f, int *node) {
 }
 
 /* a span as drawn: its color, and its name when it is `w` points wide or more */
-static cui__fl_item cui__flf_span_item(cui_ctx *ui, const cui_flame_span *sp, int row, bool hovered, double w) {
-    uint32_t key = cui__fl_key(sp);
+static cui__fl_item cui__flf_span_item(cui_ctx *ui, cui_span_palette palette, const cui_flame_span *sp, int row, bool hovered, double w) {
     cui__fl_item it;
     memset(&it, 0, sizeof it);
     it.row = row;
     it.s = sp->start; it.e = sp->end;
     it.kind = hovered ? FL_HOVER : FL_SPAN;
-    it.fill = cui__fl_fill(ui, key, hovered);
-    if (w >= CUI__FL_LABEL && sp->name && sp->name[0]) {
-        it.fg = cui__fl_fg(ui, key, it.fill);
-        it.label_len = (int)strlen(sp->name);
-        it.label = cui__frame_strdup(ui, sp->name, it.label_len);
-    }
+    cui__fl_style_item(ui, &it, palette, sp->name, sp->color_key, hovered, w);
     return it;
 }
 
@@ -675,7 +679,7 @@ static void cui__flf_row_items(cui__flf *f, cui__fl_paint *p, int row, double t0
         const cui_flame_span *sp = &spans[i];
         double xs = (sp->start - t0) * k, xe = (sp->end - t0) * k;
         if (xe - xs >= 1.0) {
-            cui__fl_item it = cui__flf_span_item(ui, sp, row, i == f->hov, xe - xs);
+            cui__fl_item it = cui__flf_span_item(ui, f->palette, sp, row, i == f->hov, xe - xs);
             cui__fl_push(ui, p, &it);
             i++;
             continue;
@@ -718,7 +722,7 @@ static void cui__flf_build_spans(cui__flf *f, cui__fl_paint *p) {
     const cui_flame_span *spans = f->spans;
     if (s >= 0 && spans[s].depth >= d0 && spans[s].depth <= d1 && spans[s].end >= t0 && spans[s].start <= t1) {
         const cui_flame_span *sp = &spans[s];
-        p->sel = cui__flf_span_item(ui, sp, sp->depth, s == f->hov, (sp->end - sp->start) * k);
+        p->sel = cui__flf_span_item(ui, f->palette, sp, sp->depth, s == f->hov, (sp->end - sp->start) * k);
         p->has_sel = true;
     }
 }
@@ -745,6 +749,13 @@ static void cui__flf_tooltip(cui__flf *f) {
 
 cui_flame_result cui_flame_graph_ex(cui_ctx *ui, const char *id_str, const cui_flame_span *spans, int count,
                                     cui_flame_view *view, int *selected, const cui_flame_opts *o) {
+    return cui_flame_graph_palette_ex(ui, id_str, spans, count, view, selected,
+                                      (cui_span_palette){0}, o);
+}
+
+cui_flame_result cui_flame_graph_palette_ex(cui_ctx *ui, const char *id_str, const cui_flame_span *spans, int count,
+                                            cui_flame_view *view, int *selected,
+                                            cui_span_palette palette, const cui_flame_opts *o) {
     cui_flame_opts d;
     memset(&d, 0, sizeof d);
     if (!o) o = &d;
@@ -753,7 +764,7 @@ cui_flame_result cui_flame_graph_ex(cui_ctx *ui, const char *id_str, const cui_f
     res.hovered = res.zoomed = -1;
     cui__flf f;
     memset(&f, 0, sizeof f);
-    f.ui = ui; f.o = o; f.res = &res;
+    f.ui = ui; f.o = o; f.res = &res; f.palette = palette;
     f.id = cui_make_id(ui, id_str ? id_str : "flame");
     f.sid = f.id ^ 0xF1A5C011u;
     cui__fl_state *st = f.st = cui_state(ui, f.id ^ 0xF1A3u, sizeof *st);
@@ -1523,6 +1534,7 @@ static void cui__paint_trace(cui_ctx *ui, cui_node *n, void *data) {
 typedef struct {
     cui_ctx *ui;
     const cui_trace_opts *o;
+    cui_span_palette palette;
     cui_trace_result *res;
     cui_id id, wid;
     cui__tr_state *st;
@@ -1690,15 +1702,9 @@ static void cui__trf_row_items(cui__trf *f, cui__fl_paint *p, int t, int d, int 
         memset(&it, 0, sizeof it);
         it.row = row;
         if (xe - xs >= 1.0) {
-            uint32_t key = cui__fl_name_key(s[i].name, s[i].color_key);
             it.s = s[i].start; it.e = s[i].end;
             it.kind = i == f->hov ? FL_HOVER : FL_SPAN;
-            it.fill = cui__fl_fill(ui, key, i == f->hov);
-            if (xe - xs >= CUI__FL_LABEL && s[i].name && s[i].name[0]) {
-                it.fg = cui__fl_fg(ui, key, it.fill);
-                it.label_len = (int)strlen(s[i].name);
-                it.label = cui__frame_strdup(ui, s[i].name, it.label_len);
-            }
+            cui__fl_style_item(ui, &it, f->palette, s[i].name, s[i].color_key, i == f->hov, xe - xs);
             cui__fl_push(ui, p, &it);
             i++;
             continue;
@@ -1886,16 +1892,10 @@ static void cui__trf_build(cui__trf *f, int *node, cui__tr_paint **out) {
             const cui_trace_span *sp = &c->s[s];
             int row = c->tk[sp->track].row0 + sp->depth;
             if ((!c->tracks[sp->track].collapsed || sp->depth == 0) && row >= r0 && row <= r1 && sp->end >= v->start && sp->start <= v->end) {
-                uint32_t key = cui__fl_name_key(sp->name, sp->color_key);
                 cui__fl_item it;
                 memset(&it, 0, sizeof it);
                 it.row = row; it.s = sp->start; it.e = sp->end; it.kind = FL_SPAN;
-                it.fill = cui__fl_fill(ui, key, s == f->hov);
-                if ((sp->end - sp->start) * k >= CUI__FL_LABEL && sp->name && sp->name[0]) {
-                    it.fg = cui__fl_fg(ui, key, it.fill);
-                    it.label_len = (int)strlen(sp->name);
-                    it.label = cui__frame_strdup(ui, sp->name, it.label_len);
-                }
+                cui__fl_style_item(ui, &it, f->palette, sp->name, sp->color_key, s == f->hov, (sp->end - sp->start) * k);
                 fp->sel = it; fp->has_sel = true;
             }
         }
@@ -1924,13 +1924,20 @@ static void cui__trf_tooltip(cui__trf *f) {
 /** Draw the trace and report changes to its range, scroll position, or measurement. */
 cui_trace_result cui_trace_view_ex(cui_ctx *ui, const char *id_str, cui_trace_track *tracks, int track_count,
                                    const cui_trace_span *spans, int span_count, cui_trace_view *view, int *selected, const cui_trace_opts *o) {
+    return cui_trace_view_palette_ex(ui, id_str, tracks, track_count, spans, span_count, view, selected,
+                                     (cui_span_palette){0}, o);
+}
+
+cui_trace_result cui_trace_view_palette_ex(cui_ctx *ui, const char *id_str, cui_trace_track *tracks, int track_count,
+                                           const cui_trace_span *spans, int span_count, cui_trace_view *view, int *selected,
+                                           cui_span_palette palette, const cui_trace_opts *o) {
     cui_trace_opts d;
     memset(&d, 0, sizeof d);
     if (!o) o = &d;
     cui_trace_result res = { false, false, -1, -1 };
     cui__trf f;
     memset(&f, 0, sizeof f);
-    f.ui = ui; f.o = o; f.res = &res;
+    f.ui = ui; f.o = o; f.res = &res; f.palette = palette;
     f.id = cui_make_id(ui, id_str ? id_str : "trace");
     f.wid = f.id ^ 0x7A1Du;
     cui__tr_state *st = f.st = cui_state(ui, f.id ^ 0x7A1Eu, sizeof *st);

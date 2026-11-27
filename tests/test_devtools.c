@@ -674,6 +674,79 @@ static void test_waterfall(void) {
     cui_destroy(ui);
 }
 
+/* Render the labels as well as the fills and the selected, hovered span. */
+static void span_palette_image(bool trace, cui_theme_mode mode, const cui_span_palette *palette,
+                               const uint32_t keys[3], unsigned char *px) {
+    cui_ctx *ui = new_ctx(640, 160);
+    cui_set_theme(ui, mode);
+    cui_trace_track track = { "Worker", false };
+    cui_flame_span fs[3];
+    cui_trace_span ts[3];
+    for (int i = 0; i < 3; i++) {
+        fs[i] = (cui_flame_span){ "Work", i, i + 1, 0, keys[i] };
+        ts[i] = (cui_trace_span){ "Work", i, i + 1, 0, 0, keys[i] };
+    }
+    int sel = 2;
+    cui_id id = cui_make_id(ui, "capture");
+    cui_flame_view fv = { 0, 3, 0 };
+    cui_trace_view tv = { .start = 0, .end = 3 };
+    for (int frame = 0; frame < 3; frame++) {
+        cui_begin_frame(ui, 1.0f / 60);
+        if (trace) {
+            if (palette) cui_trace_view_palette(ui, "capture", &track, 1, ts, 3, &tv, &sel, *palette, .height = 120);
+            else cui_trace_view(ui, "capture", &track, 1, ts, 3, &tv, &sel, .height = 120);
+        } else {
+            if (palette) cui_flame_graph_palette(ui, "capture", fs, 3, &fv, &sel, *palette, .height = 120);
+            else cui_flame_graph(ui, "capture", fs, 3, &fv, &sel, .height = 120);
+        }
+        cui_end_frame(ui);
+        cui_rect r = trace ? cui_trace_span_rect(ui, id, &ts[sel]) : cui_flame_span_rect(ui, id, &fs[sel]);
+        CHECK(r.w > 40 && r.h > 0);
+        cui_input_mouse_move(ui, r.x + r.w * 0.75f, r.y + r.h * 0.5f);
+    }
+    cui_sw_render(g_sw, cui_get_draw_data(ui), px, 640, 160, 640 * 4, CUI_SW_RGBA);
+    cui_destroy(ui);
+}
+
+static void test_span_palette(void) {
+    printf("span palette: flame and trace use each palette's hue and shade, or the six series by default\n");
+    const size_t bytes = 640 * 160 * 4;
+    unsigned char *expected = malloc(bytes), *actual = malloc(bytes), *legacy = malloc(bytes);
+    CHECK(expected && actual && legacy);
+    if (!expected || !actual || !legacy) {
+        free(legacy); free(actual); free(expected);
+        return;
+    }
+
+    const uint32_t keys[] = { 5, 6, 11 }, equivalent[] = { 3, 2, 7 };
+    for (int dark = 0; dark <= 1; dark++) {
+        cui_theme_mode mode = dark ? CUI_THEME_DARK : CUI_THEME_LIGHT;
+        cui_ctx *ui = new_ctx(640, 160);
+        cui_set_theme(ui, mode);
+        cui_begin_frame(ui, 1.0f / 60); /* apply the theme before taking a literal color */
+        cui_end_frame(ui);
+        /* Given seven entries: 5 maps to series index 3; 6 to 2; 11 to 1 in the next shade.
+         * One entry is an already resolved RGBA, the others are theme tokens. */
+        cui_color colors[7] = { [4] = CUI_COLOR_SERIES(1), [5] = cui_color_of(ui, CUI_COLOR_SERIES(3)), [6] = CUI_COLOR_SERIES(2) };
+        cui_destroy(ui);
+        for (int tr = 0; tr <= 1; tr++) {
+            span_palette_image(tr != 0, mode, NULL, equivalent, expected);
+            span_palette_image(tr != 0, mode, NULL, keys, legacy);
+            CHECK(memcmp(expected, legacy, bytes) != 0);
+            /* When the same chart uses the seven-entry palette, then every pixel, including the
+             * labels and selection, matches the equivalent legacy hue/shade assignment. */
+            span_palette_image(tr != 0, mode, &(cui_span_palette){ colors, 7 }, keys, actual);
+            CHECK(memcmp(expected, actual, bytes) == 0);
+            /* Without a usable table, no span changes hue or shade. */
+            span_palette_image(tr != 0, mode, &(cui_span_palette){ NULL, 7 }, keys, actual);
+            CHECK(memcmp(legacy, actual, bytes) == 0);
+            span_palette_image(tr != 0, mode, &(cui_span_palette){ colors, 0 }, keys, actual);
+            CHECK(memcmp(legacy, actual, bytes) == 0);
+        }
+    }
+    free(legacy); free(actual); free(expected);
+}
+
 /* ------------------------------------------------------------------------ */
 /* trace viewer                                                             */
 
@@ -1795,6 +1868,7 @@ int main(void) {
     test_graph();
     test_hosted_graph_anchor();
     test_waterfall();
+    test_span_palette();
     test_trace();
     test_trace_links();
     test_trace_links_move();
