@@ -2916,6 +2916,53 @@ static void test_json_tokens(void) {
     cui_destroy(ui);
 }
 
+typedef struct { const char *json; char before[256], path[256], value[256]; bool has, ok; } json_sel_case;
+
+/** Read the selection before and after the view, as an app's toolbar and its pane would. */
+static void build_json_sel(cui_ctx *ui, void *user) {
+    json_sel_case *c = user;
+    const char *b = cui_json_view_selected_path(ui, "jsel");
+    snprintf(c->before, sizeof c->before, "%s", b ? b : "(none)");
+    c->ok = cui_json_view(ui, "jsel", c->json, .expand_depth = 9);
+    const char *p = cui_json_view_selected_path(ui, "jsel"), *v = cui_json_view_selected_value(ui, "jsel");
+    c->has = p && v;
+    snprintf(c->path, sizeof c->path, "%s", p ? p : "(none)");
+    snprintf(c->value, sizeof c->value, "%s", v ? v : "(none)");
+}
+
+/** Click row k of the view (rows are 24 points, inside 1 point of border and 8 of padding). */
+static void json_click_row(cui_ctx *ui, json_sel_case *c, int k) {
+    cui_rect r = rect_of(ui, cui_make_id(ui, "jsel"));
+    click_at(ui, build_json_sel, c, r.x + 60, r.y + 9 + 24.0f * (float)k + 12);
+}
+
+/** A click selects a row; the path and value read back, escapes decoded, containers as JSON. */
+static void test_json_selection(void) {
+    printf("JSON viewer: a click selects a node, and its path and value read back\n");
+    cui_ctx *ui = new_ctx();
+    json_sel_case c = { .json = "{\"items\": [{\"name\": \"a\\/b \\u00e9\"}, 2], \"two words\": true, \"obj\": {\"k\": null}}" };
+    run(ui, build_json_sel, &c, 2);
+    CHECK(c.ok && !c.has && !strcmp(c.path, "(none)"));
+    /* rows: 0 {  1 "items": [  2 {  3 "name"  4 }  5 2  6 ]  7 "two words"  8 "obj": {  9 "k"  10 }  11 } */
+    json_click_row(ui, &c, 3);
+    CHECK(c.has && !strcmp(c.path, "items[0].name") && !strcmp(c.value, "a/b \xc3\xa9"));
+    if (strcmp(c.path, "items[0].name")) printf("  row 3 path: %s\n", c.path);
+    json_click_row(ui, &c, 5);
+    CHECK(!strcmp(c.path, "items[1]") && !strcmp(c.value, "2"));
+    json_click_row(ui, &c, 7);
+    CHECK(!strcmp(c.path, "[\"two words\"]") && !strcmp(c.value, "true"));
+    run(ui, build_json_sel, &c, 1);
+    CHECK(!strcmp(c.before, "[\"two words\"]"));   /* read before the view: the last frame's */
+    json_click_row(ui, &c, 8);
+    CHECK(!strcmp(c.path, "obj") && !strcmp(c.value, "{\"k\": null}"));   /* an object: its JSON, and it folds */
+    json_click_row(ui, &c, 0);   /* the root last: selecting it also folds the whole tree */
+    CHECK(!strcmp(c.path, "") && !strcmp(c.value, c.json));   /* the root: the whole document */
+    c.json = "{\"items\": [";
+    run(ui, build_json_sel, &c, 1);
+    CHECK(!c.ok && !c.has);   /* invalid JSON: nothing to select in */
+    cui_destroy(ui);
+}
+
 typedef struct { int count, first, last; } grid_range_case;
 
 /** Build only the rows in the returned range for the current grid size. */
@@ -11033,6 +11080,7 @@ int main(void) {
     test_checklist();
     test_data_grid();
     test_json_tokens();
+    test_json_selection();
     test_cell_text_before_row();
     test_data_grid_shrinks();
     test_data_grid_home_range();

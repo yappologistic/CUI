@@ -458,7 +458,8 @@ static int cui__jvalue(cui__jparse *p, int parent, int depth, int key_start, int
         p->i++;
         cui__jws(p);
         int last = -1;
-        if (p->i < p->n && p->s[p->i] == (obj ? '}' : ']')) { p->i++; return me; }
+        p->nodes[me].val_start = st;   /* an object or array keeps its whole text, for a selection */
+        if (p->i < p->n && p->s[p->i] == (obj ? '}' : ']')) { p->i++; p->nodes[me].val_len = p->i - st; return me; }
         for (;;) {
             int ks = 0, kl = -1;
             cui__jws(p);
@@ -479,6 +480,7 @@ static int cui__jvalue(cui__jparse *p, int parent, int depth, int key_start, int
             cui__jfail(p, obj ? "expected ',' or '}'" : "expected ',' or ']'");
             return -1;
         }
+        p->nodes[me].val_len = p->i - st;
         return me;
     }
     if (c == '"') {
@@ -507,14 +509,106 @@ static int cui__jvalue(cui__jparse *p, int parent, int depth, int key_start, int
 
 typedef struct { uint8_t collapsed[512]; bool init; } cui__json_state;   /* by node index, bit per node */
 
-static void cui__json_rows(cui_ctx *ui, cui_id id, cui__jparse *p, cui__json_state *st, int node, const cui_color *col, bool last) {
+/* The selected node, in a state entry of its own: node + 1 (0 for none), and its path and
+ * value kept as text in two more entries, so a reader sees them before or after the view. */
+typedef struct { int node; bool has; } cui__json_sel;
+#define CUI__JSON_SEL 0x5E1EC7u
+#define CUI__JSON_SEL_PATH 0x5E1A7Bu
+#define CUI__JSON_SEL_VALUE 0x5E1FA1u
+
+/** Four hexadecimal digits as a number; the parser has already checked them. */
+static uint32_t cui__jhex4(const char *s) {
+    uint32_t v = 0;
+    for (int k = 0; k < 4; k++) {
+        char c = s[k];
+        v = v * 16 + (uint32_t)(c <= '9' ? c - '0' : (c | 0x20) - 'a' + 10);
+    }
+    return v;
+}
+
+/** The body of a JSON string (already validated) with its escapes decoded, in frame memory.
+ *  A \u escape pair for a surrogate becomes one UTF-8 sequence. Decoding never lengthens it. */
+static char *cui__jdecode(cui_ctx *ui, const char *s, int n) {
+    char *out = cui__frame_alloc(ui, (size_t)n + 1);
+    int o = 0;
+    for (int i = 0; i < n; i++) {
+        if (s[i] != '\\') { out[o++] = s[i]; continue; }
+        char e = s[++i];
+        switch (e) {
+        case 'b': out[o++] = '\b'; break;
+        case 'f': out[o++] = '\f'; break;
+        case 'n': out[o++] = '\n'; break;
+        case 'r': out[o++] = '\r'; break;
+        case 't': out[o++] = '\t'; break;
+        case 'u': {
+            uint32_t cp = cui__jhex4(s + i + 1);
+            i += 4;
+            if (cp >= 0xD800 && cp <= 0xDBFF && i + 6 < n && s[i + 1] == '\\' && s[i + 2] == 'u') {
+                uint32_t lo = cui__jhex4(s + i + 3);
+                if (lo >= 0xDC00 && lo <= 0xDFFF) { cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00); i += 6; }
+            }
+            o += cui__utf8_encode(cp, out + o);
+            break;
+        }
+        default: out[o++] = e; break;   /* \" \\ \/ */
+        }
+    }
+    out[o] = 0;
+    return out;
+}
+
+/** A key as a path step: .name for a plain identifier, ["..."] (the key's JSON text) for any other. */
+static bool cui__jplain_key(const char *s, int n) {
+    if (n <= 0) return false;
+    for (int k = 0; k < n; k++) {
+        char c = s[k];
+        bool letter = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' || c == '$';
+        if (!letter && !(k > 0 && c >= '0' && c <= '9')) return false;
+    }
+    return true;
+}
+
+/** The path of node from the root: "items[2].name", ["two words"] for other keys, "" for the root. */
+static char *cui__jpath(cui_ctx *ui, cui__jparse *p, int node) {
+    int chain[66], depth = 0;
+    for (int k = node; k > 0 && p->nodes[k].parent >= 0 && depth < 66; k = p->nodes[k].parent) chain[depth++] = k;
+    size_t cap = 1;
+    for (int d = 0; d < depth; d++) cap += (size_t)(p->nodes[chain[d]].key_len > 0 ? p->nodes[chain[d]].key_len : 0) + 16;
+    char *out = cui__frame_alloc(ui, cap), *w = out;
+    for (int d = depth - 1; d >= 0; d--) {
+        cui__jnode *nd = &p->nodes[chain[d]], *parent = &p->nodes[nd->parent];
+        if (parent->type == JV_ARR) {
+            int idx = 0;
+            for (int c = parent->first; c >= 0 && c != chain[d]; c = p->nodes[c].next) idx++;
+            w += sprintf(w, "[%d]", idx);
+        } else if (cui__jplain_key(p->s + nd->key_start, nd->key_len)) {
+            w += sprintf(w, "%s%.*s", w == out ? "" : ".", nd->key_len, p->s + nd->key_start);
+        } else {
+            w += sprintf(w, "[\"%.*s\"]", nd->key_len, p->s + nd->key_start);
+        }
+    }
+    *w = 0;
+    return out;
+}
+
+/** Copies text into the state entry key, grown to fit, and answers it. */
+static const char *cui__json_keep(cui_ctx *ui, cui_id key, const char *text) {
+    size_t n = strlen(text);
+    char *b = cui_state(ui, key, n + 1);
+    memcpy(b, text, n + 1);
+    return b;
+}
+
+static void cui__json_rows(cui_ctx *ui, cui_id id, cui__jparse *p, cui__json_state *st, cui__json_sel *sel, int node, const cui_color *col, bool last) {
     cui__jnode *nd = &p->nodes[node];
     bool container = nd->type == JV_ARR || nd->type == JV_OBJ;
     bool collapsed = node < 4096 && (st->collapsed[node >> 3] >> (node & 7) & 1);
     cui_id rid = cui__hash(&node, sizeof node, id);
     cui_interact r = cui__interact(ui, rid, 0);
     if (r.clicked && container && node < 4096) { st->collapsed[node >> 3] ^= (uint8_t)(1 << (node & 7)); collapsed = !collapsed; }
-    float hv_v = cui__hover_fade(ui, rid, (r.hovered && container), CUI__T_HIGHLIGHT), *hv = &hv_v;
+    if (r.clicked) sel->node = node + 1;   /* any row selects; an object or array row still folds */
+    bool selected = sel->node == node + 1;
+    float hv_v = cui__hover_fade(ui, rid, r.hovered, CUI__T_HIGHLIGHT), *hv = &hv_v;
     float fs = cui__fs(ui, 13);
     int row = cui__node_new(ui, rid);
     cui_node *rn = &ui->nodes[row];
@@ -522,8 +616,9 @@ static void cui__json_rows(cui_ctx *ui, cui_id id, cui__jparse *p, cui__json_sta
     rn->h = CUI_PX(24); rn->w = CUI_FILL;
     rn->pad[3] = 8 + 16.0f * (float)nd->depth;
     rn->radius = CUI_CORNERS(6);
-    rn->bg = cui_alpha(CUI_C(ui, HOVER), *hv);
-    if (container) { cui__mark_interactive(ui, row, 0); if (r.hovered) cui__set_cursor(ui, CUI_CURSOR_HAND); }
+    rn->bg = selected ? CUI_C(ui, ACTIVE) : cui_alpha(CUI_C(ui, HOVER), *hv);
+    cui__mark_interactive(ui, row, 0);
+    if (r.hovered) cui__set_cursor(ui, CUI_CURSOR_HAND);
     cui__open(ui, row);
     if (container) cui__chevron_node(ui, collapsed ? -CUI_PI * 0.5f : 0, 12, CUI_C(ui, TEXT_MUTED));
     else cui_gap(ui, 12);
@@ -550,7 +645,7 @@ static void cui__json_rows(cui_ctx *ui, cui_id id, cui__jparse *p, cui__json_sta
     }
     cui__close(ui);
     if (container && !collapsed) {
-        for (int c = nd->first; c >= 0; c = p->nodes[c].next) cui__json_rows(ui, id, p, st, c, col, p->nodes[c].next < 0);
+        for (int c = nd->first; c >= 0; c = p->nodes[c].next) cui__json_rows(ui, id, p, st, sel, c, col, p->nodes[c].next < 0);
         int close = cui__node_new(ui, 0);
         cui_node *cn = &ui->nodes[close];
         cn->dir = CUI_ROW; cn->align = CUI_ALIGN_CENTER;
@@ -578,6 +673,7 @@ static bool cui__json_view_ex_body(cui_ctx *ui, const char *id_str, const char *
     if (!o) o = &d;
     cui_id id = cui_make_id(ui, id_str);
     cui__json_state *st = cui_state(ui, id, sizeof *st);
+    cui__json_sel *sel = cui_state(ui, id ^ CUI__JSON_SEL, sizeof *sel);
     cui__jparse p;
     memset(&p, 0, sizeof p);
     p.s = json ? json : "";
@@ -614,7 +710,7 @@ static bool cui__json_view_ex_body(cui_ctx *ui, const char *id_str, const char *
     if (o->max_height > 0) ui->nodes[cui__current(ui)].max_h = o->max_height;
     if (ok) {
         cui_push_id(ui, id_str);
-        cui__json_rows(ui, id, &p, st, root, col, true);
+        cui__json_rows(ui, id, &p, st, sel, root, col, true);
         cui_pop_id(ui);
     } else {
         int line = 1, colno = 1;
@@ -631,6 +727,30 @@ static bool cui__json_view_ex_body(cui_ctx *ui, const char *id_str, const char *
     }
     cui__scroll_end_ex(ui);
     cui__close(ui);
+    if (ok && sel->node > 0 && sel->node <= p.count) {   /* a document that shrank past it drops it */
+        cui__jnode *nd = &p.nodes[sel->node - 1];
+        const char *value = nd->type == JV_STR ? cui__jdecode(ui, p.s + nd->val_start + 1, nd->val_len - 2)
+                                               : cui__frame_strdup(ui, p.s + nd->val_start, nd->val_len);
+        cui__json_keep(ui, id ^ CUI__JSON_SEL_PATH, cui__jpath(ui, &p, sel->node - 1));
+        cui__json_keep(ui, id ^ CUI__JSON_SEL_VALUE, value);
+        sel->has = true;
+    } else {   /* no selection, or no tree to select in */
+        sel->node = 0; sel->has = false;
+    }
     ui->last_id = id;
     return ok;
+}
+
+/** The selected node's path, or NULL when nothing is selected; see the header. */
+const char *cui_json_view_selected_path(cui_ctx *ui, const char *id_str) {
+    cui_id id = cui_make_id(ui, id_str);
+    cui__json_sel *sel = cui_state(ui, id ^ CUI__JSON_SEL, sizeof *sel);
+    return sel->has ? cui_state(ui, id ^ CUI__JSON_SEL_PATH, 1) : NULL;
+}
+
+/** The selected node's value as text, or NULL when nothing is selected; see the header. */
+const char *cui_json_view_selected_value(cui_ctx *ui, const char *id_str) {
+    cui_id id = cui_make_id(ui, id_str);
+    cui__json_sel *sel = cui_state(ui, id ^ CUI__JSON_SEL, sizeof *sel);
+    return sel->has ? cui_state(ui, id ^ CUI__JSON_SEL_VALUE, 1) : NULL;
 }

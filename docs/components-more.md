@@ -856,6 +856,8 @@ Collapsed objects and arrays show their size; click an object's or an array's ro
 
 Returns true when the text is valid JSON. When it is not, the call returns false and the view shows the reason with the line and column where parsing stopped. `body` is your string. It is parsed again on every frame and nothing of it is kept. The library remembers which objects and arrays are folded, under `id` and by their position in the document, so a document with a different shape should get a different `id`. `expand_depth` is the number of levels open at first (2), and applies only the first time an `id` shows valid JSON. A document of more than 4,096 values or 64 levels is reported as invalid.
 
+A click on a row selects that value, and an object or array row also folds or opens as before. `cui_json_view_selected_path(ui, id)` and `cui_json_view_selected_value(ui, id)` then answer the selected value's path, such as `items[2].name` (with `["two words"]` for a key that isn't a plain name, and `""` for the whole document), and its text: a string without its quotes and with its escapes decoded, a number, `true`, `false` or `null` as written, or the JSON of an object or array. Both are `NULL` until something is selected, so an app can offer Copy value and Copy path. Call them in the same id scope as the viewer; before the viewer in a frame they answer the last frame's selection.
+
 Keyboard: none yet. Folding and unfolding is done with the pointer.
 
 ### Markdown view
