@@ -854,7 +854,7 @@ if (!cui_json_view(ui, "response", body, .expand_depth = 1)) { /* not valid JSON
 
 Collapsed objects and arrays show their size; click an object's or an array's row to fold or unfold it.
 
-Returns true when the text is valid JSON. When it is not, the call returns false and the view shows the reason with the line and column where parsing stopped. `body` is your string. It is parsed again on every frame and nothing of it is kept. The library remembers which objects and arrays are folded, under `id` and by their position in the document, so a document with a different shape should get a different `id`. `expand_depth` is the number of levels open at first (2), and applies only the first time an `id` shows valid JSON. A document of more than 4,096 values or 64 levels is reported as invalid.
+Returns true when the text is valid JSON. When it is not, the call returns false and the view shows the reason with the line and column where parsing stopped. `body` is your string. It is parsed again on every frame and nothing of it is kept. The library remembers which objects and arrays are folded, under `id` and by their position in the document, so a document with a different shape should get a different `id`. `expand_depth` is the number of levels open at first (2), and applies only the first time an `id` shows valid JSON. A document of more than `max_nodes` values (4,096 by default) or 64 levels is reported as invalid, as too large or nested too deeply. A bigger `max_nodes` takes bigger documents, at the cost of parsing them on every frame.
 
 Keyboard: none yet. Folding and unfolding is done with the pointer.
 

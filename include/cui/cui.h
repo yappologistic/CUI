@@ -1773,6 +1773,7 @@ typedef struct cui_json_opts {
     int _;
     int expand_depth;          /* levels of the tree that start open, default 2 */
     float max_height;          /* points; taller content scrolls. 0 shows everything */
+    int max_nodes;             /* the most values a document may hold before it shows as too large, default 4096 */
 } cui_json_opts;
 CUI_API bool cui_json_view_ex(cui_ctx *ui, const char *id, const char *json, const cui_json_opts *opts);
 

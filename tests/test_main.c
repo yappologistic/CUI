@@ -2916,6 +2916,51 @@ static void test_json_tokens(void) {
     cui_destroy(ui);
 }
 
+/** A JSON array of `items` zeros: items + 1 values counting the array, in a malloc'd string. */
+static char *json_zeros(int items) {
+    char *s = malloc((size_t)items * 2 + 3), *w = s;
+    *w++ = '[';
+    for (int k = 0; k < items; k++) { if (k) *w++ = ','; *w++ = '0'; }
+    *w++ = ']'; *w = 0;
+    return s;
+}
+
+/** The node cap: 4096 values by default, and max_nodes raises it. */
+static void test_json_max_nodes(void) {
+    printf("JSON viewer: the node cap and max_nodes\n");
+    cui_ctx *ui = new_ctx();
+    char *at_cap = json_zeros(4095), *over = json_zeros(4096);
+    bool ok_at_cap, ok_over, ok_raised, ok_low;
+    cui_begin_frame(ui, 1.0f / 60.0f);
+    ok_at_cap = cui_json_view(ui, "at cap", at_cap);
+    ok_over = cui_json_view(ui, "over", over);
+    ok_raised = cui_json_view(ui, "raised", over, .max_nodes = 5000);
+    ok_low = cui_json_view(ui, "low", "[1, 2, 3]", .max_nodes = 3);
+    cui_end_frame(ui);
+    CHECK(ok_at_cap);              /* 4096 values: the default cap */
+    CHECK(!ok_over);               /* 4097: too large by default */
+    CHECK(ok_raised);              /* the same document with max_nodes = 5000 */
+    CHECK(!ok_low);                /* 4 values over a cap of 3 */
+    free(at_cap); free(over);
+    /* folding reaches values past the old 4096: "x" is value ~4204, after 4200 zeros kept
+     * out of sight in a folded array. At expand_depth 1 it is folded like the same document
+     * without the zeros, so both views show the same 4 rows */
+    char *zeros = json_zeros(4200), *deep = malloc(strlen(zeros) + 64);
+    sprintf(deep, "{\"big\":{\"a\":{\"b\":%s}},\"x\":{\"y\":1}}", zeros);
+    cui_id big = cui_make_id(ui, "deep"), small = cui_make_id(ui, "shallow");
+    for (int f = 0; f < 2; f++) {
+        cui_begin_frame(ui, 1.0f / 60.0f);
+        CHECK(cui_json_view(ui, "deep", deep, .max_nodes = 5000, .expand_depth = 1));
+        CHECK(cui_json_view(ui, "shallow", "{\"big\":{\"a\":{\"b\":[0]}},\"x\":{\"y\":1}}", .expand_depth = 1));
+        cui_end_frame(ui);
+    }
+    float diff = rect_of(ui, big).h - rect_of(ui, small).h;
+    if (fabsf(diff) > 0.5f) printf("  deep minus shallow height: %g\n", diff);
+    CHECK(fabsf(diff) <= 0.5f);
+    free(zeros); free(deep);
+    cui_destroy(ui);
+}
+
 typedef struct { int count, first, last; } grid_range_case;
 
 /** Build only the rows in the returned range for the current grid size. */
@@ -11033,6 +11078,7 @@ int main(void) {
     test_checklist();
     test_data_grid();
     test_json_tokens();
+    test_json_max_nodes();
     test_cell_text_before_row();
     test_data_grid_shrinks();
     test_data_grid_home_range();

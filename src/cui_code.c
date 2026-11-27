@@ -505,15 +505,21 @@ static int cui__jvalue(cui__jparse *p, int parent, int depth, int key_start, int
     return me;
 }
 
-typedef struct { uint8_t collapsed[512]; bool init; } cui__json_state;   /* by node index, bit per node */
+typedef struct { bool init; } cui__json_state;
+#define CUI__JSON_FOLDS 0xF01D5u   /* the folded bitmap's state, a bit per node by index */
 
-static void cui__json_rows(cui_ctx *ui, cui_id id, cui__jparse *p, cui__json_state *st, int node, const cui_color *col, bool last) {
+/** The bitmap of folded objects and arrays, grown to hold `nodes` bits; growing keeps the bits there. */
+static uint8_t *cui__json_folds(cui_ctx *ui, cui_id id, int nodes) {
+    return cui_state(ui, id ^ CUI__JSON_FOLDS, (size_t)(nodes + 7) / 8);
+}
+
+static void cui__json_rows(cui_ctx *ui, cui_id id, cui__jparse *p, uint8_t *folds, int node, const cui_color *col, bool last) {
     cui__jnode *nd = &p->nodes[node];
     bool container = nd->type == JV_ARR || nd->type == JV_OBJ;
-    bool collapsed = node < 4096 && (st->collapsed[node >> 3] >> (node & 7) & 1);
+    bool collapsed = folds[node >> 3] >> (node & 7) & 1;
     cui_id rid = cui__hash(&node, sizeof node, id);
     cui_interact r = cui__interact(ui, rid, 0);
-    if (r.clicked && container && node < 4096) { st->collapsed[node >> 3] ^= (uint8_t)(1 << (node & 7)); collapsed = !collapsed; }
+    if (r.clicked && container) { folds[node >> 3] ^= (uint8_t)(1 << (node & 7)); collapsed = !collapsed; }
     float hv_v = cui__hover_fade(ui, rid, (r.hovered && container), CUI__T_HIGHLIGHT), *hv = &hv_v;
     float fs = cui__fs(ui, 13);
     int row = cui__node_new(ui, rid);
@@ -550,7 +556,7 @@ static void cui__json_rows(cui_ctx *ui, cui_id id, cui__jparse *p, cui__json_sta
     }
     cui__close(ui);
     if (container && !collapsed) {
-        for (int c = nd->first; c >= 0; c = p->nodes[c].next) cui__json_rows(ui, id, p, st, c, col, p->nodes[c].next < 0);
+        for (int c = nd->first; c >= 0; c = p->nodes[c].next) cui__json_rows(ui, id, p, folds, c, col, p->nodes[c].next < 0);
         int close = cui__node_new(ui, 0);
         cui_node *cn = &ui->nodes[close];
         cn->dir = CUI_ROW; cn->align = CUI_ALIGN_CENTER;
@@ -582,15 +588,17 @@ static bool cui__json_view_ex_body(cui_ctx *ui, const char *id_str, const char *
     memset(&p, 0, sizeof p);
     p.s = json ? json : "";
     p.n = (int)strlen(p.s);
-    p.cap = 4096;
+    p.cap = o->max_nodes > 0 ? o->max_nodes : 4096;
     p.nodes = cui__frame_alloc(ui, sizeof(cui__jnode) * (size_t)p.cap);
+    if (!p.nodes) p.cap = 0;   /* no memory for that many: report it as too large */
     int root = cui__jvalue(&p, -1, 0, 0, -1);
     if (root >= 0) { cui__jws(&p); if (p.i < p.n) cui__jfail(&p, "unexpected text after the value"); }
     bool ok = root >= 0 && !p.err;
+    uint8_t *folds = cui__json_folds(ui, id, ok ? p.count : 1);
     if (ok && !st->init) {
         int depth = o->expand_depth > 0 ? o->expand_depth : 2;
-        for (int k = 0; k < p.count && k < 4096; k++)
-            if ((p.nodes[k].type == JV_ARR || p.nodes[k].type == JV_OBJ) && p.nodes[k].depth >= depth) st->collapsed[k >> 3] |= (uint8_t)(1 << (k & 7));
+        for (int k = 0; k < p.count; k++)
+            if ((p.nodes[k].type == JV_ARR || p.nodes[k].type == JV_OBJ) && p.nodes[k].depth >= depth) folds[k >> 3] |= (uint8_t)(1 << (k & 7));
         st->init = true;
     }
     cui_color col[TK_COUNT];
@@ -614,7 +622,7 @@ static bool cui__json_view_ex_body(cui_ctx *ui, const char *id_str, const char *
     if (o->max_height > 0) ui->nodes[cui__current(ui)].max_h = o->max_height;
     if (ok) {
         cui_push_id(ui, id_str);
-        cui__json_rows(ui, id, &p, st, root, col, true);
+        cui__json_rows(ui, id, &p, folds, root, col, true);
         cui_pop_id(ui);
     } else {
         int line = 1, colno = 1;
