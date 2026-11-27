@@ -2734,7 +2734,7 @@ static void test_palette_close(void) {
     cui_destroy(ui);
 }
 
-typedef struct { bool open; int selected; char query[1100]; char trace[1100]; } palette_query_case;
+typedef struct { bool open; int selected; char query[1100]; char after[1100]; char trace[1100]; } palette_query_case;
 
 /** Read the query first, then offer a command built from it, as an app adding "Open <query>" does. */
 static void build_palette_query(cui_ctx *ui, void *user) {
@@ -2745,9 +2745,11 @@ static void build_palette_query(cui_ctx *ui, void *user) {
     int n = c->query[0] ? 2 : 1;
     int k = cui_command_palette(ui, &c->open, c->query[0] ? cmds : cmds + 1, n);
     if (k >= 0) c->selected = c->query[0] ? k : k + 1;
+    snprintf(c->after, sizeof c->after, "%s", cui_command_palette_query(ui));
 }
 
-/** The query reads back in full, longer than the old 128 bytes, and is empty once closed. */
+/** The query reads back in full, longer than the old 128 bytes, is empty once closed, even in the
+ *  frame that closed it, and a palette reopened right away starts empty. */
 static void test_palette_query(void) {
     printf("command palette: the query reads back, and a command made from it is chosen\n");
     cui_ctx *ui = new_ctx();
@@ -2769,6 +2771,11 @@ static void test_palette_query(void) {
     CHECK(strlen(c.query) == 300 && strcmp(c.query, url) == 0);
     key(ui, build_palette_query, &c, CUI_KEY_ENTER, 0);
     CHECK(c.selected == 0 && !c.open);
+    CHECK(strcmp(c.after, "") == 0);   /* read after the call that closed it */
+    c.open = true;
+    run(ui, build_palette_query, &c, 1);
+    CHECK(strcmp(c.query, "") == 0 && strcmp(c.after, "") == 0);   /* reopened at once: no old text */
+    c.open = false;
     run(ui, build_palette_query, &c, 60);
     CHECK(strcmp(c.query, "") == 0);
     cui_destroy(ui);

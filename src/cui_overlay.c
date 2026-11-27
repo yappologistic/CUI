@@ -1773,6 +1773,7 @@ int cui_command_palette(cui_ctx *ui, bool *open, const cui_command *cmds, int co
     if (!is_open) cui_pop_disabled(ui);
     cui__float_end(ui);
     if (chosen >= 0 && open) { *open = false; ui->kpressed[CUI_KEY_ENTER] = 0; }
+    if (!open || !*open) st->was_open = false;   /* closed by this call: the query reads "", and reopening starts empty */
     return chosen;
 }
 
