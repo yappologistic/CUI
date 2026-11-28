@@ -377,7 +377,8 @@ static void page_navigation(cui_ctx *ui, gallery *g) {
         cui_stepper(ui, steps, 4, g->step);
         cui_row(ui, .gap = 8, .wrap = true) {
             if (cui_button(ui, "Back", .disabled = g->step == 0)) g->step--;
-            if (cui_button(ui, g->step >= 3 ? "Finish" : "Next", .variant = CUI_BUTTON_PRIMARY, .icon_right = CUI_ICON_ARROW_RIGHT)) {
+            /* one id for both captions, so keyboard focus stays when Next becomes Finish */
+            if (cui_button(ui, g->step >= 3 ? "Finish###step_next" : "Next###step_next", .variant = CUI_BUTTON_PRIMARY, .icon_right = CUI_ICON_ARROW_RIGHT)) {
                 if (g->step < 3) g->step++;
                 else cui_toast(ui, "All set", .tone = CUI_TONE_SUCCESS);
             }
