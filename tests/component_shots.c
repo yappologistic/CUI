@@ -2066,6 +2066,55 @@ static void body_node_editor(cui_ctx *ui) {
     }
 }
 
+/* ---- board: a small mind map, its "Design" item selected ---- */
+static cui_rect bd_rect[6] = { { 370, 180, 190, 0 }, { 30, 30, 200, 0 }, { 30, 290, 200, 0 },
+                               { 690, 30, 200, 0 }, { 690, 220, 200, 0 }, { 380, 380, 170, 0 } };
+static bool bd_wire = true, bd_visual;
+static cui_node_view bd_view;
+static cui_id bd_design_card;
+static void body_board(cui_ctx *ui);
+static void scene_board(cui_ctx *ui, int f) {
+    if (f < 0) {   /* click "Design" to select it */
+        int t = -f - 1;
+        cui_rect d = cui_get_rect(ui, bd_design_card);
+        if (t == 8) cui_input_mouse_move(ui, d.x + d.w - 30, d.y + 14);
+        if (t == 9) cui_input_mouse_button(ui, CUI_MOUSE_LEFT, true);
+        if (t == 10) cui_input_mouse_button(ui, CUI_MOUSE_LEFT, false);
+        if (t == 11) cui_input_mouse_move(ui, d.x + d.w + 300, d.y + 220);
+        return;
+    }
+    frame_wrap(ui, body_board);
+}
+static void bd_title(cui_ctx *ui, const char *title) { cui_text(ui, title, .font = CUI_FONT_MEDIUM); }
+static void body_board(cui_ctx *ui) {
+    static const cui_tone tones[6] = { CUI_TONE_ACCENT, CUI_TONE_INFO, CUI_TONE_VIOLET, CUI_TONE_TEAL, CUI_TONE_ROSE, CUI_TONE_NEUTRAL };
+    if (cui_board_begin(ui, "launch", &bd_view, .height = CUI_FILL, .minimap = true)) {
+        for (int i = 0; i < 6; i++) {
+            cui_board_item(ui, i, &bd_rect[i], .tone = tones[i], .radius = i == 5 ? -1 : 0) {
+                switch (i) {
+                case 0: bd_title(ui, "Launch plan"); cui_text(ui, "First quarter 2027", .size = 12, .color = CUI_COLOR_TEXT_SECONDARY); break;
+                case 1:
+                    bd_title(ui, "Research");
+                    cui_text(ui, "Twelve interviews, survey of 400 users", .size = 12, .color = CUI_COLOR_TEXT_SECONDARY);
+                    break;
+                case 2:
+                    bd_title(ui, "Design");
+                    cui_checkbox(ui, "Wireframes", &bd_wire);
+                    cui_checkbox(ui, "Visual design", &bd_visual);
+                    break;
+                case 3: bd_title(ui, "Build"); cui_progress(ui, 0.62f); cui_text(ui, "62% of the milestones", .size = 12, .color = CUI_COLOR_TEXT_SECONDARY); break;
+                case 4: bd_title(ui, "Marketing"); cui_text(ui, "Landing page, press kit, launch video", .size = 12, .color = CUI_COLOR_TEXT_SECONDARY); break;
+                case 5: cui_text(ui, "Ask legal about the name", .size = 12, .align = CUI_TEXT_CENTER, .width = CUI_FILL); break;
+                }
+            }
+            if (i == 2) bd_design_card = cui_last_id(ui);
+        }
+        for (int k = 1; k <= 4; k++) cui_board_link(ui, k, 0, k, .tone = tones[k]);
+        cui_board_link(ui, 5, 4, 5, .path = CUI_BOARD_STRAIGHT);
+        cui_board_end(ui);
+    }
+}
+
 /* ---- flame graph: two game frames from a profiler capture ---- */
 static cui_flame_span fl_spans[2400];
 static int fl_n, fl_sel = -1, fl_hover = -1;
@@ -4715,7 +4764,7 @@ int main(int argc, char **argv) {
         { "comments", scene_comments, 600, 370, true }, { "presence-ticker", scene_presence_ticker, 640, 170, true },
         { "carousel", scene_carousel, 700, 300, true }, { "compare-stack", scene_compare_stack, 860, 320, true },
         { "kanban", scene_kanban, 920, 480, true }, { "week-calendar", scene_week_calendar, 960, 520, true },
-        { "gantt", scene_gantt, 1000, 360, true }, { "node-editor", scene_node_editor, 1000, 540, true },
+        { "gantt", scene_gantt, 1000, 360, true }, { "node-editor", scene_node_editor, 1000, 540, true }, { "board", scene_board, 1000, 540, true },
         { "flame-graph", scene_flame, 1000, 300, true },
         { "regex-tester", scene_dev2_regex, 760, 330, true }, { "test-explorer", scene_dev2_tests, 800, 560, true }, { "stack-trace", scene_dev2_stack, 800, 400, true }, { "request-bar", scene_dev2_request, 800, 270, true }, { "uptime", scene_dev2_uptime, 900, 380, true }, { "time-histogram", scene_dev2_histogram, 940, 250, true }, { "coverage", scene_dev2_coverage, 860, 430, true }, { "blame", scene_dev2_blame, 940, 380, true }, { "feature-flags", scene_dev2_flags, 900, 320, true }, { "api-explorer", scene_dev2_api, 860, 510, true },
         { "kv-editor", scene_dev_kv, 720, 300, true }, { "problems", scene_dev_problems, 800, 410, true }, { "pipeline", scene_dev_pipeline, 960, 240, true }, { "query-builder", scene_dev_query, 760, 330, true }, { "schedule-picker", scene_dev_schedule, 600, 270, true }, { "keymap", scene_dev_keymap, 960, 420, true }, { "commit-graph", scene_dev_commits, 960, 380, true }, { "graph-view", scene_dev_graph, 1000, 400, true }, { "waterfall", scene_dev_waterfall, 1000, 420, true }, { "trace-view", scene_dev_trace, 1000, 380, true },

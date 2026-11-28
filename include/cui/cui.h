@@ -3279,6 +3279,100 @@ CUI_API bool cui_node_deleted(cui_ctx *ui, int *node_id);
 #define cui_node_content(ui)                 CUI__SCOPE(cui_node_content_begin(ui), cui_node_content_end(ui))
 #endif
 
+/* ---- Board ---- */
+
+/* Board: boxes placed freely on a canvas that pans and zooms, joined by
+ * lines, for mind maps, concept maps and whiteboards. You own the items (an
+ * id and a rectangle in canvas points each) and the links; the board moves
+ * and resizes the rectangles you pass and reports what the user deleted.
+ * Read the deletions right after cui_board_begin, so an item you remove is
+ * not built in that frame:
+ *
+ *     static cui_node_view view;
+ *     if (cui_board_begin(ui, "map", &view, .height = CUI_PX(480))) {
+ *         int id;
+ *         while (cui_board_item_deleted(ui, &id)) remove_item(id);
+ *         while (cui_board_link_removed(ui, &id)) remove_link(id);
+ *         for (each item it)
+ *             cui_board_item(ui, it->id, &it->rect, .tone = it->tone) {
+ *                 cui_inline_edit(ui, "##title", it->title, sizeof it->title);
+ *             }
+ *         for (each link l) cui_board_link(ui, l->id, l->from, l->to);
+ *         cui_board_end(ui);
+ *     }
+ *
+ * Any component goes inside an item, except another board (boards do not
+ * nest: cui_board_begin returns false inside one): it is laid out at 100%
+ * and scaled with the view, and stays interactive at any zoom. Strings and
+ * other data it shows must live until the end of the frame, as for every
+ * component.
+ * Mouse: the wheel zooms around the pointer; dragging the empty canvas pans
+ * it (Shift or Ctrl, Command on macOS, and drag draws a marquee; with .drag_selects the other
+ * way round), as do the middle button and Space and drag. Drag an item to
+ * move it with the rest of the selection, its edges and corners to resize
+ * it. Click an item or a line to select it, Shift or Ctrl (Command) to add.
+ * Keyboard: Tab moves between items, arrows move the selection (Shift for
+ * a point), Delete removes it, Ctrl+A (Command+A) selects all, Esc clears, F fits,
+ * + - and 0 zoom. The view is the node editor's: cui_canvas_controls and
+ * cui_live_cursors work with it. */
+typedef enum cui_board_path {
+    CUI_BOARD_CURVE = 0,       /* leaves and enters the sides facing each other, in a soft curve */
+    CUI_BOARD_STRAIGHT         /* from centre to centre, cut at the edges */
+} cui_board_path;
+typedef struct cui_board_opts {
+    int _;
+    cui_size width, height;    /* default: fill the width, 480 tall */
+    float min_zoom, max_zoom;  /* default 0.1 .. 4 */
+    float snap;                /* moved and resized items land on this grid step, in canvas points, when dropped; 0 off */
+    bool no_grid;
+    bool minimap;              /* an overview in the bottom right corner; click or drag it to move there */
+    bool drag_selects;         /* dragging the empty canvas draws a marquee and Shift and drag pans */
+    bool read_only;            /* pan, zoom and select only: nothing moves, resizes or is deleted */
+} cui_board_opts;
+CUI_API bool cui_board_begin_ex(cui_ctx *ui, const char *id, cui_node_view *view, const cui_board_opts *opts);
+CUI_API void cui_board_end(cui_ctx *ui);
+/* An item at *rect in canvas points, moved and resized in place. A width of
+ * 0 is 160; a height of 0 follows the content. Returns true when the item is
+ * in view: build its content then and call cui_board_item_end (the macro
+ * does both); otherwise it is only drawn as a box in the minimap and its
+ * lines still meet it. */
+typedef struct cui_board_item_opts {
+    int _;
+    cui_color fill;            /* background; unset: `tone`. Content keeps the theme's text colors, so pick a light fill in a light theme */
+    cui_tone tone;             /* background as a light tint of a tone of the theme when `fill` is unset; NEUTRAL: the surface */
+    cui_color border;          /* unset: from the fill's tone */
+    float border_width;        /* default 1; negative for none */
+    float radius;              /* corner radius, default the theme's control radius; negative: a pill */
+    float pad;                 /* space around the content, default 12 */
+    float min_width, min_height;   /* resizing stops here, default 64 x 32 */
+    bool fixed_size;           /* the edges do not resize it */
+    bool locked;               /* cannot be moved, resized or deleted; it can still be selected */
+} cui_board_item_opts;
+CUI_API bool cui_board_item_begin_ex(cui_ctx *ui, int item_id, cui_rect *rect, const cui_board_item_opts *opts);
+CUI_API void cui_board_item_end(cui_ctx *ui);
+/* Inside a board: the item is selected. */
+CUI_API bool cui_board_selected(cui_ctx *ui, int item_id);
+/* A line between two items, drawn under them. Returns true while it is selected. */
+typedef struct cui_board_link_opts {
+    int _;
+    cui_board_path path;
+    float width;               /* points at 100%, default 1.5 */
+    cui_color color;           /* unset: `tone` */
+    cui_tone tone;             /* NEUTRAL: the strong border color */
+} cui_board_link_opts;
+CUI_API bool cui_board_link_ex(cui_ctx *ui, int link_id, int from_item, int to_item, const cui_board_link_opts *opts);
+/* What the user deleted, one id per call; call them right after
+ * cui_board_begin. Delete is weighed against the frame it was pressed in (its
+ * items, their locks and its lines) and reported in the next one. Deleting an
+ * item also removes its lines. */
+CUI_API bool cui_board_item_deleted(cui_ctx *ui, int *item_id);
+CUI_API bool cui_board_link_removed(cui_ctx *ui, int *link_id);
+#ifndef __cplusplus
+#define cui_board_begin(ui, id, view, ...) cui_board_begin_ex((ui), (id), (view), CUI__OPTS(cui_board_opts, __VA_ARGS__))
+#define cui_board_item(ui, id, rect, ...)  CUI__SCOPE_IF(cui_board_item_begin_ex((ui), (id), (rect), CUI__OPTS(cui_board_item_opts, __VA_ARGS__)), cui_board_item_end(ui))
+#define cui_board_link(ui, id, a, b, ...)  cui_board_link_ex((ui), (id), (a), (b), CUI__OPTS(cui_board_link_opts, __VA_ARGS__))
+#endif
+
 /* ------------------------------------------------------------------------ */
 /* App chrome: menu bar, toolbar, status bar, document tabs                 */
 /* ------------------------------------------------------------------------ */

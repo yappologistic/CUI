@@ -6,6 +6,7 @@ What changed in CUI, newest first. Every component mentioned here runs live in t
 
 ### Added
 
+- Board: boxes placed freely on a canvas that pans and zooms, holding any components, joined by curved or straight lines, for mind maps, concept maps and whiteboards. You own the rectangles and the links; the board moves and resizes the rectangles, reports deletions, follows the content's height when you give none, and skips the content of items out of view. Items take a tone or colors of your own, a radius and padding, and can be locked or of fixed size; `snap` puts dropped items on a grid and `read_only` only lets people look. It shares the node editor's view, so canvas controls and live cursors work with it. Try it on the gallery's *Canvas and bars* page. See [Board](docs/components-more.md#board).
 - `cui_app_desc.custom_title_bar`: on Windows the system's title bar goes and the app draws its own, while the window keeps its border, shadow, resizing on every edge and its size, place and maximized state. A platform layer of your own takes part through `cui_platform_iface.window_frame` and `.window_button`, and moves the window over what `cui_title_bar_hit_test` calls the caption. `cui_title_bar`, the component that draws the bar, follows in its own change; until then such a window has no caption to drag it by. See [Platform services](docs/integration.md#platform-services) ([#134](https://github.com/yappologistic/CUI/pull/134)).
 
 ### Fixed
