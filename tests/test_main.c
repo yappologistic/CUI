@@ -4172,6 +4172,53 @@ static void build_trap_in_inactive_scope(cui_ctx *ui, void *u) {
     cui_focus_scope(ui, 1, false) { build_trap(ui, u); }
 }
 
+typedef struct { char buf[32]; cui_id input_id, canvas_id; bool focus_before, clear_after_comp; } focus_id_ctx;
+static void paint_focus_id_canvas(cui_ctx *ui, cui_rect r, void *user) { (void)ui; (void)r; (void)user; }
+static void build_focus_id(cui_ctx *ui, void *u) {
+    focus_id_ctx *c = u;
+    if (c->focus_before && c->input_id) {
+        cui_focus_id(ui, c->input_id);
+        c->focus_before = false;
+    }
+    cui_input(ui, "Search", c->buf, sizeof c->buf);
+    c->input_id = cui_last_id(ui);
+    cui_canvas_ex(ui, "Comp", CUI_PX(80), CUI_PX(40), paint_focus_id_canvas, NULL, 0,
+                  &(cui_canvas_opts){ .focusable = true, .component_input = true });
+    c->canvas_id = cui_last_id(ui);
+    if (c->clear_after_comp) {
+        cui_request_component_focus(ui, c->canvas_id);
+        cui_focus_id(ui, 0);
+        c->clear_after_comp = false;
+    }
+}
+
+static void test_focus_id(void) {
+    printf("focus: cui_focus_id focuses any focusable control and 0 clears focus\n");
+    cui_ctx *ui = new_ctx();
+    focus_id_ctx c;
+    memset(&c, 0, sizeof c);
+    run(ui, build_focus_id, &c, 1);
+    CHECK(c.input_id != 0 && c.canvas_id != 0 && cui_focused_id(ui) == 0 && !cui_wants_keyboard(ui));
+    /* requesting focus before the control is built takes effect on the same frame */
+    c.focus_before = true;
+    run(ui, build_focus_id, &c, 1);
+    CHECK(cui_focused_id(ui) == c.input_id && cui_wants_keyboard(ui));
+    /* passing 0 clears focus */
+    cui_focus_id(ui, 0);
+    run(ui, build_focus_id, &c, 1);
+    CHECK(cui_focused_id(ui) == 0 && !cui_wants_keyboard(ui));
+    /* passing 0 also cancels an earlier component focus request from the same frame */
+    c.clear_after_comp = true;
+    run(ui, build_focus_id, &c, 1);
+    CHECK(cui_focused_id(ui) == 0);
+    /* requesting focus between frames takes effect on the next frame */
+    cui_focus_id(ui, c.input_id);
+    CHECK(cui_needs_redraw(ui));
+    run(ui, build_focus_id, &c, 1);
+    CHECK(cui_focused_id(ui) == c.input_id && cui_wants_keyboard(ui));
+    cui_destroy(ui);
+}
+
 static void test_focus_trap(void) {
     printf("overlays: tab focus stays inside a modal\n");
     cui_ctx *ui = new_ctx();
@@ -11091,6 +11138,7 @@ int main(void) {
     test_dialog_resize();
     test_dialog_resize_footer_and_window();
     test_menu();
+    test_focus_id();
     test_focus_trap();
     test_modal_popup_focus_trap();
     test_tag_limit_batch();

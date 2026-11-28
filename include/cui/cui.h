@@ -5182,6 +5182,9 @@ CUI_API void cui_request_component_focus(cui_ctx *ui, cui_id id);
 CUI_API bool cui_component_has_input(cui_ctx *ui, cui_id id);
 /* Current owner, including built-ins. Ownership alone does not imply eligibility. */
 CUI_API cui_id cui_focused_id(cui_ctx *ui);
+/* Request keyboard focus for any focusable control by id (takes effect when
+ * that control is next built; pass 0 to clear focus). */
+CUI_API void cui_focus_id(cui_ctx *ui, cui_id id);
 CUI_API bool cui_window_focused(cui_ctx *ui);
 
 /* Whether `id` has keyboard focus with its ring showing; for a painter. */

@@ -906,6 +906,20 @@ bool cui_key_action_down(cui_ctx *ui, cui_key key) {
     return cui_key_down(ui, key) && !ui->component_input.blocked_keys[key];
 }
 cui_id cui_focused_id(cui_ctx *ui) { return ui->focus; }
+void cui_focus_id(cui_ctx *ui, cui_id id) {
+    if (!ui) return;
+    if (!id) {
+        if (ui->focus) cui_request_redraw(ui);
+        ui->focus = 0;
+        ui->focus_next_request = 0;
+        ui->component_input.focus_request = 0;
+        ui->component_input.focus_owner = 0;
+        return;
+    }
+    if (ui->focus != id) cui_request_redraw(ui);
+    ui->focus_next_request = id;
+    ui->component_input.focus_request = 0;
+}
 void cui_dispatch_input(cui_ctx *ui, const cui_input_event *event, cui_input_route_fn route, void *user) {
     ui->component_input.repeated = false;
     if (event->kind == CUI_INPUT_FOCUS) {
