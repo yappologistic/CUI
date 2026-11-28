@@ -4333,6 +4333,41 @@ static void test_tag_limit_batch(void) {
     cui_destroy(ui);
 }
 
+typedef struct { char tags[1024]; cui_id id; } many_tags_ctx;
+
+/** Draw a tag input whose buffer holds more tags than the field shows. */
+static void build_many_tags(cui_ctx *ui, void *u) {
+    many_tags_ctx *x = u;
+    cui_tag_input(ui, "tags", x->tags, sizeof x->tags);
+    x->id = cui_last_id(ui);
+}
+
+/** Write tags t0 to t(count - 1), skipping one index, as the field stores them. */
+static void tag_list(char *out, size_t cap, int count, int skip) {
+    size_t o = 0;
+    out[0] = 0;
+    for (int k = 0; k < count && o < cap; k++)
+        if (k != skip) o += (size_t)snprintf(out + o, cap - o, "%st%d", o ? ", " : "", k);
+}
+
+/** Backspace removes the last shown tag and keeps the tags beyond the shown slots. */
+static void test_tag_remove_keeps_hidden(void) {
+    printf("tag input: removing a shown tag keeps the hidden tags\n");
+    cui_ctx *ui = new_ctx();
+    many_tags_ctx x;
+    memset(&x, 0, sizeof x);
+    tag_list(x.tags, sizeof x.tags, 66, -1);
+    run(ui, build_many_tags, &x, 2);
+    cui_rect r = rect_of(ui, x.id);
+    click_at(ui, build_many_tags, &x, r.x + r.w - 12, r.y + r.h - 12);
+    key(ui, build_many_tags, &x, CUI_KEY_BACKSPACE, 0);
+    char want[1024];
+    tag_list(want, sizeof want, 66, 63);
+    if (strcmp(x.tags, want) != 0) printf("  Tags after Backspace: %s\n", x.tags);
+    CHECK(strcmp(x.tags, want) == 0);
+    cui_destroy(ui);
+}
+
 /** Ordinary editing, replacement of complete codes, and held activation. */
 static void test_extras(void) {
     printf("extras: tag input, one time code, hold to confirm\n");
@@ -11094,6 +11129,7 @@ int main(void) {
     test_focus_trap();
     test_modal_popup_focus_trap();
     test_tag_limit_batch();
+    test_tag_remove_keeps_hidden();
     test_extras();
     test_toast_deadline();
     test_reorder();

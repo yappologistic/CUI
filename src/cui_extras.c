@@ -148,16 +148,28 @@ static int cui__tag_split(const char *buf, int *starts, int *lens, int max) {
     return n;
 }
 
-static void cui__tag_rebuild(char *buf, size_t cap, const char *src, const int *starts, const int *lens, int n, int skip) {
-    char tmp[2048];
-    size_t o = 0;
-    for (int k = 0; k < n; k++) {
-        if (k == skip) continue;
-        if (o && o + 2 < sizeof tmp) { tmp[o++] = ','; tmp[o++] = ' '; }
-        for (int j = 0; j < lens[k] && o + 1 < sizeof tmp; j++) tmp[o++] = src[starts[k] + j];
+/** Remove one tag in place, with its separator, and keep every other tag as written. */
+static void cui__tag_remove(char *buf, int skip) {
+    int len = (int)strlen(buf), k = 0, i = 0, prev_end = 0;
+    while (i < len) {
+        while (i < len && (buf[i] == ',' || buf[i] == ' ')) i++;
+        int s = i;
+        while (i < len && buf[i] != ',') i++;
+        int e = i;
+        while (e > s && buf[e - 1] == ' ') e--;
+        if (e == s) continue;
+        if (k == skip) {
+            int next = i;
+            while (next < len && (buf[next] == ',' || buf[next] == ' ')) next++;
+            /* Join the neighbours with the following separator, or drop the
+             * preceding one when this is the last tag. */
+            int from = next < len ? s : prev_end, to = next < len ? next : len;
+            memmove(buf + from, buf + to, (size_t)(len - to + 1));
+            return;
+        }
+        prev_end = e;
+        k++;
     }
-    tmp[o] = 0;
-    snprintf(buf, cap, "%s", tmp);
 }
 
 /** Report a committed tag only if it contained text and fit in the buffer. */
@@ -187,7 +199,7 @@ bool cui_tag_input_ex(cui_ctx *ui, const char *id_str, char *buf, size_t cap, co
     int count = cui__tag_split(buf, starts, lens, 64);
     int n = CUI_MIN(count, 64);
     if (ui->focus == fid && cui_key_pressed(ui, CUI_KEY_BACKSPACE) && st->typing[0] == 0 && n > 0) {
-        cui__tag_rebuild(buf, cap, buf, starts, lens, n, n - 1);
+        cui__tag_remove(buf, n - 1);
         count = cui__tag_split(buf, starts, lens, 64);
         n = CUI_MIN(count, 64);
         changed = true;
@@ -254,7 +266,7 @@ bool cui_tag_input_ex(cui_ctx *ui, const char *id_str, char *buf, size_t cap, co
     cui__close(ui);
     if (outer >= 0) cui__close(ui);
     if (remove >= 0) {
-        cui__tag_rebuild(buf, cap, buf, starts, lens, n, remove);
+        cui__tag_remove(buf, remove);
         count = cui__tag_split(buf, starts, lens, 64);
         changed = true;
     }

@@ -10,6 +10,7 @@ What changed in CUI, newest first. Every component mentioned here runs live in t
 
 ### Fixed
 
+- Tag input: removing a tag with Backspace or its close button keeps the tags beyond the 64 the field shows, and the other tags stay as written.
 - An installed CUI whose headers go somewhere other than `include` (`-DCMAKE_INSTALL_INCLUDEDIR=headers`) records that directory in its CMake package, so `find_package(cui)` finds `cui/cui.h` ([#135](https://github.com/yappologistic/CUI/pull/135)).
 
 ## 2026-11-25 · 1.5: phones, GPU renderers and many fixes
