@@ -10,6 +10,7 @@ What changed in CUI, newest first. Every component mentioned here runs live in t
 
 ### Fixed
 
+- `cui_flame_graph`: when rows overflow the viewport, plain vertical wheel scrolls rows vertically instead of zooming horizontally; Ctrl/Cmd+wheel zooms horizontally around the pointer, Shift+wheel or horizontal scroll pans, and non-overflowing graphs keep plain-wheel zoom. See [Flame graph](docs/components-more.md#flame-graph) ([#148](https://github.com/yappologistic/CUI/pull/148)).
 - An installed CUI whose headers go somewhere other than `include` (`-DCMAKE_INSTALL_INCLUDEDIR=headers`) records that directory in its CMake package, so `find_package(cui)` finds `cui/cui.h` ([#135](https://github.com/yappologistic/CUI/pull/135)).
 
 ## 2026-11-25 · 1.5: phones, GPU renderers and many fixes

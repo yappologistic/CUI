@@ -8449,6 +8449,50 @@ static void test_disabled_flame_wheel(void) {
     cui_destroy(ui);
 }
 
+/** Plain vertical wheel scrolls overflowing rows; Ctrl+wheel zooms and Shift+wheel pans. */
+static void test_flame_wheel_vertical_scroll(void) {
+    printf("flame graph: vertical wheel scrolls overflowing rows, Ctrl+wheel zooms\n");
+    cui_flame_span deep[30];
+    for (int i = 0; i < 30; i++) deep[i] = (cui_flame_span){ "row", 0, 10, i, 0 };
+    cui_ctx *ui = new_ctx();
+    flame_ctx f = { .s = deep, .n = 30, .sel = -1, .height = 200 };
+    run(ui, build_flame, &f, 3);
+    cui_vec2 at = center(rect_of(ui, f.id));
+    cui_input_mouse_move(ui, at.x, at.y);
+    run(ui, build_flame, &f, 1);
+    /* plain wheel down scrolls vertically without changing the time range */
+    cui_input_scroll(ui, 0, -1);
+    run(ui, build_flame, &f, 1);
+    CHECK_NEAR(f.view.scroll, 60.0f, 1e-3f);
+    CHECK_NEAR(f.view.start, 0, 1e-12);
+    CHECK_NEAR(f.view.end, 10, 1e-12);
+    CHECK(f.last.view_changed);
+    /* plain wheel up scrolls back and clamps at 0 */
+    cui_input_scroll(ui, 0, 2);
+    run(ui, build_flame, &f, 1);
+    CHECK_NEAR(f.view.scroll, 0.0f, 1e-3f);
+    /* Ctrl+wheel zooms horizontally around the pointer without scrolling vertically */
+    cui_input_key(ui, CUI_KEY_NONE, true, CUI_MOD_CTRL);
+    cui_input_scroll(ui, 0, 3);
+    run(ui, build_flame, &f, 1);
+    cui_input_key(ui, CUI_KEY_NONE, false, 0);
+    run(ui, build_flame, &f, 1);
+    double range = f.view.end - f.view.start;
+    CHECK_NEAR(range, 10.0 / pow(1.12, 3), 1e-9);
+    CHECK_NEAR(f.view.scroll, 0.0f, 1e-3f);
+    /* Shift+wheel pans horizontally without scrolling vertically */
+    double s0 = f.view.start;
+    cui_input_key(ui, CUI_KEY_NONE, true, CUI_MOD_SHIFT);
+    cui_input_scroll(ui, 0, -1);
+    run(ui, build_flame, &f, 1);
+    cui_input_key(ui, CUI_KEY_NONE, false, 0);
+    run(ui, build_flame, &f, 1);
+    CHECK(f.view.start > s0);
+    CHECK_NEAR(f.view.end - f.view.start, range, 1e-12);
+    CHECK_NEAR(f.view.scroll, 0.0f, 1e-3f);
+    cui_destroy(ui);
+}
+
 /** A disabled graph still fits its view to the current spans. */
 static void test_disabled_flame_shrinks(void) {
     printf("flame graph: disabled view follows a smaller dataset\n");
@@ -11070,6 +11114,7 @@ int main(void) {
     test_disabled_node_editor_wheel();
     test_flame();
     test_disabled_flame_wheel();
+    test_flame_wheel_vertical_scroll();
     test_disabled_flame_shrinks();
     test_disabled_timeline_wheel();
     test_curve_eval();

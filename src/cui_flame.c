@@ -465,17 +465,23 @@ static void cui__flf_extent(cui__flf *f) {
     c->body_h = f->has_rect ? CUI_MAX(1.0f, R.h - CUI__FL_RULER - 1 - 2 * CUI__FL_PADY) : 200;
 }
 
-/* wheel: zoom around the pointer; Shift or a sideways scroll pans */
+/* wheel: scroll vertically when rows overflow (Ctrl/Cmd zooms), otherwise zoom around the pointer;
+ * Shift or a sideways scroll pans horizontally */
 static void cui__flf_wheel(cui__flf *f) {
     cui_ctx *ui = f->ui;
     cui_flame_view *v = f->v;
     if (!(ui->scroll_target == f->sid && ui->hot_layer == ui->current_layer && (ui->scroll_dx != 0 || ui->scroll_dy != 0))) return;
     double range = f->range;
     bool pan = ui->scroll_dx != 0 || (ui->mods & CUI_MOD_SHIFT);
+    bool can_vscroll = f->c.rows * f->c.row_h > f->c.body_h + 0.5f;
+    bool zoom_mod = (ui->mods & (CUI_MOD_CTRL | CUI_MOD_PRIMARY)) != 0;
     if (pan) {
         float dl = ui->scroll_dx != 0 ? ui->scroll_dx : ui->scroll_dy;
         double dt = (double)dl * 40.0 / f->c.plot_w * range;
         v->start -= dt; v->end -= dt;
+    } else if (can_vscroll && !zoom_mod) {
+        v->scroll -= ui->scroll_dy * f->c.row_h * 3.0f;
+        cui__fl_clamp_scroll(&f->c, v);
     } else {
         double z = pow(1.12, (double)ui->scroll_dy);
         double nr = CUI_MAX(range / z, f->min_range);

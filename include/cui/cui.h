@@ -3782,9 +3782,10 @@ CUI_API void cui_hex_view_goto(cui_ctx *ui, const char *id, size_t offset);
  * The spans need to be valid only during the call. color_key picks the color
  * (0: hashed from the name), so the same function keeps its color.
  *
- * Mouse: the wheel zooms around the pointer, Shift+wheel or a sideways scroll
- * pans, drag pans (sideways and, for deep stacks, up and down). Click selects
- * a span (empty space clears), double-click zooms to fit it (on empty space:
+ * Mouse: when rows overflow the viewport, plain vertical wheel scrolls rows
+ * vertically and Ctrl/Cmd+wheel zooms around the pointer (otherwise plain
+ * wheel zooms); Shift+wheel or a sideways scroll pans, drag pans (sideways
+ * and, for deep stacks, up and down). Click selects a span (empty space clears), double-click zooms to fit it (on empty space:
  * fits everything). Hover shows a tooltip: name, duration and its share of
  * the parent (or of the view, at depth 0).
  * Keys when focused: Left/Right move to the previous/next span in the row,
