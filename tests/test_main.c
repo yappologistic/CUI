@@ -5832,7 +5832,7 @@ typedef struct {
     cui_id card[3], pin_a_out, pin_b_in, pin_b_float, pin_c_in;
     cui_rect slider;
     int created, removed, deleted, last_from, last_to, last_removed, last_deleted;
-    bool sel_a;
+    bool sel_a, sel_c;
 } nodes_ctx;
 
 static void build_nodes(cui_ctx *ui, void *user) {
@@ -5856,7 +5856,7 @@ static void build_nodes(cui_ctx *ui, void *user) {
             cui_node_end(ui);
         }
         if (a->alive[2]) {
-            cui_node_begin(ui, 3, &a->pos[2][0], &a->pos[2][1], "Output");
+            a->sel_c = cui_node_begin(ui, 3, &a->pos[2][0], &a->pos[2][1], "Output");
             a->card[2] = cui_last_id(ui);
             cui_node_input(ui, 30, "Base", .type = 1);
             a->pin_c_in = cui_last_id(ui);
@@ -5916,6 +5916,46 @@ static void test_disabled_node_editor_wheel(void) {
     cui_input_scroll(ui, 0, 2);
     run(ui, build_node_wheel, &n, 1);
     CHECK(n.view.zoom > 1);
+    cui_destroy(ui);
+}
+
+/** A marquee selects a card only while it overlaps it: touching its edge is not enough, and
+ * shrinking back off it drops it again, while what a Shift marquee started with stays. */
+static void test_node_editor_marquee_edge(void) {
+    printf("node editor: a marquee selects only what it overlaps\n");
+    cui_ctx *ui = new_ctx();
+    nodes_ctx a;
+    memset(&a, 0, sizeof a);
+    float init[3][2] = { { 20, 20 }, { 300, 200 }, { 20, 300 } };
+    memcpy(a.pos, init, sizeof init);
+    a.alive[0] = a.alive[1] = a.alive[2] = true;
+    run(ui, build_nodes, &a, 3);
+    cui_rect ca = cui_get_rect(ui, a.card[0]), cc = cui_get_rect(ui, a.card[2]);
+    click_at(ui, build_nodes, &a, cc.x + 30, cc.y + 10);   /* the Output card first */
+    CHECK(a.sel_c && !a.sel_a);
+    /* Shift and drag from the empty canvas right of the Source card, leftwards: the
+     * marquee's left edge lands on the card's right edge, then inside it, then off it */
+    float right = ca.x + ca.w, y = ca.y + 8;
+    cui_input_key(ui, CUI_KEY_NONE, false, CUI_MOD_SHIFT);
+    cui_input_mouse_move(ui, right + 60, y);
+    run(ui, build_nodes, &a, 1);
+    cui_input_mouse_button(ui, CUI_MOUSE_LEFT, true);
+    run(ui, build_nodes, &a, 1);
+    cui_input_mouse_move(ui, right + 30, y + 6);
+    run(ui, build_nodes, &a, 1);
+    cui_input_mouse_move(ui, right, y + 6);              /* edge on edge: touching only */
+    run(ui, build_nodes, &a, 1);
+    CHECK(!a.sel_a && a.sel_c);
+    cui_input_mouse_move(ui, right - 10, y + 6);         /* inside the card */
+    run(ui, build_nodes, &a, 1);
+    CHECK(a.sel_a && a.sel_c);
+    cui_input_mouse_move(ui, right + 1, y + 6);          /* back off it */
+    run(ui, build_nodes, &a, 1);
+    CHECK(!a.sel_a && a.sel_c);
+    cui_input_mouse_button(ui, CUI_MOUSE_LEFT, false);
+    run(ui, build_nodes, &a, 2);
+    cui_input_key(ui, CUI_KEY_NONE, false, 0);
+    CHECK(!a.sel_a && a.sel_c);
     cui_destroy(ui);
 }
 
@@ -6010,6 +6050,504 @@ static void test_node_editor(void) {
     cui_input_mouse_button(ui, CUI_MOUSE_MIDDLE, false);
     run(ui, build_nodes, &a, 1);
     CHECK_NEAR(a.view.x, vx - 60, 0.5);
+    cui_destroy(ui);
+}
+
+/* board ---------------------------------------------------------------- */
+
+typedef struct {
+    cui_node_view view;
+    cui_rect rect[4];
+    bool alive[4], visible[4], sel[4], locked3;
+    int links[4][3]; int link_n;
+    cui_id card[4];
+    float value;
+    cui_rect slider;
+    int deleted, removed, last_deleted, last_removed;
+    bool read_only, drag_selects, link_sel;
+    float snap;
+} board_ctx;
+
+static void build_board(cui_ctx *ui, void *user) {
+    board_ctx *a = user;
+    if (cui_board_begin(ui, "map", &a->view, .height = CUI_PX(500), .read_only = a->read_only, .drag_selects = a->drag_selects, .snap = a->snap)) {
+        for (int i = 0; i < 4; i++) {
+            if (!a->alive[i]) continue;
+            a->visible[i] = false;
+            cui_board_item(ui, i, &a->rect[i], .tone = i == 1 ? CUI_TONE_INFO : CUI_TONE_NEUTRAL, .locked = i == 3 && a->locked3) {
+                a->visible[i] = true;
+                cui_text(ui, "Idea");
+                if (i == 1) { cui_slider(ui, "##v", &a->value, 0, 100); a->slider = cui_last_rect(ui); }
+            }
+            if (a->visible[i]) a->card[i] = cui_last_id(ui);
+            a->sel[i] = cui_board_selected(ui, i);
+        }
+        a->link_sel = false;
+        for (int k = 0; k < a->link_n; k++)
+            if (cui_board_link(ui, a->links[k][0], a->links[k][1], a->links[k][2], .path = k ? CUI_BOARD_STRAIGHT : CUI_BOARD_CURVE)) a->link_sel = true;
+        int id;
+        while (cui_board_item_deleted(ui, &id)) { a->deleted++; a->last_deleted = id; if (id >= 0 && id < 4) a->alive[id] = false; }
+        while (cui_board_link_removed(ui, &id)) {
+            a->removed++; a->last_removed = id;
+            for (int k = 0; k < a->link_n; k++) if (a->links[k][0] == id) { memcpy(a->links[k], a->links[--a->link_n], sizeof a->links[k]); break; }
+        }
+        cui_board_end(ui);
+    }
+}
+
+static void board_drag(cui_ctx *ui, board_ctx *a, cui_vec2 from, cui_vec2 to, int mods) {
+    cui_input_key(ui, CUI_KEY_NONE, false, mods);
+    cui_input_mouse_move(ui, from.x, from.y);
+    run(ui, build_board, a, 1);
+    cui_input_mouse_button(ui, CUI_MOUSE_LEFT, true);
+    run(ui, build_board, a, 1);
+    for (int k = 1; k <= 6; k++) {
+        cui_input_mouse_move(ui, from.x + (to.x - from.x) * k / 6.0f, from.y + (to.y - from.y) * k / 6.0f);
+        run(ui, build_board, a, 1);
+    }
+    cui_input_mouse_button(ui, CUI_MOUSE_LEFT, false);
+    run(ui, build_board, a, 2);
+    cui_input_key(ui, CUI_KEY_NONE, false, 0);
+}
+
+static void board_key(cui_ctx *ui, board_ctx *a, cui_key k, int mods) {
+    cui_input_key(ui, k, true, mods); cui_input_key(ui, k, false, mods);
+    run(ui, build_board, a, 2);
+}
+
+static void board_reset(board_ctx *a) {
+    memset(a, 0, sizeof *a);
+    a->rect[0] = (cui_rect){ 40, 40, 160, 0 };      /* its height follows the content */
+    a->rect[1] = (cui_rect){ 400, 60, 200, 120 };
+    a->rect[2] = (cui_rect){ 60, 320, 160, 80 };
+    a->rect[3] = (cui_rect){ 3000, 40, 160, 80 };   /* far right: out of view */
+    for (int i = 0; i < 4; i++) a->alive[i] = true;
+    int links[3][3] = { { 100, 0, 1 }, { 101, 0, 2 }, { 102, 1, 3 } };
+    memcpy(a->links, links, sizeof links);
+    a->link_n = 3;
+    a->value = 20;
+}
+
+static void test_board(void) {
+    printf("board: select, move, resize, fit height, pan, zoom, marquee, lines, delete, view culling\n");
+    cui_ctx *ui = new_ctx();
+    board_ctx a;
+    board_reset(&a);
+    run(ui, build_board, &a, 3);
+    CHECK_NEAR(a.view.zoom, 1, 0.001);
+    CHECK(a.visible[0] && a.visible[1] && a.visible[2] && !a.visible[3]);
+    /* a height of 0 follows the content: a line of text and the padding */
+    cui_rect c0 = cui_get_rect(ui, a.card[0]);
+    CHECK(c0.h > 32 && c0.h < 70 && a.rect[0].h == 0);
+    CHECK_NEAR(cui_get_rect(ui, a.card[1]).h, 120, 0.5);
+    /* click an item: selected; drag it: the rectangle moves by the pointer travel */
+    click_at(ui, build_board, &a, c0.x + 40, c0.y + 20);
+    CHECK(a.sel[0] && !a.sel[1]);
+    board_drag(ui, &a, (cui_vec2){ c0.x + 40, c0.y + 20 }, (cui_vec2){ c0.x + 90, c0.y + 50 }, 0);
+    CHECK_NEAR(a.rect[0].x, 90, 0.5);
+    CHECK_NEAR(a.rect[0].y, 70, 0.5);
+    /* the bottom right corner resizes; the left edge moves x and keeps the right edge */
+    cui_rect c1 = cui_get_rect(ui, a.card[1]);
+    board_drag(ui, &a, (cui_vec2){ c1.x + c1.w - 2, c1.y + c1.h - 2 }, (cui_vec2){ c1.x + c1.w + 38, c1.y + c1.h + 28 }, 0);
+    CHECK_NEAR(a.rect[1].w, 240, 0.5);
+    CHECK_NEAR(a.rect[1].h, 150, 0.5);
+    CHECK_NEAR(a.rect[1].x, 400, 0.5);
+    c1 = cui_get_rect(ui, a.card[1]);
+    board_drag(ui, &a, (cui_vec2){ c1.x + 2, c1.y + c1.h * 0.5f }, (cui_vec2){ c1.x + 500, c1.y + c1.h * 0.5f }, 0);
+    CHECK_NEAR(a.rect[1].w, 64, 0.5);              /* stops at the minimum width */
+    CHECK_NEAR(a.rect[1].x + a.rect[1].w, 640, 0.5);
+    CHECK_NEAR(a.rect[1].h, 150, 0.5);
+    /* resizing the side of a fitting item keeps it fitting */
+    c0 = cui_get_rect(ui, a.card[0]);
+    board_drag(ui, &a, (cui_vec2){ c0.x + c0.w - 2, c0.y + c0.h * 0.5f }, (cui_vec2){ c0.x + c0.w + 38, c0.y + c0.h * 0.5f }, 0);
+    CHECK_NEAR(a.rect[0].w, 200, 0.5);
+    CHECK(a.rect[0].h == 0);
+    /* dragging the empty canvas pans and clears the selection */
+    cui_rect br = cui_get_rect(ui, cui_make_id(ui, "map"));
+    CHECK(a.sel[0]);
+    board_drag(ui, &a, (cui_vec2){ br.x + 700, br.y + 450 }, (cui_vec2){ br.x + 640, br.y + 430 }, 0);
+    CHECK_NEAR(a.view.x, -60, 0.5);
+    CHECK_NEAR(a.view.y, -20, 0.5);
+    CHECK(!a.sel[0] && !a.sel[1]);
+    CHECK_NEAR(a.rect[0].x, 90, 0.5);             /* items stay where they are on the canvas */
+    /* Shift and drag draws a marquee that selects what it touches */
+    c0 = cui_get_rect(ui, a.card[0]);
+    board_drag(ui, &a, (cui_vec2){ c0.x - 20, c0.y - 20 }, (cui_vec2){ c0.x + 20, c0.y + 10 }, CUI_MOD_SHIFT);
+    CHECK(a.sel[0] && !a.sel[1] && !a.sel[2]);
+    CHECK_NEAR(a.view.x, -60, 0.5);
+    /* the wheel zooms around the pointer: the canvas point under it stays put */
+    a.rect[1] = (cui_rect){ 400, 60, 240, 150 };   /* room for its slider again */
+    run(ui, build_board, &a, 2);
+    cui_vec2 p = { br.x + 300, br.y + 250 };
+    float cx = (p.x - br.x - a.view.x) / a.view.zoom, cy = (p.y - br.y - a.view.y) / a.view.zoom;
+    cui_input_mouse_move(ui, p.x, p.y);
+    run(ui, build_board, &a, 1);
+    cui_input_scroll(ui, 0, 3);
+    run(ui, build_board, &a, 2);
+    CHECK(a.view.zoom > 1.3f);
+    CHECK_NEAR(br.x + a.view.x + cx * a.view.zoom, p.x, 0.5);
+    CHECK_NEAR(br.y + a.view.y + cy * a.view.zoom, p.y, 0.5);
+    /* a hosted slider works at this zoom: 90% along it */
+    cui_rect sr = a.slider;
+    float z = a.view.zoom;
+    click_at(ui, build_board, &a, sr.x + sr.w * 0.9f * z, sr.y + sr.h * 0.5f * z);
+    CHECK(a.value > 80 && a.value < 100);
+    /* keys go to the board while it or an item has focus: a click on the empty canvas gives it focus */
+    click_at(ui, build_board, &a, br.x + 760, br.y + 470);
+    board_key(ui, &a, CUI_KEY_0, 0);              /* back to 100% */
+    CHECK_NEAR(a.view.zoom, 1, 0.001);
+    /* F frames every item at 100% or less, the far one too */
+    board_key(ui, &a, CUI_KEY_F, 0);
+    CHECK(a.view.zoom < 0.5f && a.visible[3]);
+    board_key(ui, &a, CUI_KEY_0, 0);
+    /* click a line: it is selected; Delete removes it */
+    a.view.x = a.view.y = 0;
+    run(ui, build_board, &a, 2);
+    cui_rect s0 = cui_get_rect(ui, a.card[0]), s2 = cui_get_rect(ui, a.card[2]);
+    /* the straight line 101 runs between the centres of items 0 and 2: a point on it halfway down the gap */
+    cui_vec2 m0 = center(s0), m2 = center(s2);
+    float ly = (s0.y + s0.h + s2.y) * 0.5f;
+    float lx = m0.x + (m2.x - m0.x) * (ly - m0.y) / (m2.y - m0.y);
+    click_at(ui, build_board, &a, lx, ly);
+    CHECK(a.link_sel);
+    CHECK(!a.sel[0] && !a.sel[2]);
+    board_key(ui, &a, CUI_KEY_DELETE, 0);
+    CHECK(a.removed == 1 && a.last_removed == 101 && a.link_n == 2 && a.deleted == 0);
+    /* Delete on an item removes it and the lines that touch it */
+    s0 = cui_get_rect(ui, a.card[0]);
+    click_at(ui, build_board, &a, s0.x + 30, s0.y + 10);
+    board_key(ui, &a, CUI_KEY_DELETE, 0);
+    CHECK(a.deleted == 1 && a.last_deleted == 0 && !a.alive[0]);
+    CHECK(a.removed == 2 && a.last_removed == 100 && a.link_n == 1);
+    cui_destroy(ui);
+}
+
+/* review fixes ---------------------------------------------------------- */
+
+typedef struct {
+    cui_node_view view; cui_rect r[5]; bool alive[5], lock2, read_only, dialog, minimap, extra_link;
+    float min_zoom, max_zoom, snap, wide;
+    int deleted[8], del_n, removed[8], rm_n;
+    bool sel[5], link_sel;
+} board_rev_ctx;
+
+static void build_board_review(cui_ctx *ui, void *user) {
+    board_rev_ctx *c = user;
+    if (cui_board_begin(ui, "rev", &c->view, .height = CUI_PX(400), .min_zoom = c->min_zoom, .max_zoom = c->max_zoom,
+                        .snap = c->snap, .read_only = c->read_only, .minimap = c->minimap)) {
+        int id;
+        while (cui_board_item_deleted(ui, &id)) { c->deleted[c->del_n++ & 7] = id; if (id >= 0 && id < 5) c->alive[id] = false; }
+        while (cui_board_link_removed(ui, &id)) c->removed[c->rm_n++ & 7] = id;
+        for (int i = 1; i < 5; i++) {
+            if (!c->alive[i]) continue;
+            cui_board_item(ui, i, &c->r[i], .locked = i == 2 && c->lock2) { cui_text(ui, "x"); }
+            c->sel[i] = cui_board_selected(ui, i);
+        }
+        c->link_sel = cui_board_link(ui, 12, 1, 2, .path = CUI_BOARD_STRAIGHT, .width = c->wide);
+        if (c->extra_link) cui_board_link(ui, 23, 2, 3);
+        cui_board_end(ui);
+    }
+    if (c->dialog) cui_dialog(ui, "Covering", &c->dialog) { cui_text(ui, "On top"); }
+}
+
+static void board_review_reset(board_rev_ctx *c) {
+    memset(c, 0, sizeof *c);
+    c->r[1] = (cui_rect){ 40, 40, 100, 60 };
+    c->r[2] = (cui_rect){ 400, 40, 100, 60 };
+    c->r[3] = (cui_rect){ 40, 280, 100, 60 };
+    c->r[4] = (cui_rect){ 600, 300, 100, 32 };
+    for (int i = 1; i < 5; i++) c->alive[i] = true;
+}
+
+static bool board_review_has(const int *v, int n, int id) {
+    for (int i = 0; i < n && i < 8; i++) if (v[i] == id) return true;
+    return false;
+}
+
+static void test_board_review(void) {
+    printf("board: wide lines, Delete against its own frame, drops where let go, snap, zoom bounds, modal, read only, minimap, tiny items\n");
+    board_rev_ctx c;
+    cui_ctx *ui = new_ctx();
+    board_review_reset(&c);
+    run(ui, build_board_review, &c, 3);
+    cui_rect br = cui_get_rect(ui, cui_make_id(ui, "rev"));
+    float ox = br.x, oy = br.y;
+    /* a line is picked within its painted stroke: 7 points off a 12-point line, not off a thin one */
+    click_at(ui, build_board_review, &c, ox + 270, oy + 77);
+    CHECK(!c.link_sel);
+    c.wide = 12;
+    run(ui, build_board_review, &c, 2);
+    click_at(ui, build_board_review, &c, ox + 270, oy + 77);
+    CHECK(c.link_sel);
+    /* an item locked in the frame Delete is pressed in stays, with its line */
+    click_at(ui, build_board_review, &c, ox + 450, oy + 60);
+    CHECK(c.sel[2]);
+    c.lock2 = true;
+    key(ui, build_board_review, &c, CUI_KEY_DELETE, 0);
+    run(ui, build_board_review, &c, 2);
+    CHECK(c.del_n == 0 && c.rm_n == 0 && c.alive[2]);
+    /* unlocked again it goes, and a line added in the Delete frame goes with it */
+    c.lock2 = false;
+    run(ui, build_board_review, &c, 2);
+    click_at(ui, build_board_review, &c, ox + 450, oy + 60);
+    c.extra_link = true;
+    key(ui, build_board_review, &c, CUI_KEY_DELETE, 0);
+    run(ui, build_board_review, &c, 2);
+    CHECK(c.del_n == 1 && c.deleted[0] == 2 && !c.alive[2]);
+    CHECK(c.rm_n == 2 && board_review_has(c.removed, c.rm_n, 12) && board_review_has(c.removed, c.rm_n, 23));
+    /* a drag ends where the button was let go, even if the pointer moved on before the next frame */
+    cui_input_mouse_move(ui, ox + 90, oy + 60);
+    run(ui, build_board_review, &c, 1);
+    cui_input_mouse_button(ui, CUI_MOUSE_LEFT, true);
+    run(ui, build_board_review, &c, 1);
+    cui_input_mouse_move(ui, ox + 105, oy + 60);
+    run(ui, build_board_review, &c, 1);
+    cui_input_mouse_move(ui, ox + 120, oy + 60);
+    run(ui, build_board_review, &c, 1);
+    cui_input_mouse_button(ui, CUI_MOUSE_LEFT, false);
+    cui_input_mouse_move(ui, ox + 220, oy + 160);
+    run(ui, build_board_review, &c, 2);
+    CHECK_NEAR(c.r[1].x, 70, 0.5);
+    CHECK_NEAR(c.r[1].y, 40, 0.5);
+    /* read only ends a resize under way: what the pointer does then is not applied later */
+    float right = ox + 70 + 100;   /* item 1 now spans 70..170 */
+    cui_input_mouse_move(ui, right - 2, oy + 70);
+    run(ui, build_board_review, &c, 1);
+    cui_input_mouse_button(ui, CUI_MOUSE_LEFT, true);
+    run(ui, build_board_review, &c, 1);
+    cui_input_mouse_move(ui, right + 18, oy + 70);
+    run(ui, build_board_review, &c, 1);
+    CHECK_NEAR(c.r[1].w, 120, 0.5);
+    c.read_only = true;
+    cui_input_mouse_move(ui, right + 38, oy + 70);
+    run(ui, build_board_review, &c, 1);
+    c.read_only = false;
+    cui_input_mouse_move(ui, right + 58, oy + 70);
+    run(ui, build_board_review, &c, 1);
+    cui_input_mouse_button(ui, CUI_MOUSE_LEFT, false);
+    run(ui, build_board_review, &c, 2);
+    CHECK_NEAR(c.r[1].w, 120, 0.5);
+    /* Delete does nothing to a board a modal dialog covers */
+    click_at(ui, build_board_review, &c, ox + 100, oy + 60);
+    CHECK(c.sel[1]);
+    c.dialog = true;
+    run(ui, build_board_review, &c, 4);
+    key(ui, build_board_review, &c, CUI_KEY_DELETE, 0);
+    run(ui, build_board_review, &c, 2);
+    CHECK(c.alive[1] && c.del_n == 1);
+    cui_destroy(ui);
+
+    /* a dropped edge lands on the grid, on the next point that keeps the minimum size */
+    ui = new_ctx();
+    board_review_reset(&c);
+    c.snap = 20;
+    run(ui, build_board_review, &c, 3);
+    cui_input_mouse_move(ui, ox + 138, oy + 70);
+    run(ui, build_board_review, &c, 1);
+    cui_input_mouse_button(ui, CUI_MOUSE_LEFT, true);
+    run(ui, build_board_review, &c, 1);
+    cui_input_mouse_move(ui, ox + 60, oy + 70);
+    run(ui, build_board_review, &c, 1);
+    cui_input_mouse_button(ui, CUI_MOUSE_LEFT, false);
+    run(ui, build_board_review, &c, 2);
+    CHECK_NEAR(c.r[1].x, 40, 0.001);
+    CHECK_NEAR(c.r[1].w, 80, 0.001);   /* 40 + 64 is 104: the next grid point is 120 */
+    cui_destroy(ui);
+
+    /* equal zoom bounds hold: + does not leave them */
+    ui = new_ctx();
+    board_review_reset(&c);
+    c.min_zoom = c.max_zoom = 1;
+    run(ui, build_board_review, &c, 3);
+    click_at(ui, build_board_review, &c, ox + 700, oy + 200);
+    key(ui, build_board_review, &c, CUI_KEY_EQUAL, 0);
+    CHECK_NEAR(c.view.zoom, 1, 0.0001);
+    cui_destroy(ui);
+
+    /* a click on the minimap moves the view there, without a drag */
+    ui = new_ctx();
+    board_review_reset(&c);
+    c.minimap = true;
+    run(ui, build_board_review, &c, 4);
+    float vx = c.view.x, vy = c.view.y;
+    click_at(ui, build_board_review, &c, ox + br.w - 12 - 160, oy + br.h - 12 - 100);
+    CHECK(c.view.x != vx || c.view.y != vy);
+    cui_destroy(ui);
+
+    /* far zoomed out a small item is narrower than two resize zones: the edge nearer the pointer moves */
+    ui = new_ctx();
+    board_review_reset(&c);
+    c.view.zoom = 0.1f;
+    run(ui, build_board_review, &c, 3);
+    float bottom = oy + 300 * 0.1f + 32 * 0.1f;   /* item 4: 3.2 points tall */
+    cui_input_mouse_move(ui, ox + 600 * 0.1f + 5, bottom - 0.5f);
+    run(ui, build_board_review, &c, 1);
+    cui_input_mouse_button(ui, CUI_MOUSE_LEFT, true);
+    run(ui, build_board_review, &c, 1);
+    cui_input_mouse_move(ui, ox + 600 * 0.1f + 5, bottom + 10);
+    run(ui, build_board_review, &c, 1);
+    cui_input_mouse_button(ui, CUI_MOUSE_LEFT, false);
+    run(ui, build_board_review, &c, 2);
+    CHECK_NEAR(c.r[4].y, 300, 0.001);
+    CHECK(c.r[4].h > 100);
+    cui_destroy(ui);
+}
+
+typedef struct { cui_node_view view; cui_rect a, b; cui_board_path path; cui_board_dash dash; bool sel, no_caps; } board_line_ctx;
+
+static void build_board_line(cui_ctx *ui, void *user) {
+    board_line_ctx *c = user;
+    if (cui_board_begin(ui, "lines", &c->view, .height = CUI_PX(400))) {
+        cui_board_item(ui, 1, &c->a) { cui_text(ui, "A"); }
+        cui_board_item(ui, 2, &c->b) { cui_text(ui, "B"); }
+        c->sel = cui_board_link(ui, 7, 1, 2, .path = c->path, .dash = c->dash, .end_cap = c->no_caps ? CUI_BOARD_CAP_NONE : CUI_BOARD_CAP_ARROW,
+                                .start_cap = c->no_caps ? CUI_BOARD_CAP_NONE : CUI_BOARD_CAP_DOT);
+        cui_board_end(ui);
+    }
+}
+
+/* the vertices one frame of a two-item board draws, with the line styled as given */
+static int board_line_vertices(cui_board_dash dash, bool caps, float to_x) {
+    cui_ctx *ui = new_ctx();
+    board_line_ctx c = { .a = { 40, 40, 100, 60 }, .b = { to_x, 40, 100, 60 }, .path = CUI_BOARD_STRAIGHT, .dash = dash, .no_caps = !caps };
+    run(ui, build_board_line, &c, 3);
+    int v = cui_get_draw_data(ui)->vertex_count;
+    cui_destroy(ui);
+    return v;
+}
+
+static void test_board_strokes(void) {
+    printf("board: dashes, dots and caps are drawn\n");
+    int solid = board_line_vertices(CUI_BOARD_SOLID, false, 600), dashed = board_line_vertices(CUI_BOARD_DASHED, false, 600);
+    int dotted = board_line_vertices(CUI_BOARD_DOTTED, false, 600), capped = board_line_vertices(CUI_BOARD_SOLID, true, 600);
+    CHECK(dashed > solid);           /* many short pieces instead of one */
+    CHECK(dotted > solid && dotted != dashed);
+    CHECK(capped > solid);           /* an arrowhead and a dot */
+}
+
+static void test_board_lines(void) {
+    printf("board: elbow, curved and dashed lines are picked where they run\n");
+    for (int path = 0; path < 2; path++) {
+        for (int dash = 0; dash < 3; dash++) {
+            cui_ctx *ui = new_ctx();
+            board_line_ctx c = { .a = { 40, 40, 100, 60 }, .b = { 400, 200, 100, 60 } };
+            c.path = path ? CUI_BOARD_ELBOW : CUI_BOARD_CURVE;
+            c.dash = (cui_board_dash)dash;
+            run(ui, build_board_line, &c, 3);
+            cui_rect br = cui_get_rect(ui, cui_make_id(ui, "lines"));
+            /* the elbow turns down at the middle of the gap (x 270); the curve crosses it at y 150 */
+            click_at(ui, build_board_line, &c, br.x + 270, br.y + 100);
+            CHECK(c.sel == (path == 1));
+            click_at(ui, build_board_line, &c, br.x + 300, br.y + 380);   /* empty canvas: clears it */
+            CHECK(!c.sel);
+            click_at(ui, build_board_line, &c, br.x + 270, br.y + 150);
+            CHECK(c.sel);                                                 /* both pass the middle */
+            cui_destroy(ui);
+        }
+    }
+}
+
+typedef struct { cui_node_view view; cui_rect a, b, c; char label[32]; int changed, last_changed; bool sel_plain, sel_edit; } board_label_ctx;
+
+static void build_board_labels(cui_ctx *ui, void *user) {
+    board_label_ctx *c = user;
+    if (cui_board_begin(ui, "labels", &c->view, .height = CUI_PX(400))) {
+        cui_board_item(ui, 1, &c->a) { cui_text(ui, "A"); }
+        cui_board_item(ui, 2, &c->b) { cui_text(ui, "B"); }
+        cui_board_item(ui, 3, &c->c) { cui_text(ui, "C"); }
+        c->sel_edit = cui_board_link(ui, 7, 1, 2, .path = CUI_BOARD_STRAIGHT, .label_edit = c->label, .label_cap = sizeof c->label);
+        c->sel_plain = cui_board_link(ui, 8, 1, 3, .path = CUI_BOARD_STRAIGHT, .label = "plain");
+        int id;
+        while (cui_board_label_changed(ui, &id)) { c->changed++; c->last_changed = id; }
+        cui_board_end(ui);
+    }
+}
+
+static void test_board_labels(void) {
+    printf("board: line labels, edited in place, kept and put back\n");
+    cui_ctx *ui = new_ctx();
+    board_label_ctx c = { .a = { 40, 40, 100, 60 }, .b = { 400, 40, 100, 60 }, .c = { 40, 300, 100, 60 } };
+    snprintf(c.label, sizeof c.label, "Talks to");
+    run(ui, build_board_labels, &c, 3);
+    cui_rect br = cui_get_rect(ui, cui_make_id(ui, "labels"));
+    /* a click on a plain label falls through to its line, which is selected */
+    click_at(ui, build_board_labels, &c, br.x + 90, br.y + 200);
+    CHECK(c.sel_plain && !c.sel_edit);
+    /* the editable label sits halfway along its line: a click edits it, Enter keeps it */
+    click_at(ui, build_board_labels, &c, br.x + 270, br.y + 70);
+    type(ui, build_board_labels, &c, "Calls");
+    key(ui, build_board_labels, &c, CUI_KEY_ENTER, 0);
+    run(ui, build_board_labels, &c, 2);
+    CHECK(strcmp(c.label, "Calls") == 0);
+    CHECK(c.changed == 1 && c.last_changed == 7);
+    /* Esc puts it back and reports nothing */
+    click_at(ui, build_board_labels, &c, br.x + 270, br.y + 70);
+    type(ui, build_board_labels, &c, "Ignores");
+    key(ui, build_board_labels, &c, CUI_KEY_ESCAPE, 0);
+    run(ui, build_board_labels, &c, 2);
+    CHECK(strcmp(c.label, "Calls") == 0 && c.changed == 1);
+    /* an empty label shows only while its line is selected: then a click on the line edits it */
+    c.label[0] = 0;
+    run(ui, build_board_labels, &c, 2);
+    click_at(ui, build_board_labels, &c, br.x + 300, br.y + 70);
+    CHECK(c.sel_edit);
+    run(ui, build_board_labels, &c, 2);
+    click_at(ui, build_board_labels, &c, br.x + 270, br.y + 70);
+    type(ui, build_board_labels, &c, "New");
+    key(ui, build_board_labels, &c, CUI_KEY_ENTER, 0);
+    run(ui, build_board_labels, &c, 2);
+    CHECK(strcmp(c.label, "New") == 0 && c.changed == 2);
+    cui_destroy(ui);
+}
+
+static void test_board_modes(void) {
+    printf("board: read only, locked, snap, drag_selects\n");
+    cui_ctx *ui = new_ctx();
+    board_ctx a;
+    board_reset(&a);
+    a.read_only = true;
+    run(ui, build_board, &a, 3);
+    cui_rect c2 = cui_get_rect(ui, a.card[2]);
+    board_drag(ui, &a, (cui_vec2){ c2.x + 30, c2.y + 20 }, (cui_vec2){ c2.x + 130, c2.y + 60 }, 0);
+    CHECK(a.sel[2]);                               /* it selects, */
+    CHECK_NEAR(a.rect[2].x, 60, 0.001);            /* but nothing moves */
+    board_key(ui, &a, CUI_KEY_DELETE, 0);
+    CHECK(a.deleted == 0 && a.alive[2]);
+    cui_destroy(ui);
+
+    ui = new_ctx();
+    board_reset(&a);
+    a.locked3 = true;
+    a.rect[3] = (cui_rect){ 300, 320, 160, 80 };
+    a.snap = 20;
+    run(ui, build_board, &a, 3);
+    /* a drop lands on the grid */
+    c2 = cui_get_rect(ui, a.card[2]);
+    board_drag(ui, &a, (cui_vec2){ c2.x + 30, c2.y + 20 }, (cui_vec2){ c2.x + 63, c2.y + 47 }, 0);
+    CHECK_NEAR(a.rect[2].x, 100, 0.001);
+    CHECK_NEAR(a.rect[2].y, 340, 0.001);
+    /* a locked item selects but does not move, resize or delete */
+    cui_rect c3 = cui_get_rect(ui, a.card[3]);
+    board_drag(ui, &a, (cui_vec2){ c3.x + 30, c3.y + 20 }, (cui_vec2){ c3.x + 90, c3.y + 60 }, 0);
+    CHECK(a.sel[3]);
+    CHECK_NEAR(a.rect[3].x, 300, 0.001);
+    board_drag(ui, &a, (cui_vec2){ c3.x + c3.w - 2, c3.y + 30 }, (cui_vec2){ c3.x + c3.w + 60, c3.y + 30 }, 0);
+    CHECK_NEAR(a.rect[3].w, 160, 0.001);
+    board_key(ui, &a, CUI_KEY_DELETE, 0);
+    CHECK(a.deleted == 0 && a.alive[3]);
+    cui_destroy(ui);
+
+    /* .drag_selects: a plain drag draws the marquee, Shift and drag pans */
+    ui = new_ctx();
+    board_reset(&a);
+    a.drag_selects = true;
+    run(ui, build_board, &a, 3);
+    cui_rect c0 = cui_get_rect(ui, a.card[0]);
+    board_drag(ui, &a, (cui_vec2){ c0.x - 20, c0.y - 20 }, (cui_vec2){ c0.x + 20, c0.y + 10 }, 0);
+    CHECK(a.sel[0] && a.view.x == 0);
+    cui_rect br = cui_get_rect(ui, cui_make_id(ui, "map"));
+    board_drag(ui, &a, (cui_vec2){ br.x + 700, br.y + 450 }, (cui_vec2){ br.x + 660, br.y + 450 }, CUI_MOD_SHIFT);
+    CHECK_NEAR(a.view.x, -40, 0.5);
     cui_destroy(ui);
 }
 
@@ -11067,7 +11605,14 @@ int main(void) {
     test_read_only_plan_activation();
     test_planning_drag_interrupted();
     test_node_editor();
+    test_node_editor_marquee_edge();
     test_disabled_node_editor_wheel();
+    test_board();
+    test_board_modes();
+    test_board_review();
+    test_board_lines();
+    test_board_strokes();
+    test_board_labels();
     test_flame();
     test_disabled_flame_wheel();
     test_disabled_flame_shrinks();
