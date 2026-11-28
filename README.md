@@ -253,6 +253,7 @@ Complete apps in [`examples/`](examples), each a single C file. They run in the 
 | [`hello`](examples/hello.c) | The smallest app |
 | [`todo`](examples/todo.c) | The app the [tutorial](docs/tutorial.md) builds: a list, a filter, a dialog, saving to a file |
 | [`caffeine`](examples/caffeine.c) | The instruments together: a dot-matrix chart with annotations, cups you drag on a time axis, readouts and a dot-matrix verdict |
+| [`mindmap`](examples/mindmap.c) | Mind map on a board: ideas holding notes, lists, pictures and video links, lines pulled from handles, styled and labelled, a context menu and a panel for what is selected |
 | [`assistant`](examples/assistant.c) | AI assistant: reasoning, tool calls, sources, plan, composer with a model picker |
 | [`tracker`](examples/tracker.c) | Issue tracker: grouped list, custom status glyphs, detail pane, activity |
 | [`music`](examples/music.c) | Music player: cover art drawn on a canvas, track list, transport bar |

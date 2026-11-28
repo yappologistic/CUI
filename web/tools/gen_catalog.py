@@ -361,6 +361,7 @@ APPS = [
     ("assistant", "Assistant", "Muse: an AI assistant with reasoning, tools and attachments.", "examples/assistant.c"),
     ("todo", "To do", "The app the tutorial builds: a list you add to, tick off, filter and clear, in about 130 lines.", "examples/todo.c"),
     ("caffeine", "Caffeine", "How much caffeine is still in you at bedtime: drag the cups, and the dot chart, the peak and the verdict follow.", "examples/caffeine.c"),
+    ("mindmap", "Mind map", "Grove: ideas on a board with notes, lists, pictures and video links, joined by lines you pull from their handles, style and label.", "examples/mindmap.c"),
 ]
 
 # ---------------------------------------------------------------- options (from the header)

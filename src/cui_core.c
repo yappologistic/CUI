@@ -844,7 +844,7 @@ static void cui__compute_hot(cui_ctx *ui) {
 }
 
 /* A popup has its own layer but stays in the Tab scope of its modal. */
-static bool cui__tab_layer_in_modal(cui_ctx *ui, cui_id layer, cui_id modal) {
+bool cui__layer_in_modal(cui_ctx *ui, cui_id layer, cui_id modal) {
     for (int depth = 0; depth <= ui->popup_count; depth++) {
         if (layer == modal) return true;
         cui_popup *popup = cui__popup_get(ui, layer, false);
@@ -862,7 +862,7 @@ static void cui__keyboard_tab(cui_ctx *ui, cui_id tab_owner) {
         for (int i = 0; i < ui->prev_focus_count; i++) {
             const cui__focus_entry *entry = &ui->prev_focus_order[i];
             if (ui->prev_modal.id) {
-                if (!cui__tab_layer_in_modal(ui, entry->layer, ui->prev_modal.id)) continue;
+                if (!cui__layer_in_modal(ui, entry->layer, ui->prev_modal.id)) continue;
             } else if (entry->scope.inactive || entry->scope.id != ui->prev_active_focus_scope) continue;
             if (entry->id == ui->focus) cur = n;
             cand[n++] = i;
@@ -889,7 +889,7 @@ bool cui_component_has_input(cui_ctx *ui, cui_id id) {
     cui_modal_layer modal = ui->in_frame ? ui->prev_modal : ui->modal;
     for (int i = 0; i < count; i++) if (order[i].id == id && order[i].component_input) {
         cui_id layer = order[i].layer;
-        if (modal.id && !cui__tab_layer_in_modal(ui, layer, modal.id)) return false;
+        if (modal.id && !cui__layer_in_modal(ui, layer, modal.id)) return false;
         int z = layer == modal.id ? modal.z : 0;
         for (int p = 0; p < ui->popup_count; p++)
             if (ui->popups[p].id == layer) z = ui->popups[p].z;
