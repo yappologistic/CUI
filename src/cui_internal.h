@@ -799,6 +799,9 @@ void cui__scroll_end_ex(cui_ctx *ui);
 /* moves scroll area scroll_id the least that shows row_id, both from last frame's layout;
  * cui_scroll_reveal by id (cui_widgets.c) */
 void cui__scroll_reveal(cui_ctx *ui, cui_id scroll_id, cui_id row_id);
+/* a click on sortable header `column` of a table or data grid (cui_data.c): the same column
+ * reverses, another starts high to low when it is `descending_first`, else low to high */
+void cui__sort_header_click(cui_table_sort *sort, int column, bool descending_first);
 /* the data grid's rows, for the tree table that drags over them (cui_grid.c): where grid `id`
  * put its rows last frame (the area under the sticky header, and the top of row 0, which moves
  * with the scroll), false before its first layout; a nudge of its scroll target; and whether

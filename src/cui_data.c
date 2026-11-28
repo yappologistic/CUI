@@ -323,6 +323,11 @@ static void cui__table_close_row(cui_ctx *ui, struct cui_table_build *t) {
     t->in_row = false;
 }
 
+void cui__sort_header_click(cui_table_sort *sort, int column, bool descending_first) {
+    if (sort->column == column) sort->descending = !sort->descending;
+    else { sort->column = column; sort->descending = descending_first; }
+}
+
 /** Paint the ring inside the cell so the scrolling table does not clip it. */
 static void cui__paint_table_focus(cui_ctx *ui, cui_node *n, void *unused) {
     (void)unused;
@@ -386,10 +391,7 @@ bool cui_table_begin_ex(cui_ctx *ui, const char *id_str, const cui_table_column 
         memset(&r, 0, sizeof r);
         if (c->sortable && o->sort) {
             r = cui__interact(ui, hid, CUI_IF_FOCUSABLE);
-            if (r.clicked) {
-                if (o->sort->column == k) o->sort->descending = !o->sort->descending;
-                else { o->sort->column = k; o->sort->descending = false; }
-            }
+            if (r.clicked) cui__sort_header_click(o->sort, k, c->descending_first);
         }
         int cell = cui__node_new(ui, hid);
         cui_node *cn = &ui->nodes[cell];

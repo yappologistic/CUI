@@ -61,7 +61,7 @@ int main(void) {
 
 ## A table sorted by its headers
 
-The table does not own or reorder your data. A click on a sortable header writes the column and the direction into your `cui_table_sort`, and you sort.
+The table does not own or reorder your data. A click on a sortable header writes the column and the direction into your `cui_table_sort`, and you sort. A first click sorts low to high, or high to low where the column sets `descending_first`.
 
 ```c
 #include <cui/cui.h>
@@ -88,9 +88,9 @@ static int compare(const void *a, const void *b) {
 static void frame(cui_ctx *ui, void *user) {
     static int selected = -1;
     static const cui_table_column cols[] = {
-        { "Repository", CUI_FILL, CUI_TEXT_LEFT, true },      /* title, width, alignment, sortable */
-        { "Owner", CUI_PX(140), CUI_TEXT_LEFT, true },
-        { "Stars", CUI_PX(90), CUI_TEXT_RIGHT, true },
+        { "Repository", CUI_FILL, CUI_TEXT_LEFT, true, false },  /* title, width, alignment, sortable, descending_first */
+        { "Owner", CUI_PX(140), CUI_TEXT_LEFT, true, false },
+        { "Stars", CUI_PX(90), CUI_TEXT_RIGHT, true, true },     /* most stars first */
     };
     (void)user;
     /* the table shows the rows in the order you give them: sorting is yours */

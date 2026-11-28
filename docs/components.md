@@ -647,9 +647,9 @@ Rows and columns of your data, with sortable headers, selectable rows and any co
 
 ```c
 cui_table_column cols[] = {
-    { "Name", CUI_FILL, CUI_TEXT_LEFT, true },          /* title, width, align, sortable */
-    { "Status", CUI_PX(120), CUI_TEXT_LEFT, false },
-    { "Amount", CUI_PX(110), CUI_TEXT_RIGHT, true },
+    { "Name", CUI_FILL, CUI_TEXT_LEFT, true, false },     /* title, width, align, sortable, descending_first */
+    { "Status", CUI_PX(120), CUI_TEXT_LEFT, false, false },
+    { "Amount", CUI_PX(110), CUI_TEXT_RIGHT, true, true },  /* the largest first */
 };
 static cui_table_sort sort;
 cui_table(ui, "orders", cols, 3, .sort = &sort, .selectable = true, .height = CUI_PX(400)) {
@@ -665,7 +665,7 @@ cui_table(ui, "orders", cols, 3, .sort = &sort, .selectable = true, .height = CU
 }
 ```
 
-Cells hold any components. Clicking a sortable header updates `sort` (column and direction); you sort your data. With `height` the body scrolls under a fixed header. When the container is narrower than the fixed columns plus 96 points for each flexible one, the table scrolls sideways instead of squeezing cells. Options: `sort`, `height`, `striped`, `compact`, `selectable`.
+Cells hold any components. Clicking a sortable header updates `sort` (column and direction); you sort your data. A first click sorts low to high, or high to low for a column with `descending_first`, as counts, sizes and dates are read; another click reverses. With `height` the body scrolls under a fixed header. When the container is narrower than the fixed columns plus 96 points for each flexible one, the table scrolls sideways instead of squeezing cells. Options: `sort`, `height`, `striped`, `compact`, `selectable`.
 
 Keyboard: Tab reaches sortable headers and selectable rows, with a ring on the focused item. Enter or Space sorts by the focused header. For arrow keys through rows use the [data grid](components-more.md#data-grid-and-filter-bar).
 

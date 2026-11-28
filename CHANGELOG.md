@@ -6,6 +6,7 @@ What changed in CUI, newest first. Every component mentioned here runs live in t
 
 ### Added
 
+- Table and data grid columns take `descending_first`: the first click on that header sorts high to low, as counts, sizes and dates are read, and the next click reverses as before. Without it a first click still sorts low to high. The tree table, built on the data grid, takes it too, and so does Enter on a focused header. See [Table](docs/components.md#table).
 - `cui_app_desc.custom_title_bar`: on Windows the system's title bar goes and the app draws its own, while the window keeps its border, shadow, resizing on every edge and its size, place and maximized state. A platform layer of your own takes part through `cui_platform_iface.window_frame` and `.window_button`, and moves the window over what `cui_title_bar_hit_test` calls the caption. `cui_title_bar`, the component that draws the bar, follows in its own change; until then such a window has no caption to drag it by. See [Platform services](docs/integration.md#platform-services) ([#134](https://github.com/yappologistic/CUI/pull/134)).
 
 ### Fixed

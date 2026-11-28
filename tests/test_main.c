@@ -3008,6 +3008,92 @@ static void test_table_focus(void) {
     cui_destroy(ui);
 }
 
+/* a table, a data grid or a tree table whose second column sorts high to low first */
+typedef struct { int which; cui_table_sort sort; int sort_changes; cui_rect bounds; } desc_first_case;
+static void build_desc_first(cui_ctx *ui, void *user) {
+    desc_first_case *c = user;
+    cui_column(ui, .pad = 20, .width = CUI_FILL, .height = CUI_FILL) {
+        if (c->which == 0) {
+            const cui_table_column cols[] = { { "Name", CUI_PX(150), CUI_TEXT_LEFT, true },
+                                              { "Stars", CUI_PX(100), CUI_TEXT_RIGHT, true, true },
+                                              { "Owner", CUI_PX(100), CUI_TEXT_LEFT, true } };
+            cui_table(ui, "df", cols, 3, .sort = &c->sort, .selectable = true) {
+                cui_table_row(ui, false);
+                cui_table_cell_text(ui, "atlas");
+                cui_table_cell_text(ui, "412");
+                cui_table_cell_text(ui, "Maya");
+            }
+        } else if (c->which == 1) {
+            static const cui_grid_column cols[] = { { "Name", 150, CUI_TEXT_LEFT, true }, { "Size", 100, CUI_TEXT_RIGHT, true, false, 0, true },
+                                                    { "Kind", 100, CUI_TEXT_LEFT, true } };
+            int first, last;
+            if (cui_data_grid_begin(ui, "df", cols, 3, 3, &first, &last, .height = CUI_PX(200), .sort = &c->sort)) {
+                for (int i = first; i < last; i++) {
+                    cui_data_grid_row(ui, i);
+                    cui_data_grid_cell_text(ui, "a");
+                    cui_data_grid_cell_text(ui, "1");
+                    cui_data_grid_cell_text(ui, "b");
+                }
+                cui_data_grid_end(ui);
+            }
+        } else {
+            static const cui_grid_column cols[] = { { "Name", 150, CUI_TEXT_LEFT, true }, { "Size", 100, CUI_TEXT_RIGHT, true, false, 0, true } };
+            static cui_tree_node nodes[] = { { -1, -1, 1, 0 }, { -1, -1, -1, 0 } };
+            cui_tree_table_begin(ui, "df", cols, 2, nodes, 2, .height = CUI_PX(200), .sort = &c->sort);
+            while (cui_tree_table_row(ui) >= 0) {
+                cui_tree_table_name(ui, "file", CUI_ICON_FILE);
+                cui_data_grid_cell_text(ui, "1");
+            }
+            if (cui_tree_table_end(ui).sort_changed) c->sort_changes++;
+        }
+        c->bounds = cui_get_rect(ui, cui_make_id(ui, "df"));
+    }
+}
+
+/** A column with descending_first sorts high to low on its first click, then reverses as any column does. */
+static void test_sort_descending_first(void) {
+    printf("table, data grid, tree table: descending_first columns\n");
+    for (int which = 0; which < 3; which++) {
+        cui_ctx *ui = new_ctx();
+        desc_first_case c = { .which = which, .sort = { .column = -1 } };
+        run(ui, build_desc_first, &c, 3);
+        cui_rect b = c.bounds;
+        CHECK(b.w >= 250 && b.h >= 40);
+        float pad = which == 0 ? 8 : 0, y = b.y + 19;
+        float name_x = b.x + pad + 60, second_x = b.x + pad + 150 + 50, third_x = b.x + pad + 250 + 50;
+        /* the first click on it: high to low; the second reverses; the third reverses back */
+        click_at(ui, build_desc_first, &c, second_x, y);
+        CHECK(c.sort.column == 1 && c.sort.descending);
+        click_at(ui, build_desc_first, &c, second_x, y);
+        CHECK(c.sort.column == 1 && !c.sort.descending);
+        click_at(ui, build_desc_first, &c, second_x, y);
+        CHECK(c.sort.column == 1 && c.sort.descending);
+        /* a column without it still starts low to high, also when coming from a descending one */
+        click_at(ui, build_desc_first, &c, name_x, y);
+        CHECK(c.sort.column == 0 && !c.sort.descending);
+        click_at(ui, build_desc_first, &c, second_x, y);
+        CHECK(c.sort.column == 1 && c.sort.descending);
+        if (which < 2) {
+            click_at(ui, build_desc_first, &c, third_x, y);
+            CHECK(c.sort.column == 2 && !c.sort.descending);
+        }
+        if (which == 2) CHECK(c.sort_changes == 5);
+        cui_destroy(ui);
+    }
+
+    /* the keyboard takes the same path: Tab to the Stars header, Enter sorts high to low */
+    cui_ctx *ui = new_ctx();
+    desc_first_case c = { .which = 0, .sort = { .column = -1 } };
+    run(ui, build_desc_first, &c, 3);
+    key(ui, build_desc_first, &c, CUI_KEY_TAB, 0);
+    key(ui, build_desc_first, &c, CUI_KEY_TAB, 0);
+    key(ui, build_desc_first, &c, CUI_KEY_ENTER, 0);
+    CHECK(c.sort.column == 1 && c.sort.descending);
+    key(ui, build_desc_first, &c, CUI_KEY_ENTER, 0);
+    CHECK(c.sort.column == 1 && !c.sort.descending);
+    cui_destroy(ui);
+}
+
 /** Draw one filter field whose only value is easy to select from the popup. */
 static void build_filter_handoff(cui_ctx *ui, void *user) {
     static const char *const options[] = { "Engine" };
@@ -11037,6 +11123,7 @@ int main(void) {
     test_data_grid_shrinks();
     test_data_grid_home_range();
     test_table_focus();
+    test_sort_descending_first();
     test_filter_handoff();
     test_tree_table();
     test_tree_table_drag();

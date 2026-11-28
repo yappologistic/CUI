@@ -236,10 +236,7 @@ bool cui_data_grid_begin_ex(cui_ctx *ui, const char *id_str, const cui_grid_colu
         cui_id hid = cui__hash(&k, sizeof k, b->id ^ 0x4E1u);
         cui_interact hr = cui__interact(ui, hid, c->sortable ? CUI_IF_FOCUSABLE : 0);
         float hv_v = cui__hover_fade(ui, hid, (hr.hovered && c->sortable), CUI__T_HOVER), *hv = &hv_v;
-        if (hr.clicked && c->sortable && o->sort) {
-            if (o->sort->column == k) o->sort->descending = !o->sort->descending;
-            else { o->sort->column = k; o->sort->descending = false; }
-        }
+        if (hr.clicked && c->sortable && o->sort) cui__sort_header_click(o->sort, k, c->descending_first);
         int cell = cui__node_new(ui, hid);
         cui_node *cn = &ui->nodes[cell];
         cn->dir = CUI_ROW; cn->align = CUI_ALIGN_CENTER; cn->gap = 4;

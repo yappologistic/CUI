@@ -1110,6 +1110,7 @@ typedef struct cui_table_column {
     cui_size width;            /* default fill */
     cui_text_align align;
     bool sortable;
+    bool descending_first;     /* the first click sorts high to low, as counts, sizes and dates are read */
 } cui_table_column;
 
 typedef struct cui_table_sort { int column; bool descending; } cui_table_sort;
@@ -1499,6 +1500,7 @@ typedef struct cui_grid_column {
     bool fixed;                /* not resizable */
     int priority;              /* 0 always shown; when the grid is too narrow, columns with a
                                 * priority hide, the highest number first, until the rest fit */
+    bool descending_first;     /* the first click sorts high to low, as counts, sizes and dates are read */
 } cui_grid_column;
 typedef struct cui_grid_opts {
     int _;
