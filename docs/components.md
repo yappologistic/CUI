@@ -615,9 +615,10 @@ cui_card(ui, .gap = 12) { ... }
 if (cui_card(ui, .id = "project", .hoverable = true)) { ... }   /* lifts on hover, returns clicks */
 cui_metric(ui, "Weekly installs", "3,912", .delta = 8.1f, .spark = values, .spark_count = 7, .icon = CUI_ICON_DOWNLOAD);
 cui_metric(ui, "Median build", "3m 42s", .delta = -17.6f, .lower_is_better = true);   /* a fall, in green */
+cui_metric(ui, "Failing checks", "3", .color = failing ? CUI_COLOR_DANGER : CUI_COLOR_SUCCESS);
 ```
 
-The arrow follows the sign of `delta`; the color says whether that is good. Set `lower_is_better` for times, errors and costs.
+The arrow follows the sign of `delta`; the color says whether that is good. Set `lower_is_better` for times, errors and costs. `color` colors the value itself, for a number whose state matters more than its change, such as checks failing or work waiting; a theme color like `CUI_COLOR_DANGER` follows light and dark. The change keeps its own green or red.
 
 Cards rest on a hairline border with no shadow. Card options: `pad` (24), `pad_x`, `pad_y`, `gap`, `dir`, `align`, `width`, `height`, `min_width`, `max_width`, `wrap` (row cards), `hoverable`, `muted`, `selected`. `.width = CUI_FILL, .max_width = 520` fills a phone and stops at 520 on a wide window.
 

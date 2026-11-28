@@ -1064,6 +1064,7 @@ typedef struct cui_metric_opts {
     const char *icon;
     cui_size width;
     bool lower_is_better;       /* build times, errors, latency: a fall is good news, shown in green */
+    cui_color color;            /* the value's color, e.g. CUI_COLOR_DANGER while a count needs attention; unset: the text color */
 } cui_metric_opts;
 CUI_API void cui_metric_ex(cui_ctx *ui, const char *label, const char *value, const cui_metric_opts *opts);
 

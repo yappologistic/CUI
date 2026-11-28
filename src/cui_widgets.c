@@ -1049,7 +1049,8 @@ void cui_metric_ex(cui_ctx *ui, const char *label, const char *value, const cui_
     ui->nodes[vr].flags |= CUI_NF_ROW_WRAP;   /* on a narrow card the change goes under the value instead of both being cut */
     ui->nodes[vr].w = CUI_FILL;
     cui__open(ui, vr);
-    int vt = cui__text_node(ui, value, -1, CUI_FONT_DISPLAY, cui__fs(ui, 28), CUI_C(ui, FOREGROUND), false);
+    cui_color vc = cui__color_set(o->color) ? cui_color_of(ui, o->color) : CUI_C(ui, FOREGROUND);
+    int vt = cui__text_node(ui, value, -1, CUI_FONT_DISPLAY, cui__fs(ui, 28), vc, false);
     ui->nodes[vt].line_height = 1.1f;
     ui->nodes[vt].flags |= CUI_NF_TABULAR;
     if (o->delta != 0 || o->delta_label) {

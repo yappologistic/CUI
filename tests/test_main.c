@@ -5323,6 +5323,58 @@ static void gauge_probe(gauge_case g, int *breaks, bool *bottom) {
     cui_destroy(ui);
 }
 
+/* Text vertices of the last frame drawn in exactly color c. */
+static int text_in_color(cui_ctx *ui, cui_color c) {
+    const cui_draw_data *dd = cui_get_draw_data(ui);
+    int n = 0;
+    for (int i = 0; i < dd->vertex_count; i++) {
+        const cui_vertex *v = &dd->vertices[i];
+        if (v->mode == CUI_SHADE_TEXT && memcmp(&v->color, &c, sizeof c) == 0) n++;
+    }
+    return n;
+}
+
+static void build_metric(cui_ctx *ui, void *user) {
+    cui_metric_ex(ui, "Waiting", "3", user);
+}
+
+static void test_metric_value_color(void) {
+    printf("metric: the value takes its own color, the change keeps its meaning\n");
+    cui_ctx *ui = new_ctx();
+    cui_metric_opts o;
+    memset(&o, 0, sizeof o);
+    run(ui, build_metric, &o, 2);
+    cui_color fg = cui_color_of(ui, CUI_COLOR_FOREGROUND), danger = cui_color_of(ui, CUI_COLOR_DANGER);
+    cui_color success = cui_color_of(ui, CUI_COLOR_SUCCESS);
+    CHECK(text_in_color(ui, fg) > 0);                  /* unset: the value in the text color */
+    CHECK(text_in_color(ui, danger) == 0);
+
+    o.color = CUI_COLOR_DANGER;
+    run(ui, build_metric, &o, 2);
+    CHECK(text_in_color(ui, danger) > 0);              /* the value, in the theme's danger color */
+    CHECK(text_in_color(ui, fg) == 0);                 /* nothing else in the card is in the text color */
+
+    o.delta = 4.2f;                                    /* a rise, good news: the change stays green */
+    run(ui, build_metric, &o, 2);
+    CHECK(text_in_color(ui, success) > 0);
+    CHECK(text_in_color(ui, danger) > 0);
+
+    memset(&o, 0, sizeof o);
+    o.color = CUI_RGB(0x2A6FDB);                       /* a plain color is used as given */
+    run(ui, build_metric, &o, 2);
+    CHECK(text_in_color(ui, CUI_RGB(0x2A6FDB)) > 0);
+    CHECK(text_in_color(ui, fg) == 0);
+
+    o.color = CUI_COLOR_DANGER;                        /* a token follows the theme */
+    cui_set_theme(ui, CUI_THEME_DARK);
+    run(ui, build_metric, &o, 2);
+    cui_color dark_danger = cui_color_of(ui, CUI_COLOR_DANGER);
+    CHECK(memcmp(&dark_danger, &danger, sizeof danger) != 0);
+    CHECK(text_in_color(ui, dark_danger) > 0);
+    CHECK(text_in_color(ui, danger) == 0);
+    cui_destroy(ui);
+}
+
 static void test_radial_gauge_styles(void) {
     printf("radial gauge: the style follows the options\n");
     int breaks; bool bottom;
@@ -11104,6 +11156,7 @@ int main(void) {
     test_split_minimums();
     test_theme();
     test_series_palette();
+    test_metric_value_color();
     test_radial_gauge_styles();
     test_treemap_select();
     test_sankey_node_colors();
