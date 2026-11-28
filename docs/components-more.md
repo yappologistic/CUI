@@ -1774,6 +1774,40 @@ if (cui_node_editor_begin(ui, "material", &view, .height = CUI_PX(480), .minimap
 
 You own the graph: node, pin and link ids are your integers, the editor moves the positions you pass and reports links made, links removed and nodes deleted, and you change your data. Scroll to zoom around the pointer (25% to 200%); pan with the middle button, or hold Space and drag. Click a node to select it, Shift or Ctrl click to add to the selection, drag on the empty canvas for a marquee, and drag a node to move it with the rest of the selection, which lifts while it moves. Drag from a pin to make a link: the wire follows the pointer, pins it can join show a ring, and it snaps to the nearest one. Pins of one `type` share a color from the series palette and only join their own type (0 joins anything); an input takes one link, so a new one replaces the old. Drag a link's input end off its pin to detach it, or click a wire and press Delete. With the keyboard, Tab moves through the nodes (focusing a node selects it), the arrow keys move the selection (Shift for single points), Delete or Backspace removes it, Ctrl+A selects every node, F frames them all, + and - zoom, 0 returns to 100% and Esc drops a wire or clears the selection. The editor draws its cards, labels, pins and wires at the zoom, so they stay sharp. Components in `cui_node_content` are laid out at 100% and scaled with the view: they work at any zoom, but their text is sharpest at 100% and below, and menus they open are placed for 100%. Links cannot be made from the keyboard.
 
+### Board
+
+Boxes placed freely on a canvas, holding anything, joined by lines from box to box: mind maps, concept maps and whiteboards.
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="images/components/board-dark.png"><img src="images/components/board.png" alt="Board"></picture>
+
+```c
+static cui_node_view view;                                   /* pan and zoom, kept by you */
+if (cui_board_begin(ui, "map", &view, .height = CUI_PX(480), .minimap = true)) {
+    int id;                                                  /* first: what was deleted is not built */
+    while (cui_board_item_deleted(ui, &id)) remove_item(id);
+    while (cui_board_link_removed(ui, &id)) remove_link(id);   /* also the lines of deleted items */
+    int from, to; float x, y;
+    while (cui_board_link_created(ui, &from, &to)) add_link(from, to);          /* pulled from one item onto another */
+    while (cui_board_link_dropped(ui, &from, &x, &y)) add_item_joined_to(from, x, y);   /* dropped on empty canvas */
+    while (cui_board_activated(ui, &id, &x, &y)) id < 0 ? add_item(x, y) : open_item(id);
+    for (int i = 0; i < item_count; i++) {
+        item *it = &items[i];
+        cui_board_item(ui, it->id, &it->rect, .tone = it->tone) {   /* moves and resizes it->rect */
+            cui_inline_edit(ui, "##title", it->title, sizeof it->title);
+            if (it->picture) cui_image(ui, it->picture, .width = CUI_FILL);
+        }
+    }
+    for (int k = 0; k < link_count; k++) cui_board_link(ui, links[k].id, links[k].from, links[k].to);
+    cui_board_end(ui);
+}
+```
+
+You own the items and the links: an item is your id and a `cui_rect` in canvas points, a link is your id and the ids of two items. The board moves and resizes the rectangles you pass and reports what was deleted; you change your data. Read the deletions right after `cui_board_begin`, so an item you remove is not built in that frame. Delete is weighed against the frame it was pressed in, so an item locked in that frame stays and a line added in it goes with its item, and the board reports it in the next frame. An item's width of 0 is 160 points, and a height of 0 follows its content, which suits a title and a few lines of notes. Any component can go inside an item except another board (boards do not nest): it is laid out at 100% and scaled with the view, works at any zoom, and is clipped to the item. As in every component, strings and other data it shows must live until the end of the frame. Items outside the view are only counted: `cui_board_item` returns false and skips their content, so a board of hundreds of items builds what is on screen.
+
+An item's background is a light tint of its `tone`, with a border of the same tone; `fill` and `border` take any color instead. Content keeps the theme's text colors, so a fill of your own should be light in a light theme and dark in a dark one. `radius` rounds the corners (negative for a pill), `pad` is the space around the content, and `border_width` of -1 leaves the border out. Lines run under the items: `CUI_BOARD_CURVE` leaves and enters the sides that face each other, `CUI_BOARD_ELBOW` joins the same sides in right angles with rounded corners, turning in the middle of the gap, and `CUI_BOARD_STRAIGHT` runs from centre to centre and stops at the edges. `dash` makes a line `CUI_BOARD_DASHED` or `CUI_BOARD_DOTTED`, spaced along its length; `start_cap` and `end_cap` put an arrowhead or a dot where it meets the `from` and the `to` item; `width`, `color` and `tone` style the rest. A `label` sits in a pill halfway along the line, under the items like the line itself, and scales with the view; a click on it falls through to the line. With `label_edit` and `label_cap` instead, the label is your buffer and a click edits it in place: Enter or a click elsewhere keeps the text and `cui_board_label_changed` reports the line, Esc puts the old text back. An empty editable label shows only while its line is selected, so select a line to label it.
+
+The wheel zooms around the pointer (10% to 400%). Dragging the empty canvas pans it, as do the middle button and Space with a drag; Shift or Ctrl (Command on macOS) with a drag draws a marquee instead (`drag_selects` swaps the two, so a plain drag selects and Shift pans). Click an item to select it, Shift or Ctrl (Command) click to add, and drag it to move it with the rest of the selection, which lifts while it moves. Drag an item's edge or corner to resize it, down to `min_width` and `min_height`; a side edge keeps a fitting height fitting. With `snap`, moved and resized items land on that grid step when dropped. Click a line to select it. A hovered item shows a handle outside each side: pull one onto another item and `cui_board_link_created` reports the pair (not a second line between two items already joined), or drop it on the empty canvas and `cui_board_link_dropped` reports where, in canvas points, for a new item joined to the first. While you pull, the line follows the pointer and the item it would join is ringed. A double click on an item, or Enter on the focused one, reports it with `cui_board_activated`, which also reports a double click on the empty canvas as item -1 with the point, for a new item there. `no_connect` leaves the handles out. With the keyboard, Tab moves through the items (focusing one selects it), the arrow keys move the selection (Shift for single points), Delete or Backspace removes it with the lines that touch it, Ctrl+A (Command+A) selects every item, F fits them all, + and - zoom, 0 returns to 100% and Esc clears the selection. A `locked` item can be selected but not moved, resized or deleted; `fixed_size` keeps only its size; `read_only` does that for the whole board and leaves the handles out. The board shares the node editor's `cui_node_view`, so [canvas controls](#canvas-controls) and [live cursors](#live-cursors) work with it as they are. Lines cannot be made from the keyboard.
+
 ## More charts
 
 These follow the same rules as the [core charts](components.md#charts): a tooltip on hover, an intro animation, theme colors. Each returns the index of the mark that was clicked, or -1. Series colors come from a palette checked for color blindness in both modes: neighbouring series stay apart for protanopia and deuteranopia, and the palette rotates so the first series sits next to your accent. Charts that compare amounts on one scale use one color instead: the heatmaps step up to the accent, the bar list uses shades of one hue, and the treemap uses neutral tiles with the accent only on the tile you point at or select.

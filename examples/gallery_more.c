@@ -1945,6 +1945,90 @@ static void page_canvas(cui_ctx *ui) {
         cui_box(ui, .pad = 12) { cui_presence_pill(ui, "canvas-here", people, 3); }
     }
 
+    section(ui, "Board", "Ideas placed freely and joined by lines. Drag an idea to move it, its edges to resize it; drag the empty canvas to pan, Shift and drag to select several. Pull a line from the handles of an idea onto another, or onto empty space for a new idea; double-click empty space for one too. Click a title or a line's label to edit it (select a line to label it); Delete removes the selection.");
+    {
+        enum { IDEAS = 16, LINKS = 32 };
+        typedef struct { cui_rect rect; char title[48]; const char *note; cui_tone tone; bool alive; } idea;
+        static const idea start_ideas[5] = {
+            { { 250, 120, 180, 0 }, "Weekend trip", "Two nights, by train", CUI_TONE_ACCENT, true },
+            { { 20, 24, 170, 0 }, "Where", "Lake or mountains?", CUI_TONE_INFO, true },
+            { { 20, 220, 170, 0 }, "Packing", NULL, CUI_TONE_TEAL, true },
+            { { 500, 24, 170, 0 }, "Budget", "About 400 for two", CUI_TONE_WARNING, true },
+            { { 480, 230, 230, 0 }, "Ask Kate about the cabin", NULL, CUI_TONE_NEUTRAL, true },
+        };
+        static const int start_links[4][3] = { { 1, 0, 1 }, { 2, 0, 2 }, { 3, 0, 3 }, { 4, 3, 4 } };
+        static idea ideas[IDEAS];
+        static int links[LINKS][3], link_n, next_link, idea_n;
+        static char notes[LINKS + 1][32];   /* each line's label, by link id */
+        static bool boots = true, jacket, camera, started;
+        static cui_node_view board_view = { 10, 10, 1 };
+        bool again = cui_button(ui, "Start over", .variant = CUI_BUTTON_OUTLINE, .icon = CUI_ICON_ROTATE_CCW);
+        if (!started || again) {
+            memset(ideas, 0, sizeof ideas);
+            memcpy(ideas, start_ideas, sizeof start_ideas);
+            idea_n = 5;
+            memcpy(links, start_links, sizeof start_links);
+            link_n = 4; next_link = 5;
+            memset(notes, 0, sizeof notes);
+            snprintf(notes[1], sizeof notes[1], "decide first");
+            started = true;
+        }
+        cui_box(ui, .dir = CUI_STACK, .width = CUI_FILL, .height = CUI_PX(360)) {
+            if (cui_board_begin(ui, "board-trip", &board_view, .height = CUI_PX(360))) {
+                int id;   /* deletions first, so a deleted idea is not built in this frame */
+                while (cui_board_item_deleted(ui, &id)) if (id >= 0 && id < IDEAS) ideas[id].alive = false;
+                while (cui_board_link_removed(ui, &id))
+                    for (int k = 0; k < link_n; k++) if (links[k][0] == id) { memcpy(links[k], links[--link_n], sizeof links[k]); break; }
+                for (int i = 0; i < idea_n; i++) {
+                    idea *d = &ideas[i];
+                    if (!d->alive) continue;
+                    cui_board_item(ui, i, &d->rect, .tone = d->tone, .radius = i == 4 ? -1.0f : 0.0f) {
+                        cui_inline_edit(ui, "##title", d->title, sizeof d->title, .width = CUI_FILL);
+                        if (d->note) cui_text(ui, d->note, .size = 12, .color = CUI_COLOR_TEXT_SECONDARY);
+                        if (i == 2) {
+                            cui_checkbox(ui, "Hiking boots", &boots);
+                            cui_checkbox(ui, "Rain jacket", &jacket);
+                            cui_checkbox(ui, "Camera", &camera);
+                        }
+                    }
+                }
+                for (int k = 0; k < link_n; k++)
+                    cui_board_link(ui, links[k][0], links[k][1], links[k][2], .tone = ideas[links[k][2]].tone, .end_cap = CUI_BOARD_CAP_ARROW,
+                                   .dash = links[k][0] == 4 ? CUI_BOARD_DASHED : CUI_BOARD_SOLID, .label_edit = notes[links[k][0]], .label_cap = sizeof notes[0]);
+                int from, to;
+                float x, y;
+                while (cui_board_link_created(ui, &from, &to))
+                    if (link_n < LINKS && next_link <= LINKS) { links[link_n][0] = next_link++; links[link_n][1] = from; links[link_n][2] = to; link_n++; }
+                /* a line dropped on empty space, or a double click there: a new idea, joined to where the line came from */
+                bool dropped;
+                while ((dropped = cui_board_link_dropped(ui, &from, &x, &y)) || cui_board_activated(ui, &id, &x, &y)) {
+                    if (!dropped && id >= 0) continue;   /* a double click on an idea: nothing to open here */
+                    if (idea_n >= IDEAS) continue;
+                    idea *d = &ideas[idea_n];
+                    memset(d, 0, sizeof *d);
+                    d->rect = (cui_rect){ x - 80, y - 20, 160, 0 };
+                    snprintf(d->title, sizeof d->title, "New idea");
+                    d->tone = dropped ? ideas[from].tone : CUI_TONE_NEUTRAL;
+                    d->alive = true;
+                    if (dropped && link_n < LINKS && next_link <= LINKS) { links[link_n][0] = next_link++; links[link_n][1] = from; links[link_n][2] = idea_n; link_n++; }
+                    idea_n++;
+                }
+                cui_board_end(ui);
+            }
+            /* fit frames the ideas where they are now; one whose height follows its content counts about 90 tall */
+            float fx0 = 1e9f, fy0 = 1e9f, fx1 = -1e9f, fy1 = -1e9f;
+            for (int i = 0; i < idea_n; i++) {
+                if (!ideas[i].alive) continue;
+                cui_rect r = ideas[i].rect;
+                fx0 = fminf(fx0, r.x); fy0 = fminf(fy0, r.y);
+                fx1 = fmaxf(fx1, r.x + r.w); fy1 = fmaxf(fy1, r.y + (r.h > 0 ? r.h : 90));
+            }
+            cui_rect fit = { 0, 0, 0, 0 };
+            if (fx1 > fx0) fit = (cui_rect){ fx0, fy0, fx1 - fx0, fy1 - fy0 };
+            cui_canvas_controls(ui, "board-trip-zoom", &board_view, .content = fit);
+        }
+    }
+
     section(ui, "Result card and selection bar", "A picture with its status and caption, and its actions in a floating toolbar. Tick files and a bar slides up; Esc clears.");
     static bool saved;
     static int scale = 1, type;
