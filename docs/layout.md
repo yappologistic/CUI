@@ -259,6 +259,8 @@ cui_scroll(ui, .id = "messages", .gap = 8) {
 }
 ```
 
+A table's rows have no id of yours: there `cui_table_reveal_row(ui, sel)` does the same between the table's begin and end (see [Table](components.md#table)).
+
 Over a wheel picker or ruler, vertical wheel input changes its value while it has room to move in that direction. At its limit the surrounding scroll area can receive the wheel.
 
 With `.fade_edges = true` the content fades out at an edge that has more to scroll, instead of being cut off. It works sideways too for `.horizontal` areas. The fade takes the color of the nearest opaque box around the scroll area (the page background if there is none); set `.fade_color` to override it. Source cards and the kanban board fade their overflow the same way.

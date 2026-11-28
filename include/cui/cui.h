@@ -1125,6 +1125,10 @@ typedef struct cui_table_opts {
 CUI_API bool cui_table_begin_ex(cui_ctx *ui, const char *id, const cui_table_column *columns, int column_count, const cui_table_opts *opts);
 /* Begin a row. Returns true when the row is clicked. */
 CUI_API bool cui_table_row(cui_ctx *ui, bool selected);
+/* Between cui_table_begin and cui_table_end: keeps row `row` (0 for the first cui_table_row
+ * call) in view with the least movement, as cui_scroll_reveal does, from the latest layout.
+ * Only a table with `height` scrolls; others, and a row not laid out yet, are left alone. */
+CUI_API void cui_table_reveal_row(cui_ctx *ui, int row);
 /* Next cell; put any components inside, or use cui_table_cell_text. */
 CUI_API void cui_table_cell(cui_ctx *ui);
 CUI_API void cui_table_cell_text(cui_ctx *ui, const char *text);

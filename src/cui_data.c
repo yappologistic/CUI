@@ -308,6 +308,7 @@ struct cui_table_build {
     bool in_row;
     bool compact, striped, selectable;
     bool scroll;
+    cui_id body;          /* the scrolling body, when `scroll` */
     struct cui_table_build *prev;
 };
 
@@ -425,7 +426,8 @@ bool cui_table_begin_ex(cui_ctx *ui, const char *id_str, const cui_table_column 
         cui_box sb;
         memset(&sb, 0, sizeof sb);
         sb.height = CUI_FILL;
-        cui__scroll_begin_ex(ui, cui_make_id(ui, "#body"), &sb, false);
+        t->body = cui_make_id(ui, "#body");
+        cui__scroll_begin_ex(ui, t->body, &sb, false);
     }
     return true;
 }
@@ -499,6 +501,14 @@ void cui_table_cell_textf(cui_ctx *ui, const char *fmt, ...) {
     char *s = cui__frame_vprintf(ui, fmt, ap);
     va_end(ap);
     cui_table_cell_text(ui, s);
+}
+
+/** Keep a row of a scrolling table in view: rows are named by their order, so callers
+ * cannot reach the row and body ids that cui_scroll_reveal needs. */
+void cui_table_reveal_row(cui_ctx *ui, int row) {
+    struct cui_table_build *t = ui->building.table;
+    if (!t || !t->scroll || row < 0) return;
+    cui__scroll_reveal(ui, t->body, cui__hash(&row, sizeof row, t->id ^ 0x20Bu));
 }
 
 void cui_table_end(cui_ctx *ui) {

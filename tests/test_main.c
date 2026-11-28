@@ -3008,6 +3008,139 @@ static void test_table_focus(void) {
     cui_destroy(ui);
 }
 
+/* 30 rows in a table whose body scrolls; each first cell holds a box named after its row */
+typedef struct { int reveal; bool early, scrolls, stray; } table_reveal_case;
+static void build_table_reveal(cui_ctx *ui, void *user) {
+    table_reveal_case *c = user;
+    const cui_table_column cols[] = { { "Name", CUI_PX(160), CUI_TEXT_LEFT, false },
+                                      { "Note", CUI_FILL, CUI_TEXT_LEFT, false } };
+    cui_column(ui, .pad = 10) {
+        cui_table(ui, "tbl", cols, 2, .height = c->scrolls ? CUI_PX(240) : (cui_size){ 0 }, .compact = true) {
+            if (c->early && c->reveal >= 0) cui_table_reveal_row(ui, c->reveal);
+            for (int i = 0; i < 30; i++) {
+                cui_table_row(ui, false);
+                cui_table_cell(ui);
+                cui_push_id_int(ui, i);
+                cui_box_begin(ui, &(cui_box){ .id = "cell", .width = CUI_PX(40), .height = CUI_PX(20) });
+                cui_box_end(ui);
+                cui_pop_id(ui);
+                cui_table_cell_text(ui, "note");
+            }
+            if (!c->early && c->reveal >= 0) cui_table_reveal_row(ui, c->reveal);
+        }
+    }
+    if (c->stray) cui_table_reveal_row(ui, 3);   /* outside any table */
+}
+static cui_rect table_reveal_cell(cui_ctx *ui, int i) {
+    cui_push_id(ui, "tbl");
+    cui_push_id_int(ui, i);
+    cui_rect r = cui_get_rect(ui, cui_make_id(ui, "cell"));
+    cui_pop_id(ui);
+    cui_pop_id(ui);
+    return r;
+}
+static cui_rect table_reveal_body(cui_ctx *ui) {
+    cui_push_id(ui, "tbl");
+    cui_rect r = cui_get_rect(ui, cui_make_id(ui, "#body"));
+    cui_pop_id(ui);
+    return r;
+}
+static bool table_reveal_shown(cui_rect cell, cui_rect body) {
+    return cell.y >= body.y - 0.01f && cell.y + cell.h <= body.y + body.h + 0.01f;
+}
+/* reveals row i on one frame, lets the table settle and returns how far the rows moved up */
+static float table_reveal_step(cui_ctx *ui, table_reveal_case *c, int i) {
+    float y0 = table_reveal_cell(ui, 0).y;
+    c->reveal = i;
+    run(ui, build_table_reveal, c, 1);
+    c->reveal = -1;
+    run(ui, build_table_reveal, c, 2);
+    return y0 - table_reveal_cell(ui, 0).y;
+}
+
+/** cui_table_reveal_row scrolls a table's body the least that shows a row, by its order. */
+static void test_table_reveal_row(void) {
+    printf("table: reveal a row of a scrolling table\n");
+    cui_ctx *ui = new_ctx();
+    table_reveal_case c = { .reveal = -1, .scrolls = true };
+    /* before the first layout nothing is known: nothing moves */
+    c.reveal = 20;
+    run(ui, build_table_reveal, &c, 1);
+    c.reveal = -1;
+    run(ui, build_table_reveal, &c, 2);
+    cui_rect body = table_reveal_body(ui);
+    CHECK(body.h > 150 && body.h < 240);
+    float pitch = table_reveal_cell(ui, 1).y - table_reveal_cell(ui, 0).y;
+    CHECK(pitch >= 36);
+    CHECK(table_reveal_cell(ui, 0).y > body.y && table_reveal_cell(ui, 0).y < body.y + pitch);
+
+    /* wholly in view: nothing moves */
+    CHECK(table_reveal_shown(table_reveal_cell(ui, 2), body));
+    CHECK_NEAR(table_reveal_step(ui, &c, 2), 0, 0.01);
+
+    /* below: just enough to show it, so it sits at the bottom and the next row stays cut off */
+    cui_rect r = table_reveal_cell(ui, 20);
+    CHECK(!table_reveal_shown(r, body));
+    float moved = table_reveal_step(ui, &c, 20);
+    CHECK(moved > 0 && moved <= r.y + r.h - (body.y + body.h) + pitch);
+    CHECK(table_reveal_shown(table_reveal_cell(ui, 20), body));
+    CHECK(!table_reveal_shown(table_reveal_cell(ui, 21), body));
+    CHECK(body.y + body.h - (table_reveal_cell(ui, 20).y + table_reveal_cell(ui, 20).h) < pitch / 2);
+    CHECK_NEAR(table_reveal_step(ui, &c, 20), 0, 0.01);   /* now in view: stays */
+
+    /* above: to its top, the row before it stays cut off */
+    r = table_reveal_cell(ui, 10);
+    CHECK(r.y < body.y);
+    moved = table_reveal_step(ui, &c, 10);
+    CHECK(moved < 0 && -moved <= body.y - r.y + pitch);
+    CHECK(table_reveal_shown(table_reveal_cell(ui, 10), body));
+    CHECK(!table_reveal_shown(table_reveal_cell(ui, 9), body));
+
+    /* the last row, and asked before the rows are built, as when keys are handled first */
+    c.early = true;
+    table_reveal_step(ui, &c, 29);
+    CHECK(table_reveal_shown(table_reveal_cell(ui, 29), body));
+    c.early = false;
+
+    /* rows that do not exist, and a call outside any table: nothing moves, nothing breaks */
+    float y0 = table_reveal_cell(ui, 0).y;
+    CHECK_NEAR(table_reveal_step(ui, &c, 30), 0, 0.01);
+    CHECK_NEAR(table_reveal_step(ui, &c, -1), 0, 0.01);
+    CHECK_NEAR(table_reveal_step(ui, &c, 1 << 30), 0, 0.01);
+    c.stray = true;
+    run(ui, build_table_reveal, &c, 2);
+    c.stray = false;
+    CHECK_NEAR(table_reveal_cell(ui, 0).y, y0, 0.01);
+    cui_destroy(ui);
+
+    /* a table without `height` does not scroll: the call leaves it alone */
+    ui = new_ctx();
+    c = (table_reveal_case){ .reveal = -1 };
+    run(ui, build_table_reveal, &c, 2);
+    y0 = table_reveal_cell(ui, 0).y;
+    CHECK_NEAR(table_reveal_step(ui, &c, 25), 0, 0.01);
+    CHECK_NEAR(table_reveal_cell(ui, 0).y, y0, 0.01);
+    cui_destroy(ui);
+
+    /* with motion on, a second reveal while the body still moves does not overshoot */
+    ui = new_ctx();
+    cui_set_reduced_motion(ui, false);
+    c = (table_reveal_case){ .reveal = -1, .scrolls = true };
+    run(ui, build_table_reveal, &c, 3);
+    body = table_reveal_body(ui);
+    c.reveal = 15;
+    run(ui, build_table_reveal, &c, 1);
+    c.reveal = -1;
+    run(ui, build_table_reveal, &c, 2);   /* partway there */
+    c.reveal = 16;
+    run(ui, build_table_reveal, &c, 1);
+    c.reveal = -1;
+    run(ui, build_table_reveal, &c, 120);
+    CHECK(table_reveal_shown(table_reveal_cell(ui, 16), body));
+    CHECK(!table_reveal_shown(table_reveal_cell(ui, 17), body));
+    cui_destroy(ui);
+}
+
 /** Draw one filter field whose only value is easy to select from the popup. */
 static void build_filter_handoff(cui_ctx *ui, void *user) {
     static const char *const options[] = { "Engine" };
@@ -11037,6 +11170,7 @@ int main(void) {
     test_data_grid_shrinks();
     test_data_grid_home_range();
     test_table_focus();
+    test_table_reveal_row();
     test_filter_handoff();
     test_tree_table();
     test_tree_table_drag();
