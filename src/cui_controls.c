@@ -714,6 +714,11 @@ bool cui_segmented_ex(cui_ctx *ui, const char *id, const char *const *items, int
     return cui__segments(ui, id, items, o->icons, count, index, 0, o->size, o->full_width);
 }
 
+/* The tab last brought into view (index + 1, so 0 means none yet), and whether a
+ * frame was already requested to lay out a selection that has no place yet. */
+typedef struct { int index; bool waited; } cui__tabs_reveal;
+
+/** Scroll a newly selected tab into view once the strip and the tab have been laid out. */
 bool cui_tabs_ex(cui_ctx *ui, const char *id, const char *const *items, int count, int *index, const cui_tabs_opts *o) {
     cui_tabs_opts d;
     memset(&d, 0, sizeof d);
@@ -725,16 +730,25 @@ bool cui_tabs_ex(cui_ctx *ui, const char *id, const char *const *items, int coun
      * selected tab into view. */
     cui_id sid = cui_make_id(ui, id) ^ 0x7AB5u;
     cui_scroll_state *ss = cui_state(ui, sid, sizeof *ss);
-    int *last = cui_state(ui, sid ^ 0x1u, sizeof(int));   /* last index + 1, so 0 means unset */
-    if (*index >= 0 && *index < count && last[0] != *index + 1 && ss->content_w > ss->view_w + 0.5f) {
+    cui__tabs_reveal *rv = cui_state(ui, sid ^ 0x1u, sizeof *rv);
+    if (*index >= 0 && *index < count && rv->index != *index + 1) {
         cui_rect vr = cui__prev_rect(ui, sid), tr = cui__prev_rect(ui, cui__hash(index, sizeof *index, cui_make_id(ui, id)));
         if (vr.w > 0 && tr.w > 0) {
-            float margin = 24;
-            if (tr.x < vr.x) ss->tx -= vr.x - tr.x + margin;
-            else if (tr.x + tr.w > vr.x + vr.w) ss->tx += tr.x + tr.w - (vr.x + vr.w) + margin;
+            if (ss->content_w > ss->view_w + 0.5f) {
+                float margin = 24;
+                if (tr.x < vr.x) ss->tx -= vr.x - tr.x + margin;
+                else if (tr.x + tr.w > vr.x + vr.w) ss->tx += tr.x + tr.w - (vr.x + vr.w) + margin;
+            }
+            rv->index = *index + 1;
+            rv->waited = false;
+        } else if (!rv->waited) {
+            /* Before its first layout neither has a place. Ask once for the frame that has
+             * them, so a strip appearing in an idle window still reveals its tab; a strip
+             * that still has no width then waits for the next frame of its own. */
+            rv->waited = true;
+            cui_request_redraw(ui);
         }
     }
-    if (*index >= 0) last[0] = *index + 1;
     cui_box sb;
     memset(&sb, 0, sizeof sb);
     sb.width = CUI_FILL;

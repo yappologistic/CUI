@@ -7376,6 +7376,64 @@ static void build_motion(cui_ctx *ui, void *u) {
     }
 }
 
+typedef struct { int index; bool hidden, collapsed; } tabs_reveal_ctx;
+
+/** A narrow underline strip whose four captions are wider than the strip, unless it is hidden. */
+static void build_tabs_reveal(cui_ctx *ui, void *user) {
+    static const char *const items[] = { "Account settings", "Notification preferences", "Billing and invoices",
+                                         "Connected applications" };
+    tabs_reveal_ctx *t = user;
+    cui_column(ui, .pad = t->collapsed ? 0 : 10, .width = CUI_PX(t->collapsed ? 0 : 220)) {
+        if (!t->hidden) cui_tabs(ui, "tabs", items, 4, &t->index);
+    }
+}
+
+/** Draw one frame, then only while CUI asks for frames, as an event driven app does, and hash the result. */
+static uint32_t settled_tabs_hash(cui_ctx *ui, tabs_reveal_ctx *t) {
+    run(ui, build_tabs_reveal, t, 1);
+    for (int i = 0; i < 60 && cui_needs_redraw(ui); i++) run(ui, build_tabs_reveal, t, 1);
+    return frame_hash(ui);
+}
+
+/** A tab selected before the strip's first layout scrolls into view like one selected later,
+ * also when the strip first appears in a window that has already settled. */
+static void test_tabs_initial_reveal(void) {
+    printf("tabs: the initial selection scrolls into view without input\n");
+    cui_ctx *ui = new_ctx();
+    cui_set_viewport(ui, 320, 80, 1);
+    tabs_reveal_ctx t = { 3, false, false };
+    uint32_t initial = settled_tabs_hash(ui, &t);
+    cui_destroy(ui);
+
+    ui = new_ctx();
+    cui_set_viewport(ui, 320, 80, 1);
+    t = (tabs_reveal_ctx){ 0, false, false };
+    uint32_t first = settled_tabs_hash(ui, &t);
+    t.index = 3;
+    uint32_t later = settled_tabs_hash(ui, &t);
+    cui_destroy(ui);
+    CHECK(first != later);
+    CHECK(initial == later);
+
+    ui = new_ctx();
+    cui_set_viewport(ui, 320, 80, 1);
+    t = (tabs_reveal_ctx){ 3, true, false };
+    settled_tabs_hash(ui, &t);
+    CHECK(!cui_needs_redraw(ui));
+    t.hidden = false;   /* the app shows the strip, as after a state change without input */
+    uint32_t appeared = settled_tabs_hash(ui, &t);
+    cui_destroy(ui);
+    CHECK(appeared == later);
+
+    /* A strip with no width asks for one frame, not for a frame every frame. */
+    ui = new_ctx();
+    cui_set_viewport(ui, 320, 80, 1);
+    t = (tabs_reveal_ctx){ 3, false, true };
+    settled_tabs_hash(ui, &t);
+    CHECK(!cui_needs_redraw(ui));
+    cui_destroy(ui);
+}
+
 /** Four tabs make it possible to distinguish a single step from a cascade. */
 static void build_tab_step(cui_ctx *ui, void *user) {
     static const cui_tab_bar_item tabs[] = { { NULL, "Home", 0 }, { NULL, "Search", 0 },
@@ -11082,6 +11140,7 @@ int main(void) {
     test_typing_indicator_motion();
     test_running_task_motion();
     test_running_job_motion();
+    test_tabs_initial_reveal();
     test_tab_step();
     test_ai();
     test_text_capacity();

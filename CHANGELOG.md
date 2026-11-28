@@ -10,6 +10,7 @@ What changed in CUI, newest first. Every component mentioned here runs live in t
 
 ### Fixed
 
+- Tabs: a tab selected before the strip is first laid out scrolls into view once it is, as a tab selected later does, also when the strip appears in a window that is idle, instead of staying outside a narrow strip until the selection changes.
 - An installed CUI whose headers go somewhere other than `include` (`-DCMAKE_INSTALL_INCLUDEDIR=headers`) records that directory in its CMake package, so `find_package(cui)` finds `cui/cui.h` ([#135](https://github.com/yappologistic/CUI/pull/135)).
 
 ## 2026-11-25 · 1.5: phones, GPU renderers and many fixes
