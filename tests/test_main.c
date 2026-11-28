@@ -3012,8 +3012,8 @@ static void test_table_focus(void) {
 typedef struct { int reveal; bool early, scrolls, stray; } table_reveal_case;
 static void build_table_reveal(cui_ctx *ui, void *user) {
     table_reveal_case *c = user;
-    static const cui_table_column cols[] = { { "Name", CUI_PX(160), CUI_TEXT_LEFT, false },
-                                             { "Note", CUI_FILL, CUI_TEXT_LEFT, false } };
+    const cui_table_column cols[] = { { "Name", CUI_PX(160), CUI_TEXT_LEFT, false },
+                                      { "Note", CUI_FILL, CUI_TEXT_LEFT, false } };
     cui_column(ui, .pad = 10) {
         cui_table(ui, "tbl", cols, 2, .height = c->scrolls ? CUI_PX(240) : (cui_size){ 0 }, .compact = true) {
             if (c->early && c->reveal >= 0) cui_table_reveal_row(ui, c->reveal);
