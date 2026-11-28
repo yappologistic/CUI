@@ -3014,9 +3014,9 @@ static void build_desc_first(cui_ctx *ui, void *user) {
     desc_first_case *c = user;
     cui_column(ui, .pad = 20, .width = CUI_FILL, .height = CUI_FILL) {
         if (c->which == 0) {
-            static const cui_table_column cols[] = { { "Name", CUI_PX(150), CUI_TEXT_LEFT, true },
-                                                     { "Stars", CUI_PX(100), CUI_TEXT_RIGHT, true, true },
-                                                     { "Owner", CUI_PX(100), CUI_TEXT_LEFT, true } };
+            const cui_table_column cols[] = { { "Name", CUI_PX(150), CUI_TEXT_LEFT, true },
+                                              { "Stars", CUI_PX(100), CUI_TEXT_RIGHT, true, true },
+                                              { "Owner", CUI_PX(100), CUI_TEXT_LEFT, true } };
             cui_table(ui, "df", cols, 3, .sort = &c->sort, .selectable = true) {
                 cui_table_row(ui, false);
                 cui_table_cell_text(ui, "atlas");
