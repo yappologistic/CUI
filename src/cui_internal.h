@@ -448,6 +448,8 @@ typedef struct cui_modal_layer {
     int z;
 } cui_modal_layer;
 cui_interact cui__interact(cui_ctx *ui, cui_id id, int flags);
+/* the layer is the modal's, or a popup opened from inside it (cui_core.c) */
+bool cui__layer_in_modal(cui_ctx *ui, cui_id layer, cui_id modal);
 void cui__mark_interactive(cui_ctx *ui, int node, int flags);
 void cui__set_cursor(cui_ctx *ui, cui_cursor c);
 void cui__wakeup_after(cui_ctx *ui, float seconds);
@@ -688,6 +690,7 @@ struct cui_ctx {
         void *card_stack;
         void *kanban;
         void *dock;
+        void *board;               /* boards do not nest */
         void *spot;                /* spotlight card */
         void *reasoning;
         void *veil;                /* veils nest: each keeps the one around it */
@@ -740,6 +743,11 @@ void cui__popup_set(cui_ctx *ui, cui_id id, bool open);
 void cui__close_all_popups(cui_ctx *ui);
 bool cui__keys_covered(cui_ctx *ui);   /* an open popup sits above the layer being built, so the keys are its (cui_chrome.c) */
 void cui__color_picker_open(cui_ctx *ui, cui_id id, cui_color value);   /* opens cui_color_picker's popover from code */
+/* Edges of a box a pointer can grab to resize it (cui_overlay.c: dialogs; the board) */
+enum { CUI__GRAB_LEFT = 1, CUI__GRAB_RIGHT = 2, CUI__GRAB_TOP = 4, CUI__GRAB_BOTTOM = 8, CUI__GRAB_MOVE = 16 };
+/* which edges of r the point (x, y) is on, as CUI__GRAB_* bits: within `in` points inside the
+ * border or `out` outside it; 0 when it is not near the border */
+int cui__grab_edges(cui_rect r, float x, float y, float in, float out);
 /* a dashed rounded rectangle, the dashes continuing round the corners (cui_pickers.c: the dropzone, gantt plans) */
 void cui__draw_dashed_rrect(cui_ctx *ui, cui_rect r, float rad, cui_color c, float th, float dash, float gap);
 typedef struct { int highlight; int item_count; int prev_item_count; bool keyboard; } cui__menu_nav;
