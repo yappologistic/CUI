@@ -2,12 +2,22 @@
  * gauge. Charts animate in once, show a crosshair and a tooltip on hover,
  * and use the theme's series palette. */
 #include "cui_internal.h"
+#include <float.h>
 
 
 typedef struct { cui_spring intro; cui_spring hx; float hover_t; int hover; bool init; float plot_x, plot_w; } cui__chart_state;
 
+/* The least span of a range with ends near `a` and `b` that `steps` steps can cross, each step
+   at least 16 float spacings there. At 1e10 the spacing is 1024: adding one changes nothing. */
+float cui__least_span(float a, float b, float steps) {
+    return CUI_MAX(fabsf(a), fabsf(b)) * FLT_EPSILON * 16 * steps;
+}
+
 void cui__nice_range(float lo, float hi, int target_ticks, float *out_lo, float *out_hi, float *out_step) {
-    if (hi <= lo) { hi = lo + 1; }
+    /* a constant widens by one; a range too narrow for its magnitude widens until every step advances */
+    float least = cui__least_span(lo, hi, (float)target_ticks);
+    if (hi <= lo) hi = lo + CUI_MAX(1.0f, least);
+    else if (hi - lo < least) hi = lo + least;
     float range = hi - lo;
     float rough = range / (float)target_ticks;
     float mag = powf(10.0f, floorf(log10f(rough)));
@@ -729,7 +739,7 @@ static void cui__paint_spark(cui_ctx *ui, cui_node *n, void *data) {
     if (p->count < 2) return;
     float lo = 1e30f, hi = -1e30f;
     for (int i = 0; i < p->count; i++) { lo = CUI_MIN(lo, p->values[i]); hi = CUI_MAX(hi, p->values[i]); }
-    if (hi <= lo) hi = lo + 1;
+    if (hi <= lo) hi = lo + CUI_MAX(1.0f, cui__least_span(lo, lo, 1));
     cui_vec2 *pts = cui__frame_alloc(ui, sizeof(cui_vec2) * (size_t)p->count);
     for (int i = 0; i < p->count; i++) {
         pts[i].x = r.x + 2 + (r.w - 4) * (float)i / (float)(p->count - 1);

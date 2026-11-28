@@ -10,6 +10,7 @@ What changed in CUI, newest first. Every component mentioned here runs live in t
 
 ### Fixed
 
+- Charts whose values are large and equal, or closer together than a float can resolve there, draw a flat line instead of no line, and no longer hang. A line or area chart of three samples of `1e10` gave every vertex a NaN position, because adding one to `1e10` leaves it unchanged and the range stayed empty; values `1e10` and the next float after it gave a tick step too small to advance a float, and the axis loop never ended. The automatic range now widens such a constant or narrow range far enough for its tick steps, and the sparkline and candlestick chart widen a constant the same way. Ranges a float can resolve keep their ends and ticks.
 - An installed CUI whose headers go somewhere other than `include` (`-DCMAKE_INSTALL_INCLUDEDIR=headers`) records that directory in its CMake package, so `find_package(cui)` finds `cui/cui.h` ([#135](https://github.com/yappologistic/CUI/pull/135)).
 
 ## 2026-11-25 · 1.5: phones, GPU renderers and many fixes

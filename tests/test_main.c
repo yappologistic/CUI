@@ -7262,6 +7262,41 @@ static void build_viz(cui_ctx *ui, void *u) {
     if (r >= 0) a->hit = r;
 }
 
+/** Build one chart whose values sit where one is below the float spacing. */
+static void build_large_range(cui_ctx *ui, void *u) {
+    const int *kind = u;
+    /* 10000001024 is the next float after 1e10 */
+    static const float flat[] = { 1e10f, 1e10f, 1e10f };
+    static const float close_by[] = { 1e10f, 10000001024.0f, 1e10f };
+    static const cui_candle candles[] = { { 1e10f, 1e10f, 1e10f, 1e10f, 10 }, { 1e10f, 1e10f, 1e10f, 1e10f, 20 } };
+    cui_series flat_s = { "flat", flat, 3, { 0 } }, close_s = { "close", close_by, 3, { 0 } };
+    cui_column(ui, .pad = 20, .width = CUI_FILL) {
+        switch (*kind) {
+        case 0: cui_line_chart(ui, "flat", &flat_s, 1, .height = 160); break;
+        case 1: cui_line_chart(ui, "close", &close_s, 1, .height = 160); break;
+        case 2: cui_sparkline(ui, flat, 3, CUI_PX(120), 32, CUI_RGB(0x3366cc)); break;
+        case 3: cui_candlestick(ui, "candles", candles, 2, .height = 200); break;
+        }
+    }
+}
+
+/** Automatic ranges at large magnitudes: a constant still gets a span, and axis ticks still advance. */
+static void test_large_chart_ranges(void) {
+    printf("charts: automatic ranges a float cannot widen by one\n");
+    for (int kind = 0; kind < 4; kind++) {
+        cui_ctx *ui = new_ctx();
+        run(ui, build_large_range, &kind, 2);
+        const cui_draw_data *dd = cui_get_draw_data(ui);
+        int invalid = 0;
+        for (int v = 0; v < dd->vertex_count; v++)
+            if (!isfinite(dd->vertices[v].x) || !isfinite(dd->vertices[v].y)) invalid++;
+        CHECK(dd->vertex_count > 0);
+        CHECK(invalid == 0);
+        if (invalid) printf("    chart %d: %d of %d vertices are not finite\n", kind, invalid, dd->vertex_count);
+        cui_destroy(ui);
+    }
+}
+
 static void test_viz(void) {
     printf("more charts: hit testing for every chart, empty and degenerate data\n");
     cui_ctx *ui = new_ctx();
@@ -11078,6 +11113,7 @@ int main(void) {
     test_timeline();
     test_media();
     test_viz();
+    test_large_chart_ranges();
     test_motion();
     test_typing_indicator_motion();
     test_running_task_motion();

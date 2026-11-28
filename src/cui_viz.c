@@ -2235,7 +2235,7 @@ int cui_candlestick_ex(cui_ctx *ui, const char *id_str, const cui_candle *candle
             if (i < o->overlays[s].count && o->overlays[s].values[i] == o->overlays[s].values[i]) { lo = CUI_MIN(lo, o->overlays[s].values[i]); hi = CUI_MAX(hi, o->overlays[s].values[i]); }
     }
     if (lo > hi) { lo = 0; hi = 1; }
-    if (hi - lo < 1e-6f) { lo -= 0.5f; hi += 0.5f; }
+    if (hi - lo < 1e-6f) { float w = CUI_MAX(0.5f, cui__least_span(lo, hi, 1)); lo -= w; hi += w; }
     float pad = (hi - lo) * 0.07f;
     lo -= pad; hi += pad;
     if (!(st->yhi > st->ylo) || r.active) { st->ylo = lo; st->yhi = hi; }
