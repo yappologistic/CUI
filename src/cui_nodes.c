@@ -7,8 +7,281 @@
  * the grid) is drawn at the current zoom, so text is rasterized at its zoomed
  * size and stays sharp. Components hosted inside a node are laid out at 100%
  * and scaled with the view; they stay interactive at any zoom (the pointer is
- * mapped into their space while they are built). */
+ * mapped into their space while they are built).
+ *
+ * The first part of the file, the node canvas (cui__nc_*), is what any canvas
+ * of boxes needs whatever the boxes hold: the view, id sets, bounds and
+ * framing, the marquee, the grid, the minimap, hosted content and paint
+ * order. The node editor below adds cards with pins and wires. */
 #include "cui_internal.h"
+
+/* ------------------------------------------------------------------------ */
+/* Node canvas                                                              */
+/* ------------------------------------------------------------------------ */
+
+#define CUI__NC_GRID     24.0f
+#define CUI__NC_DRAG     3.0f     /* travel before a press becomes a drag */
+
+typedef struct { int id; float x, y, w, h; } cui__nc_box;   /* canvas units */
+typedef struct { int *v; int n, cap; } cui__nc_ints;
+
+/* The view while a canvas builds: last frame's rectangle and where canvas
+ * (0, 0) sits on the screen. */
+typedef struct {
+    cui_node_view *view;
+    float z, min_zoom, max_zoom;
+    cui_rect r;                           /* the canvas, last frame */
+    float ox, oy;                         /* screen position of canvas (0, 0) */
+    bool has_rect;
+} cui__nc_view;
+
+/* where the minimap was painted, for a press on it in the next frame */
+typedef struct { float x, y, s, bx, by; bool valid; cui_rect rect; } cui__nc_minimap;
+
+/* the pointer kept while hosted content builds in its own unscaled space */
+typedef struct { float sx, sy; cui_vec2 saved_pointer; float saved_pmx, saved_pmy; } cui__nc_host;
+
+/* the card nodes built this frame and whether each paints raised (frame memory) */
+typedef struct { int *idx; bool *raise; int n, cap; } cui__nc_cards;
+
+static void cui__nc_push(cui_ctx *ui, cui__nc_ints *a, int v) {
+    CUI__GROW(ui, a->v, a->n, a->cap, 1);
+    a->v[a->n++] = v;
+}
+static bool cui__nc_has(const cui__nc_ints *a, int v) {
+    for (int i = 0; i < a->n; i++) if (a->v[i] == v) return true;
+    return false;
+}
+static void cui__nc_remove(cui__nc_ints *a, int v) {
+    for (int i = 0; i < a->n; i++) if (a->v[i] == v) { a->v[i] = a->v[--a->n]; return; }
+}
+
+static cui_vec2 cui__nc_screen(const cui__nc_view *v, float x, float y) {
+    cui_vec2 s = { v->ox + x * v->z, v->oy + y * v->z };
+    return s;
+}
+
+/* distance from p to the segment a-b, for picking a line under the pointer */
+static float cui__nc_seg_dist(cui_vec2 p, cui_vec2 a, cui_vec2 b) {
+    float vx = b.x - a.x, vy = b.y - a.y, wx = p.x - a.x, wy = p.y - a.y;
+    float l2 = vx * vx + vy * vy;
+    float t = l2 > 0 ? cui__clampf((wx * vx + wy * vy) / l2, 0, 1) : 0;
+    float ex = a.x + vx * t - p.x, ey = a.y + vy * t - p.y;
+    return sqrtf(ex * ex + ey * ey);
+}
+
+static void cui__nc_zoom_at(cui__nc_view *v, float nz, float sx, float sy) {
+    cui_node_view *view = v->view;
+    nz = cui__clampf(nz, v->min_zoom, v->max_zoom);
+    float cx = (sx - v->ox) / v->z, cy = (sy - v->oy) / v->z;
+    view->x = sx - v->r.x - cx * nz;
+    view->y = sy - v->r.y - cy * nz;
+    view->zoom = nz;
+    v->z = nz;
+    v->ox = v->r.x + view->x; v->oy = v->r.y + view->y;
+}
+
+/* the wheel aimed at scroll_id zooms around the pointer; a sideways scroll pans */
+static void cui__nc_wheel(cui_ctx *ui, cui__nc_view *v, cui_id scroll_id) {
+    if (!(v->has_rect && ui->scroll_target == scroll_id && (ui->scroll_dy != 0 || ui->scroll_dx != 0))) return;
+    if (ui->scroll_dy != 0) cui__nc_zoom_at(v, v->z * powf(1.12f, ui->scroll_dy), ui->mx, ui->my);
+    if (ui->scroll_dx != 0) { v->view->x += ui->scroll_dx * 40.0f; v->ox = v->r.x + v->view->x; }
+    ui->scroll_dx = ui->scroll_dy = 0;
+}
+
+/* a pan under way follows the pointer from (*last_x, *last_y); false once the buttons are up */
+static bool cui__nc_pan(cui_ctx *ui, cui__nc_view *v, float *last_x, float *last_y, cui_id owner) {
+    if (!ui->mdown[CUI_MOUSE_MIDDLE] && !ui->mdown[0]) return false;
+    v->view->x += ui->mx - *last_x; v->view->y += ui->my - *last_y;
+    v->ox = v->r.x + v->view->x; v->oy = v->r.y + v->view->y;
+    *last_x = ui->mx; *last_y = ui->my;
+    ui->active = owner;
+    cui__set_cursor(ui, CUI_CURSOR_MOVE);
+    return true;
+}
+
+/* the box around n boxes as x0, y0, x1, y1; the empty box (1e9, -1e9) for none */
+static void cui__nc_bounds(const cui__nc_box *bx, int n, float out[4]) {
+    float bx0 = 1e9f, by0 = 1e9f, bx1 = -1e9f, by1 = -1e9f;
+    for (int i = 0; i < n; i++) {
+        const cui__nc_box *nd = &bx[i];
+        bx0 = CUI_MIN(bx0, nd->x); by0 = CUI_MIN(by0, nd->y);
+        bx1 = CUI_MAX(bx1, nd->x + nd->w); by1 = CUI_MAX(by1, nd->y + nd->h);
+    }
+    out[0] = bx0; out[1] = by0; out[2] = bx1; out[3] = by1;
+}
+
+/* zoom and pan so every box shows, with a margin, at most at 100% */
+static void cui__nc_frame(cui__nc_view *v, const cui__nc_box *bx, int n) {
+    cui_node_view *view = v->view;
+    if (n <= 0) return;
+    float bb[4];
+    cui__nc_bounds(bx, n, bb);
+    float bx0 = bb[0], by0 = bb[1], bx1 = bb[2], by1 = bb[3];
+    float m = 40;
+    float nz = CUI_MIN((v->r.w - 2 * m) / CUI_MAX(1.0f, bx1 - bx0), (v->r.h - 2 * m) / CUI_MAX(1.0f, by1 - by0));
+    nz = cui__clampf(CUI_MIN(nz, 1.0f), v->min_zoom, v->max_zoom);
+    view->zoom = v->z = nz;
+    view->x = v->r.w * 0.5f - (bx0 + bx1) * 0.5f * nz;
+    view->y = v->r.h * 0.5f - (by0 + by1) * 0.5f * nz;
+    v->ox = v->r.x + view->x; v->oy = v->r.y + view->y;
+}
+
+/* the selection a marquee from (x0, y0) to (x1, y1) makes: base, then every box it touches */
+static void cui__nc_marquee_select(cui_ctx *ui, cui__nc_ints *sel, const cui__nc_ints *base, const cui__nc_box *bx, int n,
+                                   float x0, float y0, float x1, float y1) {
+    sel->n = 0;
+    for (int i = 0; i < base->n; i++) cui__nc_push(ui, sel, base->v[i]);
+    for (int i = 0; i < n; i++) {
+        const cui__nc_box *nd = &bx[i];
+        bool hit = nd->x < x1 && nd->x + nd->w > x0 && nd->y < y1 && nd->y + nd->h > y0;
+        if (hit && !cui__nc_has(sel, nd->id)) cui__nc_push(ui, sel, nd->id);
+    }
+}
+
+/* dragging on the minimap centres the view on the canvas point under the pointer */
+static void cui__nc_minimap_follow(cui_ctx *ui, cui__nc_view *v, const cui__nc_minimap *mm) {
+    if (!(mm->valid && mm->s > 0)) return;
+    float cx = mm->bx + (ui->mx - mm->x) / mm->s, cy = mm->by + (ui->my - mm->y) / mm->s;
+    v->view->x = v->r.w * 0.5f - cx * v->z;
+    v->view->y = v->r.h * 0.5f - cy * v->z;
+    v->ox = v->r.x + v->view->x; v->oy = v->r.y + v->view->y;
+}
+
+/* hosted content builds at 100%: the pointer moves into its space, scaled around (sx, sy) */
+static void cui__nc_host_begin(cui_ctx *ui, cui__nc_host *h, float sx, float sy, float z) {
+    h->sx = sx; h->sy = sy;
+    h->saved_pointer = cui_mouse_pos(ui);
+    if (!ui->building.screen_pointer) ui->building.screen_pointer = &h->saved_pointer;
+    h->saved_pmx = ui->pmx; h->saved_pmy = ui->pmy;
+    ui->mx = sx + (ui->mx - sx) / z; ui->my = sy + (ui->my - sy) / z;
+    ui->pmx = sx + (ui->pmx - sx) / z; ui->pmy = sy + (ui->pmy - sy) / z;
+}
+
+static void cui__nc_host_end(cui_ctx *ui, cui__nc_host *h) {
+    if (ui->building.screen_pointer == &h->saved_pointer) ui->building.screen_pointer = NULL;
+    ui->mx = h->saved_pointer.x; ui->my = h->saved_pointer.y; ui->pmx = h->saved_pmx; ui->pmy = h->saved_pmy;
+}
+
+/* content laid out at 100% and shown at zoom z: scaled around its centre, then
+ * moved so its top left stays where the node was placed */
+static void cui__nc_scale_box(cui_node *n, float w, float h, float z) {
+    if (fabsf(z - 1) > 0.0001f) {
+        n->scale = z;
+        n->tx = w * 0.5f * (z - 1);
+        n->ty = h * 0.5f * (z - 1);
+    }
+}
+
+static void cui__nc_cards_add(cui_ctx *ui, cui__nc_cards *c, int idx, bool raise) {
+    if (c->n >= c->cap) {
+        int nc = c->cap ? c->cap * 2 : 32;
+        int *nv = cui__frame_alloc(ui, sizeof(int) * (size_t)nc);
+        bool *nr = cui__frame_alloc(ui, sizeof(bool) * (size_t)nc);
+        if (c->n) { memcpy(nv, c->idx, sizeof(int) * (size_t)c->n); memcpy(nr, c->raise, sizeof(bool) * (size_t)c->n); }
+        c->idx = nv; c->raise = nr; c->cap = nc;
+    }
+    c->idx[c->n] = idx;
+    c->raise[c->n] = raise;
+    c->n++;
+}
+
+/* Relinks the canvas' absolute children in paint order: resting cards, raised
+ * cards, then the overlays (top_a, top_b; -1 for none). Later children paint
+ * above and take the pointer first. */
+static void cui__nc_paint_order(cui_ctx *ui, int canvas, const cui__nc_cards *cards, int top_a, int top_b) {
+    cui_node *en = &ui->nodes[canvas];
+    int total = 0;
+    for (int c = en->abs_first; c >= 0; c = ui->nodes[c].next) total++;
+    int *order = cui__frame_alloc(ui, sizeof(int) * (size_t)(total + 1));
+    int on = 0;
+    for (int pass = 0; pass < 3; pass++)
+        for (int c = en->abs_first; c >= 0; c = ui->nodes[c].next) {
+            int kind = 0;   /* 0 resting, 1 raised card, 2 overlay */
+            if (c == top_a || c == top_b) kind = 2;
+            else for (int k = 0; k < cards->n; k++) if (cards->idx[k] == c) { kind = cards->raise[k] ? 1 : 0; break; }
+            if (kind == pass) order[on++] = c;
+        }
+    for (int k = 0; k < on; k++) ui->nodes[order[k]].next = k + 1 < on ? order[k + 1] : -1;
+    en->abs_first = on ? order[0] : -1;
+    en->abs_last = on ? order[on - 1] : -1;
+}
+
+/* the wheel goes to the canvas while the pointer is over its visible part */
+static void cui__nc_paint_wheel_hit(cui_ctx *ui, cui_id scroll_id, cui_rect r) {
+    cui_rect clip = ui->dl.clip_stack[ui->dl.clip_depth - 1];
+    float s = ui->scale;
+    cui_rect cp = { clip.x / s, clip.y / s, clip.w / s, clip.h / s };
+    cui_scroll_state *ss = cui_state(ui, scroll_id, sizeof *ss);
+    ss->view_w = r.w; ss->view_h = r.h;
+    ss->content_w = r.w + 1e6f; ss->content_h = r.h + 1e6f;
+    cui__paint_add_hit(ui, scroll_id, cui__rect_intersect(r, cp), CUI_NF_SCROLL_X | CUI_NF_SCROLL_Y);
+}
+
+/* dots on the grid, doubling their spacing when zoomed far out */
+static void cui__nc_paint_grid(cui_ctx *ui, const cui__nc_view *v, cui_rect r) {
+    float step = CUI__NC_GRID * v->z;
+    while (step < 14.0f) step *= 2;
+    cui_color dot = cui_alpha(CUI_C(ui, BORDER_STRONG), ui->mode == CUI_THEME_DARK ? 0.32f : 0.42f);
+    float x0 = v->ox + ceilf((r.x - v->ox) / step) * step;
+    float y0 = v->oy + ceilf((r.y - v->oy) / step) * step;
+    float d = 1.1f;
+    for (float y = y0; y < r.y + r.h; y += step)
+        for (float x = x0; x < r.x + r.w; x += step)
+            cui_draw_rect(ui, (cui_rect){ x - d * 0.5f, y - d * 0.5f, d, d }, CUI_CORNERS(d * 0.5f), dot);
+}
+
+/* the marquee between two canvas points */
+static void cui__nc_paint_marquee(cui_ctx *ui, const cui__nc_view *v, float ax, float ay, float bx, float by, cui_color acc) {
+    float x0 = CUI_MIN(ax, bx), y0 = CUI_MIN(ay, by);
+    float x1 = CUI_MAX(ax, bx), y1 = CUI_MAX(ay, by);
+    cui_vec2 p0 = cui__nc_screen(v, x0, y0), p1 = cui__nc_screen(v, x1, y1);
+    cui_rect mr = { p0.x, p0.y, p1.x - p0.x, p1.y - p0.y };
+    bool neutral = ui->accent == CUI_ACCENT_NEUTRAL;
+    cui_draw_rect_border(ui, mr, CUI_CORNERS(2), neutral ? cui_alpha(CUI_C(ui, FOREGROUND), 0.04f) : CUI_C(ui, ACCENT_SUBTLE),
+                         cui_alpha(acc, 0.55f), 1);
+}
+
+/* An overview of the boxes and the view in the canvas' bottom right corner;
+ * where it went is kept in *mm for a press on it. */
+static void cui__nc_paint_minimap(cui_ctx *ui, const cui__nc_view *v, cui_rect r, const cui__nc_box *bx, int n,
+                                  const cui__nc_ints *sel, cui_color acc, cui__nc_minimap *mm_out) {
+    float z = v->z;
+    /* full size on a roomy canvas; on a narrow one (a phone) it shrinks to
+     * a corner instead of covering the graph */
+    float k = CUI_CLAMP(r.w * 0.28f / 168.0f, 0.5f, 1.0f);
+    float mw = 168 * k, mh = 108 * k, m = 12;
+    cui_rect mm = { r.x + r.w - mw - m, r.y + r.h - mh - m, mw, mh };
+    if (!(mm.x > r.x + m && mm.y > r.y + m)) return;
+    /* bounds of the boxes and the view, in canvas units */
+    float bb[4];
+    cui__nc_bounds(bx, n, bb);
+    float bx0 = bb[0], by0 = bb[1], bx1 = bb[2], by1 = bb[3];
+    float vx0 = (r.x - v->ox) / z, vy0 = (r.y - v->oy) / z, vx1 = vx0 + r.w / z, vy1 = vy0 + r.h / z;
+    bx0 = CUI_MIN(bx0, vx0); by0 = CUI_MIN(by0, vy0); bx1 = CUI_MAX(bx1, vx1); by1 = CUI_MAX(by1, vy1);
+    float pad = 8;
+    float s = CUI_MIN((mw - 2 * pad) / CUI_MAX(1.0f, bx1 - bx0), (mh - 2 * pad) / CUI_MAX(1.0f, by1 - by0));
+    float offx = mm.x + pad + ((mw - 2 * pad) - (bx1 - bx0) * s) * 0.5f;
+    float offy = mm.y + pad + ((mh - 2 * pad) - (by1 - by0) * s) * 0.5f;
+    mm_out->valid = true; mm_out->rect = mm; mm_out->s = s; mm_out->x = offx; mm_out->y = offy; mm_out->bx = bx0; mm_out->by = by0;
+    cui_color bg = ui->mode == CUI_THEME_DARK ? CUI_C(ui, SURFACE) : CUI_C(ui, SURFACE);
+    float rad = CUI__R_ITEM(ui);
+    cui_draw_rect_border(ui, mm, CUI_CORNERS(rad), bg, CUI_C(ui, BORDER), 1);
+    cui_push_clip(ui, cui__rect_inset(mm, 1));
+    for (int i = 0; i < n; i++) {
+        const cui__nc_box *nd = &bx[i];
+        cui_rect q = { offx + (nd->x - bx0) * s, offy + (nd->y - by0) * s, CUI_MAX(2.0f, nd->w * s), CUI_MAX(2.0f, nd->h * s) };
+        bool on = cui__nc_has(sel, nd->id);
+        cui_draw_rect(ui, q, CUI_CORNERS(1.5f), on ? cui_alpha(acc, 0.7f) : cui_mix(CUI_C(ui, BORDER), CUI_C(ui, BORDER_STRONG), 0.35f));
+    }
+    cui_rect vr = { offx + (vx0 - bx0) * s, offy + (vy0 - by0) * s, (vx1 - vx0) * s, (vy1 - vy0) * s };
+    cui_draw_rect_border(ui, vr, CUI_CORNERS(2), cui_alpha(CUI_C(ui, FOREGROUND), 0.025f), cui_alpha(CUI_C(ui, FOREGROUND), 0.3f), 1);
+    cui_pop_clip(ui);
+}
+
+/* ------------------------------------------------------------------------ */
+/* Node editor                                                              */
+/* ------------------------------------------------------------------------ */
 
 #define CUI__NE_W        184.0f   /* default node width */
 #define CUI__NE_HEAD     34.0f    /* title row */
@@ -17,21 +290,17 @@
 #define CUI__NE_PAD_BOT  8.0f
 #define CUI__NE_INSET    14.0f    /* labels and hosted content from the card edge */
 #define CUI__NE_PIN_R    4.5f
-#define CUI__NE_GRID     24.0f
 #define CUI__NE_SNAP     18.0f    /* a dropped wire finds a pin this close (screen points) */
-#define CUI__NE_DRAG     3.0f     /* travel before a press becomes a drag */
 
 enum { NE_IDLE = 0, NE_PAN, NE_PEND_DRAG, NE_DRAG, NE_PEND_MARQUEE, NE_MARQUEE, NE_WIRE, NE_MINIMAP };
 enum { NE_IN = 0, NE_OUT = 1, NE_CONTENT = 2 };
 
-typedef struct { int id; float x, y, w, h; } cui__ne_node;               /* canvas units */
 typedef struct { int pin, node, kind, type; float x, y; } cui__ne_pin;    /* x, y: center, canvas units */
 typedef struct { int id, from, to; } cui__ne_link;
 typedef struct { int kind, pin, type; bool connected; const char *label; int label_len; float y, h, hover; } cui__ne_row;
-typedef struct { int *v; int n, cap; } cui__ne_ints;
 
 typedef struct {
-    cui__ne_node *nodes; int node_n, node_cap;
+    cui__nc_box *nodes; int node_n, node_cap;
     cui__ne_pin *pins; int pin_n, pin_cap;
     cui__ne_link *links; int link_n, link_cap;
 } cui__ne_set;
@@ -39,8 +308,8 @@ typedef struct {
 typedef struct {
     cui__ne_set set[2]; int cur;          /* set[cur] fills this frame, the other is the last frame */
     cui__ne_row *rows; int row_n, row_cap;
-    cui__ne_ints sel;                     /* selected node ids */
-    cui__ne_ints mq_base;                 /* selection kept by a Shift marquee */
+    cui__nc_ints sel;                     /* selected node ids */
+    cui__nc_ints mq_base;                 /* selection kept by a Shift marquee */
     int sel_link; bool link_selected;
     int mode;
     float press_x, press_y, last_x, last_y;   /* screen points */
@@ -48,25 +317,21 @@ typedef struct {
     float mq_x0, mq_y0, mq_x1, mq_y1;     /* marquee, canvas units */
     int wire_pin, wire_kind, wire_type, wire_node, wire_link, wire_orig;
     bool wire_detached, has_target; int target_pin;
-    cui__ne_ints ev_new, ev_rm, ev_del; int ev_new_read, ev_rm_read, ev_del_read;
+    cui__nc_ints ev_new, ev_rm, ev_del; int ev_new_read, ev_rm_read, ev_del_read;
     float move_dx, move_dy;               /* canvas units, applied to the selected nodes this frame */
     bool frame_all;
     int kb_node; bool kb_has;             /* node whose card has keyboard focus */
     cui_spring lift;
-    float mm_x, mm_y, mm_s, mm_bx, mm_by; bool mm_valid;   /* minimap mapping, from the last paint */
-    cui_rect mm_rect;
+    cui__nc_minimap mm;                   /* minimap mapping, from the last paint */
 } cui__ne_state;
 
 typedef struct cui__ne_build {
     cui_id id;
     uint64_t frame;
     cui__ne_state *st;
-    cui_node_view *view;
-    float z, min_zoom, max_zoom;
-    cui_rect r;                           /* editor rect, last frame */
-    float ox, oy;                         /* screen position of canvas (0, 0) */
+    cui__nc_view v;
     int editor_node;
-    bool grid, minimap, consumed, has_rect, bg_focus, disabled;
+    bool grid, minimap, consumed, bg_focus, disabled;
     int inert, inert_content;             /* nested or misplaced begin calls */
     /* node being built */
     bool in_node;
@@ -75,14 +340,13 @@ typedef struct cui__ne_build {
     float nx, ny, nw, row_y, card_sx, card_sy;
     bool node_selected;
     struct cui__ne_card *card_paint;
-    int content_node; float c_sx, c_sy; cui_vec2 saved_pointer; float saved_pmx, saved_pmy; bool in_content;
+    int content_node; cui__nc_host host; bool in_content;
     cui_id content_id;
-    int *cards; int card_n, card_cap;     /* card node indices (frame memory) */
-    bool *raise;
+    cui__nc_cards cards;
     /* snapshot for painting */
     cui__ne_pin *pins; int pin_n;
     cui__ne_link *links; int link_n;
-    cui__ne_node *nodes; int node_n;
+    cui__nc_box *nodes; int node_n;
     cui__ne_row *rows;
     struct cui__ne_build *prev;
 } cui__ne_build;
@@ -108,18 +372,6 @@ static cui__ne_build *cui__ne_cur(cui_ctx *ui) {
     return reg->cur;
 }
 
-static void cui__ne_push(cui_ctx *ui, cui__ne_ints *a, int v) {
-    CUI__GROW(ui, a->v, a->n, a->cap, 1);
-    a->v[a->n++] = v;
-}
-static bool cui__ne_has(const cui__ne_ints *a, int v) {
-    for (int i = 0; i < a->n; i++) if (a->v[i] == v) return true;
-    return false;
-}
-static void cui__ne_remove(cui__ne_ints *a, int v) {
-    for (int i = 0; i < a->n; i++) if (a->v[i] == v) { a->v[i] = a->v[--a->n]; return; }
-}
-
 static void cui__ne_dtor(cui_ctx *ui, void *data) {
     cui__ne_state *st = data;
     for (int k = 0; k < 2; k++) { cui__free(ui, st->set[k].nodes); cui__free(ui, st->set[k].pins); cui__free(ui, st->set[k].links); }
@@ -137,7 +389,7 @@ static const cui__ne_pin *cui__ne_find_pin(const cui__ne_pin *p, int n, int pin)
     for (int i = 0; i < n; i++) if (p[i].pin == pin) return &p[i];
     return NULL;
 }
-static const cui__ne_node *cui__ne_find_node(const cui__ne_node *p, int n, int id) {
+static const cui__nc_box *cui__ne_find_node(const cui__nc_box *p, int n, int id) {
     for (int i = 0; i < n; i++) if (p[i].id == id) return &p[i];
     return NULL;
 }
@@ -166,28 +418,14 @@ static int cui__ne_curve(cui_vec2 a, cui_vec2 d, float z, cui_vec2 *out, int max
     return n + 1;
 }
 
-static float cui__ne_seg_dist(cui_vec2 p, cui_vec2 a, cui_vec2 b) {
-    float vx = b.x - a.x, vy = b.y - a.y, wx = p.x - a.x, wy = p.y - a.y;
-    float l2 = vx * vx + vy * vy;
-    float t = l2 > 0 ? cui__clampf((wx * vx + wy * vy) / l2, 0, 1) : 0;
-    float ex = a.x + vx * t - p.x, ey = a.y + vy * t - p.y;
-    return sqrtf(ex * ex + ey * ey);
-}
-
-static cui_vec2 cui__ne_screen(const cui__ne_build *b, float x, float y) {
-    cui_vec2 v = { b->ox + x * b->z, b->oy + y * b->z };
-    return v;
-}
-
 static bool cui__ne_compatible(const cui__ne_state *st, const cui__ne_pin *p) {
     if (p->kind == st->wire_kind || p->node == st->wire_node) return false;
     return st->wire_type <= 0 || p->type <= 0 || p->type == st->wire_type;
 }
 
-
 static void cui__ne_select_only(cui_ctx *ui, cui__ne_state *st, int node) {
     st->sel.n = 0;
-    cui__ne_push(ui, &st->sel, node);
+    cui__nc_push(ui, &st->sel, node);
     st->link_selected = false;
 }
 
@@ -208,30 +446,10 @@ static void cui__paint_ne_canvas(cui_ctx *ui, cui_node *n, void *data) {
     cui__ne_build *b = data;
     cui__ne_state *st = b->st;
     cui_rect r = n->rect;
-    /* the wheel goes to the editor while the pointer is over its visible part */
-    if (!b->disabled) {
-        cui_rect clip = ui->dl.clip_stack[ui->dl.clip_depth - 1];
-        float s = ui->scale;
-        cui_rect cp = { clip.x / s, clip.y / s, clip.w / s, clip.h / s };
-        cui_id sid = cui__ne_scroll_id(b->id);
-        cui_scroll_state *ss = cui_state(ui, sid, sizeof *ss);
-        ss->view_w = r.w; ss->view_h = r.h;
-        ss->content_w = r.w + 1e6f; ss->content_h = r.h + 1e6f;
-        cui__paint_add_hit(ui, sid, cui__rect_intersect(r, cp), CUI_NF_SCROLL_X | CUI_NF_SCROLL_Y);
-    }
-    float z = b->z;
+    if (!b->disabled) cui__nc_paint_wheel_hit(ui, cui__ne_scroll_id(b->id), r);
+    float z = b->v.z;
     cui_push_clip(ui, cui__rect_inset(r, 1));   /* the node's own clip starts after this paint */
-    if (b->grid) {
-        float step = CUI__NE_GRID * z;
-        while (step < 14.0f) step *= 2;
-        cui_color dot = cui_alpha(CUI_C(ui, BORDER_STRONG), ui->mode == CUI_THEME_DARK ? 0.32f : 0.42f);
-        float x0 = b->ox + ceilf((r.x - b->ox) / step) * step;
-        float y0 = b->oy + ceilf((r.y - b->oy) / step) * step;
-        float d = 1.1f;
-        for (float y = y0; y < r.y + r.h; y += step)
-            for (float x = x0; x < r.x + r.w; x += step)
-                cui_draw_rect(ui, (cui_rect){ x - d * 0.5f, y - d * 0.5f, d, d }, CUI_CORNERS(d * 0.5f), dot);
-    }
+    if (b->grid) cui__nc_paint_grid(ui, &b->v, r);
     /* links, under the nodes */
     float th = cui__ne_wire_thickness(z);
     for (int i = 0; i < b->link_n; i++) {
@@ -242,7 +460,7 @@ static void cui__paint_ne_canvas(cui_ctx *ui, cui_node *n, void *data) {
         if (!pa || !pd) continue;
         bool sel = st->link_selected && st->sel_link == l->id;
         cui_color c = sel ? cui__ne_accent(ui) : cui_alpha(cui__ne_type_color(ui, pa->type), 0.85f);
-        cui__ne_draw_wire(ui, cui__ne_screen(b, pa->x, pa->y), cui__ne_screen(b, pd->x, pd->y), z, sel ? th + 0.5f : th, c);
+        cui__ne_draw_wire(ui, cui__nc_screen(&b->v, pa->x, pa->y), cui__nc_screen(&b->v, pd->x, pd->y), z, sel ? th + 0.5f : th, c);
     }
     cui_pop_clip(ui);
 }
@@ -251,76 +469,33 @@ static void cui__paint_ne_canvas(cui_ctx *ui, cui_node *n, void *data) {
 static void cui__paint_ne_overlay(cui_ctx *ui, cui_node *n, void *data) {
     cui__ne_build *b = data;
     cui__ne_state *st = b->st;
-    float z = b->z;
+    float z = b->v.z;
     cui_rect r = ui->nodes[b->editor_node].rect;
     cui_color acc = cui__ne_accent(ui);
     if (st->mode == NE_WIRE) {
         const cui__ne_pin *src = cui__ne_find_pin(b->pins, b->pin_n, st->wire_pin);
         if (src) {
-            cui_vec2 a = cui__ne_screen(b, src->x, src->y), m = { ui->mx, ui->my };
+            cui_vec2 a = cui__nc_screen(&b->v, src->x, src->y), m = { ui->mx, ui->my };
             const cui__ne_pin *tp = st->has_target ? cui__ne_find_pin(b->pins, b->pin_n, st->target_pin) : NULL;
-            if (tp) m = cui__ne_screen(b, tp->x, tp->y);
+            if (tp) m = cui__nc_screen(&b->v, tp->x, tp->y);
             if (src->kind == NE_OUT) cui__ne_draw_wire(ui, a, m, z, cui__ne_wire_thickness(z), acc);
             else cui__ne_draw_wire(ui, m, a, z, cui__ne_wire_thickness(z), acc);
             if (!tp) cui_draw_circle(ui, m, CUI_MAX(2.5f, 3.0f * z), acc);
         }
     }
-    if (st->mode == NE_MARQUEE) {
-        float x0 = CUI_MIN(st->mq_x0, st->mq_x1), y0 = CUI_MIN(st->mq_y0, st->mq_y1);
-        float x1 = CUI_MAX(st->mq_x0, st->mq_x1), y1 = CUI_MAX(st->mq_y0, st->mq_y1);
-        cui_vec2 p0 = cui__ne_screen(b, x0, y0), p1 = cui__ne_screen(b, x1, y1);
-        cui_rect mr = { p0.x, p0.y, p1.x - p0.x, p1.y - p0.y };
-        bool neutral = ui->accent == CUI_ACCENT_NEUTRAL;
-        cui_draw_rect_border(ui, mr, CUI_CORNERS(2), neutral ? cui_alpha(CUI_C(ui, FOREGROUND), 0.04f) : CUI_C(ui, ACCENT_SUBTLE),
-                             cui_alpha(acc, 0.55f), 1);
-    }
+    if (st->mode == NE_MARQUEE) cui__nc_paint_marquee(ui, &b->v, st->mq_x0, st->mq_y0, st->mq_x1, st->mq_y1, acc);
     if (b->bg_focus) {
         float rad = ui->theme.radius_panel;
         cui_draw_rect_border(ui, cui__rect_inset(r, 1), CUI_CORNERS(rad - 1), cui__rgba(0, 0, 0, 0), CUI_C(ui, FOCUS_RING), 2);
     }
-    st->mm_valid = false;
-    if (b->minimap && b->node_n > 0) {
-        /* full size on a roomy canvas; on a narrow one (a phone) it shrinks to
-         * a corner instead of covering the graph */
-        float k = CUI_CLAMP(r.w * 0.28f / 168.0f, 0.5f, 1.0f);
-        float mw = 168 * k, mh = 108 * k, m = 12;
-        cui_rect mm = { r.x + r.w - mw - m, r.y + r.h - mh - m, mw, mh };
-        if (mm.x > r.x + m && mm.y > r.y + m) {
-            /* bounds of the nodes and the view, in canvas units */
-            float bx0 = 1e9f, by0 = 1e9f, bx1 = -1e9f, by1 = -1e9f;
-            for (int i = 0; i < b->node_n; i++) {
-                const cui__ne_node *nd = &b->nodes[i];
-                bx0 = CUI_MIN(bx0, nd->x); by0 = CUI_MIN(by0, nd->y);
-                bx1 = CUI_MAX(bx1, nd->x + nd->w); by1 = CUI_MAX(by1, nd->y + nd->h);
-            }
-            float vx0 = (r.x - b->ox) / z, vy0 = (r.y - b->oy) / z, vx1 = vx0 + r.w / z, vy1 = vy0 + r.h / z;
-            bx0 = CUI_MIN(bx0, vx0); by0 = CUI_MIN(by0, vy0); bx1 = CUI_MAX(bx1, vx1); by1 = CUI_MAX(by1, vy1);
-            float pad = 8;
-            float s = CUI_MIN((mw - 2 * pad) / CUI_MAX(1.0f, bx1 - bx0), (mh - 2 * pad) / CUI_MAX(1.0f, by1 - by0));
-            float offx = mm.x + pad + ((mw - 2 * pad) - (bx1 - bx0) * s) * 0.5f;
-            float offy = mm.y + pad + ((mh - 2 * pad) - (by1 - by0) * s) * 0.5f;
-            st->mm_valid = true; st->mm_rect = mm; st->mm_s = s; st->mm_x = offx; st->mm_y = offy; st->mm_bx = bx0; st->mm_by = by0;
-            cui_color bg = ui->mode == CUI_THEME_DARK ? CUI_C(ui, SURFACE) : CUI_C(ui, SURFACE);
-            float rad = CUI__R_ITEM(ui);
-            cui_draw_rect_border(ui, mm, CUI_CORNERS(rad), bg, CUI_C(ui, BORDER), 1);
-            cui_push_clip(ui, cui__rect_inset(mm, 1));
-            for (int i = 0; i < b->node_n; i++) {
-                const cui__ne_node *nd = &b->nodes[i];
-                cui_rect q = { offx + (nd->x - bx0) * s, offy + (nd->y - by0) * s, CUI_MAX(2.0f, nd->w * s), CUI_MAX(2.0f, nd->h * s) };
-                bool sel = cui__ne_has(&st->sel, nd->id);
-                cui_draw_rect(ui, q, CUI_CORNERS(1.5f), sel ? cui_alpha(acc, 0.7f) : cui_mix(CUI_C(ui, BORDER), CUI_C(ui, BORDER_STRONG), 0.35f));
-            }
-            cui_rect vr = { offx + (vx0 - bx0) * s, offy + (vy0 - by0) * s, (vx1 - vx0) * s, (vy1 - vy0) * s };
-            cui_draw_rect_border(ui, vr, CUI_CORNERS(2), cui_alpha(CUI_C(ui, FOREGROUND), 0.025f), cui_alpha(CUI_C(ui, FOREGROUND), 0.3f), 1);
-            cui_pop_clip(ui);
-        }
-    }
+    st->mm.valid = false;
+    if (b->minimap && b->node_n > 0) cui__nc_paint_minimap(ui, &b->v, r, b->nodes, b->node_n, &st->sel, acc, &st->mm);
     (void)n;
 }
 
 static void cui__ne_draw_pin(cui_ctx *ui, const cui__ne_build *b, const cui__ne_row *row, cui_vec2 c, cui_color card_bg) {
     const cui__ne_state *st = b->st;
-    float z = b->z;
+    float z = b->v.z;
     float pr = CUI_MAX(2.5f, CUI__NE_PIN_R * z) * (1.0f + 0.22f * row->hover);
     cui_color tc = cui__ne_type_color(ui, row->type);
     cui_color acc = cui__ne_accent(ui);
@@ -350,7 +525,7 @@ static void cui__ne_draw_pin(cui_ctx *ui, const cui__ne_build *b, const cui__ne_
 static void cui__paint_ne_card(cui_ctx *ui, cui_node *n, void *data) {
     cui__ne_card *cp = data;
     cui__ne_build *b = cp->b;
-    float z = b->z;
+    float z = b->v.z;
     cui_rect r = n->rect;
     float rad = ui->theme.radius_control * z;
     cui_corners rc = CUI_CORNERS(rad);
@@ -407,36 +582,25 @@ static void cui__paint_ne_card(cui_ctx *ui, cui_node *n, void *data) {
 
 static void cui__ne_delete_selection(cui_ctx *ui, cui__ne_state *st, const cui__ne_set *prev) {
     for (int i = 0; i < st->sel.n; i++)
-        if (cui__ne_find_node(prev->nodes, prev->node_n, st->sel.v[i])) cui__ne_push(ui, &st->ev_del, st->sel.v[i]);
+        if (cui__ne_find_node(prev->nodes, prev->node_n, st->sel.v[i])) cui__nc_push(ui, &st->ev_del, st->sel.v[i]);
     for (int i = 0; i < prev->link_n; i++) {
         const cui__ne_link *l = &prev->links[i];
         const cui__ne_pin *pa = cui__ne_find_pin(prev->pins, prev->pin_n, l->from);
         const cui__ne_pin *pd = cui__ne_find_pin(prev->pins, prev->pin_n, l->to);
-        bool gone = (pa && cui__ne_has(&st->sel, pa->node)) || (pd && cui__ne_has(&st->sel, pd->node)) ||
+        bool gone = (pa && cui__nc_has(&st->sel, pa->node)) || (pd && cui__nc_has(&st->sel, pd->node)) ||
                     (st->link_selected && st->sel_link == l->id);
-        if (gone) cui__ne_push(ui, &st->ev_rm, l->id);
+        if (gone) cui__nc_push(ui, &st->ev_rm, l->id);
     }
     st->sel.n = 0;
     st->link_selected = false;
 }
 
-static void cui__ne_zoom_at(cui__ne_build *b, float nz, float sx, float sy) {
-    cui_node_view *v = b->view;
-    nz = cui__clampf(nz, b->min_zoom, b->max_zoom);
-    float cx = (sx - b->ox) / b->z, cy = (sy - b->oy) / b->z;
-    v->x = sx - b->r.x - cx * nz;
-    v->y = sy - b->r.y - cy * nz;
-    v->zoom = nz;
-    b->z = nz;
-    b->ox = b->r.x + v->x; b->oy = b->r.y + v->y;
-}
-
 static void cui__ne_finish_wire(cui_ctx *ui, cui__ne_state *st, const cui__ne_set *prev) {
     float dx = st->last_x - st->press_x, dy = st->last_y - st->press_y;
-    if (dx * dx + dy * dy < CUI__NE_DRAG * CUI__NE_DRAG) return;   /* a click on a pin changes nothing */
+    if (dx * dx + dy * dy < CUI__NC_DRAG * CUI__NC_DRAG) return;   /* a click on a pin changes nothing */
     const cui__ne_pin *tgt = st->has_target ? cui__ne_find_pin(prev->pins, prev->pin_n, st->target_pin) : NULL;
     if (st->wire_detached && tgt && tgt->pin == st->wire_orig) return;   /* put back where it was */
-    if (st->wire_detached) cui__ne_push(ui, &st->ev_rm, st->wire_link);
+    if (st->wire_detached) cui__nc_push(ui, &st->ev_rm, st->wire_link);
     if (!tgt) return;
     int out = st->wire_kind == NE_OUT ? st->wire_pin : tgt->pin;
     int in = st->wire_kind == NE_OUT ? tgt->pin : st->wire_pin;
@@ -445,17 +609,9 @@ static void cui__ne_finish_wire(cui_ctx *ui, cui__ne_state *st, const cui__ne_se
         const cui__ne_link *l = &prev->links[i];
         if (st->wire_detached && l->id == st->wire_link) continue;
         if (l->to == in && l->from == out) dup = true;
-        else if (l->to == in && !cui__ne_has(&st->ev_rm, l->id)) cui__ne_push(ui, &st->ev_rm, l->id);   /* an input takes one link */
+        else if (l->to == in && !cui__nc_has(&st->ev_rm, l->id)) cui__nc_push(ui, &st->ev_rm, l->id);   /* an input takes one link */
     }
-    if (!dup) { cui__ne_push(ui, &st->ev_new, out); cui__ne_push(ui, &st->ev_new, in); }
-}
-
-/* the wheel zooms around the pointer; a sideways scroll pans */
-static void cui__ne_wheel(cui_ctx *ui, cui__ne_build *b) {
-    if (!(b->has_rect && ui->scroll_target == cui__ne_scroll_id(b->id) && (ui->scroll_dy != 0 || ui->scroll_dx != 0))) return;
-    if (ui->scroll_dy != 0) cui__ne_zoom_at(b, b->z * powf(1.12f, ui->scroll_dy), ui->mx, ui->my);
-    if (ui->scroll_dx != 0) { b->view->x += ui->scroll_dx * 40.0f; b->ox = b->r.x + b->view->x; }
-    ui->scroll_dx = ui->scroll_dy = 0;
+    if (!dup) { cui__nc_push(ui, &st->ev_new, out); cui__nc_push(ui, &st->ev_new, in); }
 }
 
 /* keys while the editor or one of its cards has focus: Delete, F frames everything, Ctrl+A,
@@ -470,7 +626,7 @@ static void cui__ne_keys(cui_ctx *ui, cui__ne_build *b, const cui__ne_set *prev)
     if (cui_key_pressed(ui, CUI_KEY_F) && !prim) { st->frame_all = true; ui->kpressed[CUI_KEY_F] = 0; }
     if (prim && cui_key_pressed(ui, CUI_KEY_A)) {
         st->sel.n = 0;
-        for (int i = 0; i < prev->node_n; i++) cui__ne_push(ui, &st->sel, prev->nodes[i].id);
+        for (int i = 0; i < prev->node_n; i++) cui__nc_push(ui, &st->sel, prev->nodes[i].id);
         ui->kpressed[CUI_KEY_A] = 0;
     }
     if (cui_key_pressed(ui, CUI_KEY_ESCAPE)) {
@@ -485,29 +641,10 @@ static void cui__ne_keys(cui_ctx *ui, cui__ne_build *b, const cui__ne_set *prev)
         if (cui_key_pressed(ui, CUI_KEY_UP)) { st->move_dy -= step; ui->kpressed[CUI_KEY_UP] = 0; }
         if (cui_key_pressed(ui, CUI_KEY_DOWN)) { st->move_dy += step; ui->kpressed[CUI_KEY_DOWN] = 0; }
     }
-    float cx = b->r.x + b->r.w * 0.5f, cy = b->r.y + b->r.h * 0.5f;
-    if (cui_key_pressed(ui, CUI_KEY_EQUAL)) { cui__ne_zoom_at(b, b->z * 1.25f, cx, cy); ui->kpressed[CUI_KEY_EQUAL] = 0; }
-    if (cui_key_pressed(ui, CUI_KEY_MINUS)) { cui__ne_zoom_at(b, b->z / 1.25f, cx, cy); ui->kpressed[CUI_KEY_MINUS] = 0; }
-    if (cui_key_pressed(ui, CUI_KEY_0)) { cui__ne_zoom_at(b, 1.0f, cx, cy); ui->kpressed[CUI_KEY_0] = 0; }
-}
-
-/* zoom and pan so every node shows, with a margin, at most at 100% */
-static void cui__ne_frame_all(cui__ne_build *b, const cui__ne_set *prev) {
-    cui_node_view *view = b->view;
-    if (prev->node_n <= 0) return;
-    float bx0 = 1e9f, by0 = 1e9f, bx1 = -1e9f, by1 = -1e9f;
-    for (int i = 0; i < prev->node_n; i++) {
-        const cui__ne_node *nd = &prev->nodes[i];
-        bx0 = CUI_MIN(bx0, nd->x); by0 = CUI_MIN(by0, nd->y);
-        bx1 = CUI_MAX(bx1, nd->x + nd->w); by1 = CUI_MAX(by1, nd->y + nd->h);
-    }
-    float m = 40;
-    float nz = CUI_MIN((b->r.w - 2 * m) / CUI_MAX(1.0f, bx1 - bx0), (b->r.h - 2 * m) / CUI_MAX(1.0f, by1 - by0));
-    nz = cui__clampf(CUI_MIN(nz, 1.0f), b->min_zoom, b->max_zoom);
-    view->zoom = b->z = nz;
-    view->x = b->r.w * 0.5f - (bx0 + bx1) * 0.5f * nz;
-    view->y = b->r.h * 0.5f - (by0 + by1) * 0.5f * nz;
-    b->ox = b->r.x + view->x; b->oy = b->r.y + view->y;
+    float cx = b->v.r.x + b->v.r.w * 0.5f, cy = b->v.r.y + b->v.r.h * 0.5f;
+    if (cui_key_pressed(ui, CUI_KEY_EQUAL)) { cui__nc_zoom_at(&b->v, b->v.z * 1.25f, cx, cy); ui->kpressed[CUI_KEY_EQUAL] = 0; }
+    if (cui_key_pressed(ui, CUI_KEY_MINUS)) { cui__nc_zoom_at(&b->v, b->v.z / 1.25f, cx, cy); ui->kpressed[CUI_KEY_MINUS] = 0; }
+    if (cui_key_pressed(ui, CUI_KEY_0)) { cui__nc_zoom_at(&b->v, 1.0f, cx, cy); ui->kpressed[CUI_KEY_0] = 0; }
 }
 
 /* dragging the selected nodes, after the press has moved far enough to be a drag */
@@ -516,11 +653,11 @@ static void cui__ne_drag_nodes(cui_ctx *ui, cui__ne_build *b) {
     float mx = ui->mx, my = ui->my;
     if (st->mode == NE_PEND_DRAG && ui->mdown[0]) {
         float dx = mx - st->press_x, dy = my - st->press_y;
-        if (dx * dx + dy * dy > CUI__NE_DRAG * CUI__NE_DRAG) st->mode = NE_DRAG;
+        if (dx * dx + dy * dy > CUI__NC_DRAG * CUI__NC_DRAG) st->mode = NE_DRAG;
     }
     if (st->mode == NE_DRAG) {
-        st->move_dx += (mx - st->last_x) / b->z;
-        st->move_dy += (my - st->last_y) / b->z;
+        st->move_dx += (mx - st->last_x) / b->v.z;
+        st->move_dy += (my - st->last_y) / b->v.z;
         cui__set_cursor(ui, CUI_CURSOR_MOVE);
         ui->animating = true;
     }
@@ -538,19 +675,13 @@ static void cui__ne_marquee(cui_ctx *ui, cui__ne_build *b, const cui__ne_set *pr
     float mx = ui->mx, my = ui->my;
     if (st->mode == NE_PEND_MARQUEE && ui->mdown[0]) {
         float dx = mx - st->press_x, dy = my - st->press_y;
-        if (dx * dx + dy * dy > CUI__NE_DRAG * CUI__NE_DRAG) st->mode = NE_MARQUEE;
+        if (dx * dx + dy * dy > CUI__NC_DRAG * CUI__NC_DRAG) st->mode = NE_MARQUEE;
     }
-    st->mq_x1 = (mx - b->ox) / b->z; st->mq_y1 = (my - b->oy) / b->z;
+    st->mq_x1 = (mx - b->v.ox) / b->v.z; st->mq_y1 = (my - b->v.oy) / b->v.z;
     if (st->mode == NE_MARQUEE) {
         float x0 = CUI_MIN(st->mq_x0, st->mq_x1), y0 = CUI_MIN(st->mq_y0, st->mq_y1);
         float x1 = CUI_MAX(st->mq_x0, st->mq_x1), y1 = CUI_MAX(st->mq_y0, st->mq_y1);
-        st->sel.n = 0;
-        for (int i = 0; i < st->mq_base.n; i++) cui__ne_push(ui, &st->sel, st->mq_base.v[i]);
-        for (int i = 0; i < prev->node_n; i++) {
-            const cui__ne_node *nd = &prev->nodes[i];
-            bool hit = nd->x < x1 && nd->x + nd->w > x0 && nd->y < y1 && nd->y + nd->h > y0;
-            if (hit && !cui__ne_has(&st->sel, nd->id)) cui__ne_push(ui, &st->sel, nd->id);
-        }
+        cui__nc_marquee_select(ui, &st->sel, &st->mq_base, prev->nodes, prev->node_n, x0, y0, x1, y1);
         ui->animating = true;
     }
     if (!ui->mdown[0]) st->mode = NE_IDLE;
@@ -567,7 +698,7 @@ static void cui__ne_wire(cui_ctx *ui, cui__ne_build *b, const cui__ne_set *prev)
     for (int i = 0; i < prev->pin_n; i++) {
         const cui__ne_pin *p = &prev->pins[i];
         if (!cui__ne_compatible(st, p)) continue;
-        cui_vec2 s = cui__ne_screen(b, p->x, p->y);
+        cui_vec2 s = cui__nc_screen(&b->v, p->x, p->y);
         float dd = hypotf(s.x - mx, s.y - my);
         if (dd < best) { best = dd; st->has_target = true; st->target_pin = p->pin; }
     }
@@ -582,16 +713,9 @@ static void cui__ne_wire(cui_ctx *ui, cui__ne_build *b, const cui__ne_set *prev)
 /* the gesture in progress: pan, drag nodes, marquee, wire, or the minimap */
 static void cui__ne_gesture(cui_ctx *ui, cui__ne_build *b, const cui__ne_set *prev, cui_id mmid) {
     cui__ne_state *st = b->st;
-    cui_node_view *view = b->view;
-    float mx = ui->mx, my = ui->my;
     switch (st->mode) {
     case NE_PAN:
-        if (!ui->mdown[CUI_MOUSE_MIDDLE] && !ui->mdown[0]) { st->mode = NE_IDLE; break; }
-        view->x += mx - st->last_x; view->y += my - st->last_y;
-        b->ox = b->r.x + view->x; b->oy = b->r.y + view->y;
-        st->last_x = mx; st->last_y = my;
-        ui->active = b->id;
-        cui__set_cursor(ui, CUI_CURSOR_MOVE);
+        if (!cui__nc_pan(ui, &b->v, &st->last_x, &st->last_y, b->id)) st->mode = NE_IDLE;
         break;
     case NE_PEND_DRAG:
     case NE_DRAG:
@@ -606,12 +730,7 @@ static void cui__ne_gesture(cui_ctx *ui, cui__ne_build *b, const cui__ne_set *pr
         break;
     case NE_MINIMAP:
         if (!ui->mdown[0]) { st->mode = NE_IDLE; break; }
-        if (st->mm_valid && st->mm_s > 0) {
-            float cx = st->mm_bx + (mx - st->mm_x) / st->mm_s, cy = st->mm_by + (my - st->mm_y) / st->mm_s;
-            view->x = b->r.w * 0.5f - cx * b->z;
-            view->y = b->r.h * 0.5f - cy * b->z;
-            b->ox = b->r.x + view->x; b->oy = b->r.y + view->y;
-        }
+        cui__nc_minimap_follow(ui, &b->v, &st->mm);
         ui->active = mmid;
         break;
     default: break;
@@ -627,9 +746,9 @@ static int cui__ne_link_at(const cui__ne_build *b, const cui__ne_set *prev, floa
         const cui__ne_pin *pd = cui__ne_find_pin(prev->pins, prev->pin_n, prev->links[i].to);
         if (!pa || !pd) continue;
         cui_vec2 pts[96];
-        int n = cui__ne_curve(cui__ne_screen(b, pa->x, pa->y), cui__ne_screen(b, pd->x, pd->y), b->z, pts, 96);
+        int n = cui__ne_curve(cui__nc_screen(&b->v, pa->x, pa->y), cui__nc_screen(&b->v, pd->x, pd->y), b->v.z, pts, 96);
         for (int k = 0; k + 1 < n; k++) {
-            float dd = cui__ne_seg_dist((cui_vec2){ mx, my }, pts[k], pts[k + 1]);
+            float dd = cui__nc_seg_dist((cui_vec2){ mx, my }, pts[k], pts[k + 1]);
             if (dd < best) { best = dd; hit_link = i; }
         }
     }
@@ -651,12 +770,12 @@ static void cui__ne_press_canvas(cui_ctx *ui, cui__ne_build *b, const cui__ne_se
     } else {
         st->link_selected = false;
         st->mq_base.n = 0;
-        if (add) for (int i = 0; i < st->sel.n; i++) cui__ne_push(ui, &st->mq_base, st->sel.v[i]);
+        if (add) for (int i = 0; i < st->sel.n; i++) cui__nc_push(ui, &st->mq_base, st->sel.v[i]);
         else st->sel.n = 0;
         st->mode = NE_PEND_MARQUEE;
         st->press_x = mx; st->press_y = my;
-        st->mq_x0 = st->mq_x1 = (mx - b->ox) / b->z;
-        st->mq_y0 = st->mq_y1 = (my - b->oy) / b->z;
+        st->mq_x0 = st->mq_x1 = (mx - b->v.ox) / b->v.z;
+        st->mq_y0 = st->mq_y1 = (my - b->v.oy) / b->v.z;
     }
 }
 
@@ -695,10 +814,10 @@ bool cui_node_editor_begin_ex(cui_ctx *ui, const char *id_str, cui_node_view *vi
     memset(b, 0, sizeof *b);
     b->id = cui_make_id(ui, id_str ? id_str : "node-editor");
     b->frame = ui->frame;
-    b->view = view;
+    b->v.view = view;
     b->disabled = cui_is_disabled(ui);
-    b->min_zoom = o->min_zoom > 0 ? o->min_zoom : 0.25f;
-    b->max_zoom = o->max_zoom > b->min_zoom ? o->max_zoom : CUI_MAX(2.0f, b->min_zoom);
+    b->v.min_zoom = o->min_zoom > 0 ? o->min_zoom : 0.25f;
+    b->v.max_zoom = o->max_zoom > b->v.min_zoom ? o->max_zoom : CUI_MAX(2.0f, b->v.min_zoom);
     b->grid = !o->no_grid;
     b->minimap = o->minimap;
     cui__ne_state *st = cui_state(ui, b->id, sizeof *st);
@@ -713,11 +832,11 @@ bool cui_node_editor_begin_ex(cui_ctx *ui, const char *id_str, cui_node_view *vi
     st->ev_new_read = st->ev_rm_read = st->ev_del_read = 0;
     st->move_dx = st->move_dy = 0;
     if (view->zoom <= 0) view->zoom = 1;
-    view->zoom = cui__clampf(view->zoom, b->min_zoom, b->max_zoom);
-    b->has_rect = cui__has_prev_rect(ui, b->id);
-    b->r = cui__prev_rect(ui, b->id);
-    b->z = view->zoom;
-    b->ox = b->r.x + view->x; b->oy = b->r.y + view->y;
+    view->zoom = cui__clampf(view->zoom, b->v.min_zoom, b->v.max_zoom);
+    b->v.has_rect = cui__has_prev_rect(ui, b->id);
+    b->v.r = cui__prev_rect(ui, b->id);
+    b->v.z = view->zoom;
+    b->v.ox = b->v.r.x + view->x; b->v.oy = b->v.r.y + view->y;
 
     /* is the pointer, or the focus, on this editor or one of its cards and pins? */
     cui_interact bi = cui__interact(ui, b->id, CUI_IF_FOCUSABLE | CUI_IF_DRAG);
@@ -738,15 +857,15 @@ bool cui_node_editor_begin_ex(cui_ctx *ui, const char *id_str, cui_node_view *vi
         st->mode = NE_IDLE;
         st->has_target = false;
     } else {
-        cui__ne_wheel(ui, b);
+        cui__nc_wheel(ui, &b->v, cui__ne_scroll_id(b->id));
         if (focus_mine && !ui->edit_prev) cui__ne_keys(ui, b, prev);
     }
-    if (st->frame_all && b->has_rect) {
+    if (st->frame_all && b->v.has_rect) {
         st->frame_all = false;
-        cui__ne_frame_all(b, prev);
+        cui__nc_frame(&b->v, prev->nodes, prev->node_n);
     }
     /* pan: the middle button, or Space and drag, anywhere over the canvas */
-    bool over = b->has_rect && cui__rect_contains(b->r, mx, my) && ui->hot_layer == ui->current_layer && (hot_mine || ui->hot != 0);
+    bool over = b->v.has_rect && cui__rect_contains(b->v.r, mx, my) && ui->hot_layer == ui->current_layer && (hot_mine || ui->hot != 0);
     if (!b->disabled && over && st->mode == NE_IDLE && !ui->edit_prev &&
         (ui->mpressed[CUI_MOUSE_MIDDLE] || (ui->mpressed[0] && cui_key_action_down(ui, CUI_KEY_SPACE)))) {
         st->mode = NE_PAN; st->last_x = mx; st->last_y = my;
@@ -769,19 +888,6 @@ bool cui_node_editor_begin_ex(cui_ctx *ui, const char *id_str, cui_node_view *vi
     return true;
 }
 
-static void cui__ne_card_list_add(cui_ctx *ui, cui__ne_build *b, int idx, bool raise) {
-    if (b->card_n >= b->card_cap) {
-        int nc = b->card_cap ? b->card_cap * 2 : 32;
-        int *nv = cui__frame_alloc(ui, sizeof(int) * (size_t)nc);
-        bool *nr = cui__frame_alloc(ui, sizeof(bool) * (size_t)nc);
-        if (b->card_n) { memcpy(nv, b->cards, sizeof(int) * (size_t)b->card_n); memcpy(nr, b->raise, sizeof(bool) * (size_t)b->card_n); }
-        b->cards = nv; b->raise = nr; b->card_cap = nc;
-    }
-    b->cards[b->card_n] = idx;
-    b->raise[b->card_n] = raise;
-    b->card_n++;
-}
-
 void cui_node_editor_end(cui_ctx *ui) {
     cui__ne_build *b = cui__ne_cur(ui);
     if (!b) return;
@@ -793,28 +899,12 @@ void cui_node_editor_end(cui_ctx *ui) {
     ui->nodes[ov].paint = cui__paint_ne_overlay;
     ui->nodes[ov].paint_data = b;
     int mm = -1;
-    if (b->minimap && st->mm_valid) {
-        mm = cui__absolute(ui, cui__ne_minimap_id(b->id), st->mm_rect.x - b->r.x, st->mm_rect.y - b->r.y, st->mm_rect.w, st->mm_rect.h);
+    if (b->minimap && st->mm.valid) {
+        mm = cui__absolute(ui, cui__ne_minimap_id(b->id), st->mm.rect.x - b->v.r.x, st->mm.rect.y - b->v.r.y, st->mm.rect.w, st->mm.rect.h);
         cui__mark_interactive(ui, mm, 0);
     }
-    /* selected nodes paint (and take the pointer) above the rest: relink the
-     * canvas' absolute children as resting cards, raised cards, then the
-     * overlay and the minimap */
-    cui_node *en = &ui->nodes[b->editor_node];
-    int total = 0;
-    for (int c = en->abs_first; c >= 0; c = ui->nodes[c].next) total++;
-    int *order = cui__frame_alloc(ui, sizeof(int) * (size_t)(total + 1));
-    int on = 0;
-    for (int pass = 0; pass < 3; pass++)
-        for (int c = en->abs_first; c >= 0; c = ui->nodes[c].next) {
-            int kind = 0;   /* 0 resting, 1 raised card, 2 overlay or minimap */
-            if (c == ov || c == mm) kind = 2;
-            else for (int k = 0; k < b->card_n; k++) if (b->cards[k] == c) { kind = b->raise[k] ? 1 : 0; break; }
-            if (kind == pass) order[on++] = c;
-        }
-    for (int k = 0; k < on; k++) ui->nodes[order[k]].next = k + 1 < on ? order[k + 1] : -1;
-    en->abs_first = on ? order[0] : -1;
-    en->abs_last = on ? order[on - 1] : -1;
+    /* selected nodes paint (and take the pointer) above the rest */
+    cui__nc_paint_order(ui, b->editor_node, &b->cards, ov, mm);
     cui__close(ui);   /* the canvas */
     /* forget selected nodes that are gone */
     cui__ne_set *cur = &st->set[st->cur];
@@ -855,8 +945,8 @@ bool cui_node_begin_ex(cui_ctx *ui, int node_id, float *x, float *y, const char 
         return false;
     }
     cui__ne_state *st = b->st;
-    float z = b->z;
-    bool selected = cui__ne_has(&st->sel, node_id);
+    float z = b->v.z;
+    bool selected = cui__nc_has(&st->sel, node_id);
     if (selected && (st->move_dx != 0 || st->move_dy != 0)) { *x += st->move_dx; *y += st->move_dy; }
     cui_id cid = cui__ne_card_id(b->id, node_id);
     cui_interact r = cui__interact(ui, cid, CUI_IF_FOCUSABLE | CUI_IF_DRAG);
@@ -865,11 +955,11 @@ bool cui_node_begin_ex(cui_ctx *ui, int node_id, float *x, float *y, const char 
         bool toggle = (ui->mods & CUI_MOD_PRIMARY) != 0, add = (ui->mods & CUI_MOD_SHIFT) != 0;
         st->press_was_sel = selected;
         st->press_mod = toggle || add;
-        if (toggle && selected) cui__ne_remove(&st->sel, node_id);
-        else if ((toggle || add) && !selected) cui__ne_push(ui, &st->sel, node_id);
+        if (toggle && selected) cui__nc_remove(&st->sel, node_id);
+        else if ((toggle || add) && !selected) cui__nc_push(ui, &st->sel, node_id);
         else if (!selected) cui__ne_select_only(ui, st, node_id);
         st->link_selected = false;
-        selected = cui__ne_has(&st->sel, node_id);
+        selected = cui__nc_has(&st->sel, node_id);
         if (selected) {
             st->mode = NE_PEND_DRAG;
             st->press_node = node_id;
@@ -897,9 +987,9 @@ bool cui_node_begin_ex(cui_ctx *ui, int node_id, float *x, float *y, const char 
     b->row_y = CUI__NE_HEAD + CUI__NE_PAD_TOP;
     b->row_first = st->row_n;
     b->content_index = 0;
-    cui_vec2 s = cui__ne_screen(b, *x, *y);
+    cui_vec2 s = cui__nc_screen(&b->v, *x, *y);
     b->card_sx = s.x; b->card_sy = s.y;
-    int cn = cui__absolute(ui, cid, s.x - b->r.x, s.y - b->r.y, w * z, 0);
+    int cn = cui__absolute(ui, cid, s.x - b->v.r.x, s.y - b->v.r.y, w * z, 0);
     b->card_node = cn;
     cui__ne_card *cp = cui__frame_alloc(ui, sizeof *cp);
     memset(cp, 0, sizeof *cp);
@@ -917,7 +1007,7 @@ bool cui_node_begin_ex(cui_ctx *ui, int node_id, float *x, float *y, const char 
     ui->nodes[cn].paint_data = cp;
     ui->nodes[cn].radius = CUI_CORNERS(ui->theme.radius_control * z);
     cui__mark_interactive(ui, cn, CUI_IF_FOCUSABLE);
-    cui__ne_card_list_add(ui, b, cn, selected);
+    cui__nc_cards_add(ui, &b->cards, cn, selected);
     cui__open(ui, cn);
     cui_push_id_int(ui, node_id);
     ui->last_id = cid;
@@ -937,11 +1027,11 @@ void cui_node_end(cui_ctx *ui) {
     cui__ne_state *st = b->st;
     float h = b->row_y + CUI__NE_PAD_BOT;
     if (st->row_n == b->row_first) h = CUI__NE_HEAD + 2;
-    ui->nodes[b->card_node].h = CUI_PX(h * b->z);
+    ui->nodes[b->card_node].h = CUI_PX(h * b->v.z);
     b->card_paint->row_n = st->row_n - b->row_first;
     cui__ne_set *cur = &st->set[st->cur];
     CUI__GROW(ui, cur->nodes, cur->node_n, cur->node_cap, 1);
-    cui__ne_node *nd = &cur->nodes[cur->node_n++];
+    cui__nc_box *nd = &cur->nodes[cur->node_n++];
     nd->id = b->node_id; nd->x = b->nx; nd->y = b->ny; nd->w = b->nw; nd->h = h;
     cui__close(ui);
     b->in_node = false;
@@ -957,7 +1047,7 @@ static bool cui__ne_pin_row(cui_ctx *ui, int pin, const char *label, const cui_p
     if (!b || !b->in_node || b->in_content || b->inert) return false;
     cui__ne_state *st = b->st;
     cui__ne_set *cur = &st->set[st->cur], *prev = &st->set[st->cur ^ 1];
-    float z = b->z;
+    float z = b->v.z;
     bool connected = false;
     for (int i = 0; i < prev->link_n; i++) {
         const cui__ne_link *l = &prev->links[i];
@@ -1018,7 +1108,7 @@ bool cui_node_output_ex(cui_ctx *ui, int pin, const char *label, const cui_pin_o
 void cui_node_content_begin(cui_ctx *ui) {
     cui__ne_build *b = cui__ne_cur(ui);
     if (!b || !b->in_node || b->in_content || b->inert) { cui__open(ui, cui__node_new(ui, 0)); if (b) b->inert_content++; return; }
-    float z = b->z;
+    float z = b->v.z;
     int k = b->content_index++;
     cui_id id = cui__hash(&k, sizeof k, b->card_id ^ 0xC0E7u);
     float inner = b->nw - 2 * CUI__NE_INSET;
@@ -1028,22 +1118,11 @@ void cui_node_content_begin(cui_ctx *ui) {
     cui_node *n = &ui->nodes[cn];
     n->h = CUI_FIT;
     n->gap = 6;
-    /* laid out at 100%, shown at the zoom: scaled around its center, then
-     * moved so its top left stays at (fx, fy) */
-    if (fabsf(z - 1) > 0.0001f) {
-        n->scale = z;
-        n->tx = inner * 0.5f * (z - 1);
-        n->ty = ph * 0.5f * (z - 1);
-    }
+    cui__nc_scale_box(n, inner, ph, z);   /* its top left stays at (fx, fy) */
     b->content_node = cn;
     b->content_id = id;
-    b->c_sx = b->card_sx + fx; b->c_sy = b->card_sy + fy;
     /* components inside see the pointer in their own (unscaled) space */
-    b->saved_pointer = cui_mouse_pos(ui);
-    if (!ui->building.screen_pointer) ui->building.screen_pointer = &b->saved_pointer;
-    b->saved_pmx = ui->pmx; b->saved_pmy = ui->pmy;
-    ui->mx = b->c_sx + (ui->mx - b->c_sx) / z; ui->my = b->c_sy + (ui->my - b->c_sy) / z;
-    ui->pmx = b->c_sx + (ui->pmx - b->c_sx) / z; ui->pmy = b->c_sy + (ui->pmy - b->c_sy) / z;
+    cui__nc_host_begin(ui, &b->host, b->card_sx + fx, b->card_sy + fy, z);
     b->in_content = true;
     cui__open(ui, cn);
     cui_push_id_int(ui, 0x7000 + k);
@@ -1054,8 +1133,7 @@ void cui_node_content_end(cui_ctx *ui) {
     if (!b || b->inert_content > 0 || !b->in_content) { if (b && b->inert_content > 0) b->inert_content--; cui__close(ui); return; }
     cui_pop_id(ui);
     cui__close(ui);
-    if (ui->building.screen_pointer == &b->saved_pointer) ui->building.screen_pointer = NULL;
-    ui->mx = b->saved_pointer.x; ui->my = b->saved_pointer.y; ui->pmx = b->saved_pmx; ui->pmy = b->saved_pmy;
+    cui__nc_host_end(ui, &b->host);
     b->in_content = false;
     cui__ne_state *st = b->st;
     float ph = cui__has_prev_rect(ui, b->content_id) ? cui__prev_rect(ui, b->content_id).h : 30;

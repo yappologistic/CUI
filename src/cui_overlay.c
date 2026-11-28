@@ -581,7 +581,6 @@ typedef struct {
     float gx, gy, x0, y0, w0, h0;
 } cui__modal_state;
 
-enum { CUI__GRAB_LEFT = 1, CUI__GRAB_RIGHT = 2, CUI__GRAB_TOP = 4, CUI__GRAB_BOTTOM = 8, CUI__GRAB_MOVE = 16 };
 enum { CUI__GRIP_DRAG = 1, CUI__GRIP_RESIZE = 2 };
 
 #define CUI__DIALOG_MIN_W 240.0f
@@ -589,16 +588,19 @@ enum { CUI__GRIP_DRAG = 1, CUI__GRIP_RESIZE = 2 };
 #define CUI__DIALOG_EDGE_IN 6.0f     /* grab zone inside the border */
 #define CUI__DIALOG_EDGE_OUT 3.0f    /* and outside it */
 
-/* Which edges of r the point is on (CUI__GRAB_* bits), 0 when it is not near the border. */
-static int cui__dialog_edges(cui_rect r, float x, float y) {
-    if (x < r.x - CUI__DIALOG_EDGE_OUT || x > r.x + r.w + CUI__DIALOG_EDGE_OUT ||
-        y < r.y - CUI__DIALOG_EDGE_OUT || y > r.y + r.h + CUI__DIALOG_EDGE_OUT) return 0;
+int cui__grab_edges(cui_rect r, float x, float y, float in, float out) {
+    if (x < r.x - out || x > r.x + r.w + out || y < r.y - out || y > r.y + r.h + out) return 0;
     int e = 0;
-    if (x < r.x + CUI__DIALOG_EDGE_IN) e |= CUI__GRAB_LEFT;
-    else if (x > r.x + r.w - CUI__DIALOG_EDGE_IN) e |= CUI__GRAB_RIGHT;
-    if (y < r.y + CUI__DIALOG_EDGE_IN) e |= CUI__GRAB_TOP;
-    else if (y > r.y + r.h - CUI__DIALOG_EDGE_IN) e |= CUI__GRAB_BOTTOM;
+    if (x < r.x + in) e |= CUI__GRAB_LEFT;
+    else if (x > r.x + r.w - in) e |= CUI__GRAB_RIGHT;
+    if (y < r.y + in) e |= CUI__GRAB_TOP;
+    else if (y > r.y + r.h - in) e |= CUI__GRAB_BOTTOM;
     return e;
+}
+
+/* Which edges of the dialog's panel the point is on (CUI__GRAB_* bits), 0 when it is not near the border. */
+static int cui__dialog_edges(cui_rect r, float x, float y) {
+    return cui__grab_edges(r, x, y, CUI__DIALOG_EDGE_IN, CUI__DIALOG_EDGE_OUT);
 }
 
 /* While a grab is held, turn the pointer's travel into a new offset and size. */

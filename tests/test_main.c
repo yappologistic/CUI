@@ -5832,7 +5832,7 @@ typedef struct {
     cui_id card[3], pin_a_out, pin_b_in, pin_b_float, pin_c_in;
     cui_rect slider;
     int created, removed, deleted, last_from, last_to, last_removed, last_deleted;
-    bool sel_a;
+    bool sel_a, sel_c;
 } nodes_ctx;
 
 static void build_nodes(cui_ctx *ui, void *user) {
@@ -5856,7 +5856,7 @@ static void build_nodes(cui_ctx *ui, void *user) {
             cui_node_end(ui);
         }
         if (a->alive[2]) {
-            cui_node_begin(ui, 3, &a->pos[2][0], &a->pos[2][1], "Output");
+            a->sel_c = cui_node_begin(ui, 3, &a->pos[2][0], &a->pos[2][1], "Output");
             a->card[2] = cui_last_id(ui);
             cui_node_input(ui, 30, "Base", .type = 1);
             a->pin_c_in = cui_last_id(ui);
@@ -5916,6 +5916,46 @@ static void test_disabled_node_editor_wheel(void) {
     cui_input_scroll(ui, 0, 2);
     run(ui, build_node_wheel, &n, 1);
     CHECK(n.view.zoom > 1);
+    cui_destroy(ui);
+}
+
+/** A marquee selects a card only while it overlaps it: touching its edge is not enough, and
+ * shrinking back off it drops it again, while what a Shift marquee started with stays. */
+static void test_node_editor_marquee_edge(void) {
+    printf("node editor: a marquee selects only what it overlaps\n");
+    cui_ctx *ui = new_ctx();
+    nodes_ctx a;
+    memset(&a, 0, sizeof a);
+    float init[3][2] = { { 20, 20 }, { 300, 200 }, { 20, 300 } };
+    memcpy(a.pos, init, sizeof init);
+    a.alive[0] = a.alive[1] = a.alive[2] = true;
+    run(ui, build_nodes, &a, 3);
+    cui_rect ca = cui_get_rect(ui, a.card[0]), cc = cui_get_rect(ui, a.card[2]);
+    click_at(ui, build_nodes, &a, cc.x + 30, cc.y + 10);   /* the Output card first */
+    CHECK(a.sel_c && !a.sel_a);
+    /* Shift and drag from the empty canvas right of the Source card, leftwards: the
+     * marquee's left edge lands on the card's right edge, then inside it, then off it */
+    float right = ca.x + ca.w, y = ca.y + 8;
+    cui_input_key(ui, CUI_KEY_NONE, false, CUI_MOD_SHIFT);
+    cui_input_mouse_move(ui, right + 60, y);
+    run(ui, build_nodes, &a, 1);
+    cui_input_mouse_button(ui, CUI_MOUSE_LEFT, true);
+    run(ui, build_nodes, &a, 1);
+    cui_input_mouse_move(ui, right + 30, y + 6);
+    run(ui, build_nodes, &a, 1);
+    cui_input_mouse_move(ui, right, y + 6);              /* edge on edge: touching only */
+    run(ui, build_nodes, &a, 1);
+    CHECK(!a.sel_a && a.sel_c);
+    cui_input_mouse_move(ui, right - 10, y + 6);         /* inside the card */
+    run(ui, build_nodes, &a, 1);
+    CHECK(a.sel_a && a.sel_c);
+    cui_input_mouse_move(ui, right + 1, y + 6);          /* back off it */
+    run(ui, build_nodes, &a, 1);
+    CHECK(!a.sel_a && a.sel_c);
+    cui_input_mouse_button(ui, CUI_MOUSE_LEFT, false);
+    run(ui, build_nodes, &a, 2);
+    cui_input_key(ui, CUI_KEY_NONE, false, 0);
+    CHECK(!a.sel_a && a.sel_c);
     cui_destroy(ui);
 }
 
@@ -11067,6 +11107,7 @@ int main(void) {
     test_read_only_plan_activation();
     test_planning_drag_interrupted();
     test_node_editor();
+    test_node_editor_marquee_edge();
     test_disabled_node_editor_wheel();
     test_flame();
     test_disabled_flame_wheel();
