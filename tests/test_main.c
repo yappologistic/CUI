@@ -689,6 +689,101 @@ static void test_disabled_password_reveal(void) {
     cui_destroy(ui);
 }
 
+typedef struct { char text[96]; bool password; cui_id id; } password_area_ctx;
+
+/** Draw a password text area, narrow enough that its text takes several lines. */
+static void build_password_area(cui_ctx *ui, void *user) {
+    password_area_ctx *p = user;
+    cui_textarea(ui, "Secret", p->text, sizeof p->text, .password = p->password);
+    p->id = cui_last_id(ui);
+}
+
+/** Hash the pixels of a text area holding the given text after it settles. */
+static uint64_t password_area_pixels(const char *text, bool password) {
+    cui_ctx *ui = new_ctx();
+    cui_set_viewport(ui, 320, 100, 1);
+    password_area_ctx p;
+    memset(&p, 0, sizeof p);
+    snprintf(p.text, sizeof p.text, "%s", text);
+    p.password = password;
+    run(ui, build_password_area, &p, 3);
+    enum { width = 320, height = 100, stride = width * 4 };
+    static unsigned char pixels[height * stride];
+    cui_sw_render(g_sw, cui_get_draw_data(ui), pixels, width, height, stride, CUI_SW_RGBA);
+    uint64_t hash = 0;
+    for (int y = 0; y < height; y++)   /* the text, left of the reveal button */
+        for (int x = 0; x < width - 60; x++)
+            for (int channel = 0; channel < 3; channel++) hash = hash * 31 + pixels[y * stride + 4 * x + channel];
+    cui_destroy(ui);
+    return hash;
+}
+
+/** A masked text area paints the same bullets and lines for any text of that length. */
+static void test_password_text_area(void) {
+    printf("password text area: masks text and hides where words break\n");
+    const char *a = "short words here and there, then a long run of letters";
+    const char *b = "averyveryverylongwordthatwrapsfirst and then short one";
+    CHECK(strlen(a) == strlen(b));
+    CHECK(password_area_pixels(a, false) != password_area_pixels(b, false));
+    CHECK(password_area_pixels(a, true) == password_area_pixels(b, true));
+
+    /* Up keeps the caret's column in bullets, as it does in plain text. */
+    cui_ctx *ui = new_ctx();
+    password_area_ctx p = { "ab\ncd", true, 0 };
+    run(ui, build_password_area, &p, 2);
+    cui_rect r = rect_of(ui, p.id);
+    click_at(ui, build_password_area, &p, r.x + r.w - 70, r.y + r.h - 8);
+    key(ui, build_password_area, &p, CUI_KEY_UP, 0);
+    type(ui, build_password_area, &p, "X");
+    if (strcmp(p.text, "abX\ncd") != 0) printf("  Text after Up: %s\n", p.text);
+    CHECK(strcmp(p.text, "abX\ncd") == 0);
+    cui_destroy(ui);
+
+    /* End stays on a line that breaks inside a word: Home then returns to the first line. */
+    ui = new_ctx();
+    cui_set_viewport(ui, 320, 100, 1);
+    memset(&p, 0, sizeof p);
+    p.password = true;
+    memset(p.text, 'a', 80);
+    run(ui, build_password_area, &p, 2);
+    r = rect_of(ui, p.id);
+    click_at(ui, build_password_area, &p, r.x + 14, r.y + 14);
+    key(ui, build_password_area, &p, CUI_KEY_END, 0);
+    key(ui, build_password_area, &p, CUI_KEY_HOME, 0);
+    type(ui, build_password_area, &p, "X");
+    if (p.text[0] != 'X') printf("  X after End and Home at index %d\n", (int)(strchr(p.text, 'X') - p.text));
+    CHECK(p.text[0] == 'X');
+    cui_destroy(ui);
+}
+
+typedef struct { char text[512]; cui_id id; } long_password_ctx;
+
+/** Draw a single-line password field for text longer than one measuring buffer. */
+static void build_long_password(cui_ctx *ui, void *user) {
+    long_password_ctx *p = user;
+    cui_input(ui, "Password", p->text, sizeof p->text, .password = true);
+    p->id = cui_last_id(ui);
+}
+
+/** Masked positions keep growing past 341 bullets, so a click at the end lands at the end. */
+static void test_long_password_positions(void) {
+    printf("password field: positions past 341 bullets\n");
+    cui_ctx *ui = new_ctx();
+    long_password_ctx p;
+    memset(&p, 0, sizeof p);
+    memset(p.text, 'a', 400);
+    run(ui, build_long_password, &p, 2);
+    cui_rect r = rect_of(ui, p.id);
+    click_at(ui, build_long_password, &p, r.x + 14, r.y + r.h / 2);
+    key(ui, build_long_password, &p, CUI_KEY_END, 0);
+    click_at(ui, build_long_password, &p, r.x + r.w - 50, r.y + r.h / 2);
+    type(ui, build_long_password, &p, "X");
+    int at = (int)(strchr(p.text, 'X') - p.text);
+    if (at <= 380) printf("  X inserted at index %d\n", at);
+    CHECK(at > 380);
+    cui_destroy(ui);
+}
+
 static void test_text_input(void) {
     printf("text input: typing, editing, selection, clipboard, undo\n");
     cui_ctx *ui = new_ctx();
@@ -10985,6 +11080,8 @@ int main(void) {
     test_toggles_and_slider();
     test_text_input();
     test_disabled_password_reveal();
+    test_password_text_area();
+    test_long_password_positions();
     test_empty_field_caret();
     test_textarea_and_clear();
     test_textarea_ime_caret();

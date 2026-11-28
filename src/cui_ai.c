@@ -981,6 +981,7 @@ static void cui__composer_recorder(cui_ctx *ui, const cui__cmp_ids *ids, cui__cm
     cui__close(ui);
 }
 
+/** Draw the chat composer, its field as tall as the wrapped draft up to max_lines. */
 int cui_chat_composer_ex(cui_ctx *ui, const char *id_str, char *buf, size_t cap, const cui_composer_opts *o) {
     cui_composer_opts d;
     memset(&d, 0, sizeof d);
@@ -1027,7 +1028,7 @@ int cui_chat_composer_ex(cui_ctx *ui, const char *id_str, char *buf, size_t cap,
     int lines = 1;
     if (fr.w > 0) {
         cui_text_layout_line *wl = NULL;
-        lines = cui__edit_lines(ui, CUI_FONT_BODY, size, buf, (int)strlen(buf), fr.w, &wl);
+        lines = cui__edit_lines(ui, CUI_FONT_BODY, size, buf, (int)strlen(buf), fr.w, false, &wl);
     }
     int maxl = o->max_lines > 0 ? o->max_lines : 8;
     lines = CUI_CLAMP(lines, 1, maxl);

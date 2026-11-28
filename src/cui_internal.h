@@ -761,7 +761,7 @@ int cui__initials(const char *name, char *out);   /* up to two initials of a nam
  * fit and the caller should leave it out. Without a toolbar there is always room. */
 bool cui__toolbar_reserve(cui_ctx *ui, float w);
 int cui__text_field(cui_ctx *ui, cui_id id, char *buf, size_t cap, const cui_input_opts *o, bool multiline, int style, const char *trailing_icon_default);
-int cui__edit_lines(cui_ctx *ui, cui_font f, float size, const char *buf, int len, float width, cui_text_layout_line **out);   /* wrapped lines of an edit buffer */
+int cui__edit_lines(cui_ctx *ui, cui_font f, float size, const char *buf, int len, float width, bool password, cui_text_layout_line **out);   /* wrapped lines of an edit buffer, masked ones by code point */
 void cui__label_text(cui_ctx *ui, const char *label, cui_font font, float size, cui_color color);
 void cui__icon_node(cui_ctx *ui, const char *icon, float size, cui_color color);
 void cui__field_label(cui_ctx *ui, const char *label);

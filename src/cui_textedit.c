@@ -37,17 +37,44 @@ static int cui__cp_count(const char *s, int len) {
 }
 
 
+/** Width of the first off bytes of a line, measured as bullets when the text is masked. */
 static float cui__x_at(cui_ctx *ui, const cui__edit_paint *p, const char *line, int line_len, int off) {
     if (p->password) {
+        /* every painted bullet counts: longer masks than the stack buffer go to frame memory */
         char tmp[1024];
-        int cps = cui__cp_count(line, off);
-        int n = cui__edit_mask(tmp, sizeof tmp, cps);
-        return cui__text_width(ui, p->font, p->size, tmp, n, false);
+        int cps = cui__cp_count(line, off), cap = cps * 3 + 4;
+        char *mask = cap <= (int)sizeof tmp ? tmp : cui__frame_alloc(ui, (size_t)cap);
+        int n = cui__edit_mask(mask, cap, cps);
+        return cui__text_width(ui, p->font, p->size, mask, n, false);
     }
     (void)line_len;
     return cui__text_width(ui, p->font, p->size, line, off, false);
 }
 
+/** Text offset nearest to x in one line, walking code points when the text is masked. */
+static int cui__edit_hit(cui_ctx *ui, const cui__edit_paint *p, const char *line, int line_len, float x) {
+    if (!p->password) return cui__text_hit(ui, p->font, p->size, line, line_len, x);
+    int pos = 0, best = 0;
+    float bestd = 1e9f;
+    for (;;) {
+        float d = fabsf(cui__x_at(ui, p, line, line_len, pos) - x);
+        if (d < bestd) { bestd = d; best = pos; }
+        if (pos >= line_len) break;
+        pos = cui__utf8_next(line, line_len, pos);
+    }
+    return best;
+}
+
+/** What a line paints: the text itself, or one bullet per code point in frame memory. */
+static const char *cui__edit_shown(cui_ctx *ui, const cui__edit_paint *p, const char *line, int line_len, int *shown_len) {
+    *shown_len = line_len;
+    if (!p->password) return line;
+    char *mask = cui__frame_alloc(ui, (size_t)line_len * 3 + 4);
+    *shown_len = cui__edit_mask(mask, line_len * 3 + 4, cui__cp_count(line, line_len));
+    return mask;
+}
+
+/** Paint the text, masked or not, with its selection, caret and placeholder. */
 static void cui__paint_edit(cui_ctx *ui, cui_node *n, void *data) {
     bool unshaped = ui->text_unshaped;
     cui__edit_paint *p = data;
@@ -75,14 +102,8 @@ static void cui__paint_edit(cui_ctx *ui, cui_node *n, void *data) {
     if (!p->multiline) {
         float y = r.y + (r.h - fh) * 0.5f;
         float x = r.x - p->scroll_x;
-        const char *shown = p->buf;
-        int shown_len = p->len;
-        char *mask = NULL;
-        if (p->password) {
-            mask = cui__frame_alloc(ui, (size_t)p->len * 3 + 4);
-            shown_len = cui__edit_mask(mask, p->len * 3 + 4, cui__cp_count(p->buf, p->len));
-            shown = mask;
-        }
+        int shown_len;
+        const char *shown = cui__edit_shown(ui, p, p->buf, p->len, &shown_len);
         if (p->focused && s1 > s0) {
             float a = cui__x_at(ui, p, p->buf, p->len, s0), b = cui__x_at(ui, p, p->buf, p->len, s1);
             cui_rect sr = { x + a, r.y + (r.h - fh) * 0.5f - 1, b - a, fh + 2 };
@@ -116,20 +137,22 @@ static void cui__paint_edit(cui_ctx *ui, cui_node *n, void *data) {
                 int a0 = CUI_MAX(s0, L->start), a1 = CUI_MIN(s1, L->end);
                 bool extends = s1 > L->end && k < p->line_count - 1;
                 if (a1 > a0 || (extends && a0 <= L->end && s0 <= L->end)) {
-                    float xa = cui__text_width(ui, p->font, p->size, line, a0 - L->start, false);
-                    float xb = cui__text_width(ui, p->font, p->size, line, CUI_MAX(a1, a0) - L->start, false) + (extends ? 4 : 0);
+                    float xa = cui__x_at(ui, p, line, ll, a0 - L->start);
+                    float xb = cui__x_at(ui, p, line, ll, CUI_MAX(a1, a0) - L->start) + (extends ? 4 : 0);
                     cui_rect sr = { r.x + xa, ly, xb - xa, p->line_h };
                     cui_draw_rect(ui, sr, CUI_CORNERS(2), p->selection);
                 }
             }
-            cui__draw_text_line(ui, p->font, p->size, r.x, ty, p->text, line, ll, false);
+            int shown_len;
+            const char *shown = cui__edit_shown(ui, p, line, ll, &shown_len);
+            cui__draw_text_line(ui, p->font, p->size, r.x, ty, p->text, shown, shown_len, false);
             if (p->focused && s0 == s1) {
                 bool here = p->cursor >= L->start && (p->cursor < L->end || (p->cursor == L->end && (k == p->line_count - 1 || p->lines[k + 1].start > L->end)));
                 if (k + 1 < p->line_count && p->cursor == p->lines[k + 1].start && p->cursor == L->end) here = false;
                 if (here) {
                     float blink = 0.5f + 0.5f * cosf((float)p->caret_phase * 2.0f * CUI_PI / 1.06f);
                     float a = (blink > 0.35f || p->caret_phase < 0.5) ? 1.0f : 0.0f;
-                    float cx = r.x + cui__text_width(ui, p->font, p->size, line, p->cursor - L->start, false);
+                    float cx = r.x + cui__x_at(ui, p, line, ll, p->cursor - L->start);
                     cui_rect cr = { roundf(cx * ui->scale) / ui->scale - 0.5f, ty, 1.5f, fh };
                     cui_draw_rect(ui, cr, CUI_CORNERS(0.75f), cui_alpha(p->caret, a));
                 }
@@ -254,9 +277,44 @@ static int cui__insert(char *buf, int *len, size_t cap, int pos, const char *s, 
     return m;
 }
 
-/* Lines for a multi-line layout at the given width. */
-int cui__edit_lines(cui_ctx *ui, cui_font f, float size, const char *buf, int len, float width, cui_text_layout_line **out) {
+/** Masked lines break at newlines and after as many bullets as fit, so they
+ * show neither the words nor their lengths. Lines stay contiguous for caret math. */
+static int cui__edit_masked_lines(cui_ctx *ui, cui_font f, float size, const char *buf, int len, float width, cui_text_layout_line **out) {
+    float bullet = cui__text_width(ui, f, size, "\xE2\x80\xA2", 3, false);
+    int per = bullet > 0 ? (int)(width / bullet) : len;
+    if (per < 1) per = 1;
+    int n = 1, cps = 0;
+    for (int i = 0; i < len; i = cui__utf8_next(buf, len, i)) {
+        if (buf[i] == '\n') { n++; cps = 0; }
+        else if (cps == per) { n++; cps = 1; }
+        else cps++;
+    }
+    cui_text_layout_line *lines = cui__frame_alloc(ui, sizeof(cui_text_layout_line) * (size_t)n);
+    int k = 0, start = 0;
+    cps = 0;
+    for (int i = 0; i < len; i = cui__utf8_next(buf, len, i)) {
+        if (buf[i] == '\n') {
+            lines[k++] = (cui_text_layout_line){ start, i, (float)cps * bullet };
+            start = i + 1;
+            cps = 0;
+            continue;
+        }
+        if (cps == per) {
+            lines[k++] = (cui_text_layout_line){ start, i, (float)cps * bullet };
+            start = i;
+            cps = 0;
+        }
+        cps++;
+    }
+    lines[k++] = (cui_text_layout_line){ start, len, (float)cps * bullet };
+    *out = lines;
+    return k;
+}
+
+/** Lines for a multi-line layout at the given width, masked ones by code point. */
+int cui__edit_lines(cui_ctx *ui, cui_font f, float size, const char *buf, int len, float width, bool password, cui_text_layout_line **out) {
     if (width <= 0) width = 1;
+    if (password) return cui__edit_masked_lines(ui, f, size, buf, len, width, out);
     int n = cui__text_wrap(ui, f, size, buf, len, width, NULL, 0);
     if (n < 1) n = 1;
     cui_text_layout_line *lines = cui__frame_alloc(ui, sizeof(cui_text_layout_line) * (size_t)(n + 1));
@@ -314,7 +372,7 @@ static void cui__edit_replace_selection(cui__edit_frame *c, const char *text, in
     c->edited = true;
 }
 
-/* the pointer: place the caret, select by dragging, words on a double click, all on a triple */
+/** The pointer: place the caret, select by dragging, words on a double click, all on a triple. */
 static void cui__edit_pointer(cui__edit_frame *c, cui_interact r) {
     cui_ctx *ui = c->ui;
     cui_edit_state *e = c->e;
@@ -324,25 +382,13 @@ static void cui__edit_pointer(cui__edit_frame *c, cui_interact r) {
     int pos;
     if (!c->multiline) {
         float x = ui->mx - c->area.x + e->scroll_x;
-        if (c->password) {
-            /* walk code points */
-            int p = 0, best = 0;
-            float bestd = 1e9f;
-            for (;;) {
-                float px = cui__x_at(ui, &c->measure, buf, len, p);
-                float dd = fabsf(px - x);
-                if (dd < bestd) { bestd = dd; best = p; }
-                if (p >= len) break;
-                p = cui__utf8_next(buf, len, p);
-            }
-            pos = best;
-        } else pos = cui__text_hit(ui, c->font, c->size, buf, len, x);
+        pos = cui__edit_hit(ui, &c->measure, buf, len, x);
     } else {
         float y = ui->my - c->area.y + e->scroll_y;
         int ln = (int)floorf(y / c->line_h);
         ln = CUI_CLAMP(ln, 0, c->nlines - 1);
         cui_text_layout_line *L = &c->lines[ln];
-        pos = L->start + cui__text_hit(ui, c->font, c->size, buf + L->start, L->end - L->start, ui->mx - c->area.x);
+        pos = L->start + cui__edit_hit(ui, &c->measure, buf + L->start, L->end - L->start, ui->mx - c->area.x);
         if (pos > L->end) pos = L->end;
         if (ln < c->nlines - 1 && pos == L->end && L->end == c->lines[ln + 1].start && pos > L->start) pos = cui__utf8_prev(buf, pos);
     }
@@ -364,7 +410,7 @@ static void cui__edit_pointer(cui__edit_frame *c, cui_interact r) {
     e->preferred_x = -1;
 }
 
-/* arrows, Home, End and select all */
+/** Arrows, Home, End and select all. */
 static void cui__edit_move_keys(cui__edit_frame *c) {
     cui_ctx *ui = c->ui;
     cui_edit_state *e = c->e;
@@ -386,14 +432,14 @@ static void cui__edit_move_keys(cui__edit_frame *c) {
         int nlines = c->nlines;
         int ln = cui__line_of(lines, nlines, e->cursor);
         cui_text_layout_line *L = &lines[ln];
-        float x = e->preferred_x >= 0 ? e->preferred_x : cui__text_width(ui, c->font, c->size, buf + L->start, e->cursor - L->start, false);
+        float x = e->preferred_x >= 0 ? e->preferred_x : cui__x_at(ui, &c->measure, buf + L->start, L->end - L->start, e->cursor - L->start);
         int dir = cui_key_pressed(ui, CUI_KEY_UP) ? -1 : 1;
         int target = ln + dir;
         if (target < 0) cui__edit_move(c, 0);
         else if (target >= nlines) cui__edit_move(c, len);
         else {
             cui_text_layout_line *T = &lines[target];
-            int pos = T->start + cui__text_hit(ui, c->font, c->size, buf + T->start, T->end - T->start, x);
+            int pos = T->start + cui__edit_hit(ui, &c->measure, buf + T->start, T->end - T->start, x);
             if (target < nlines - 1 && pos == T->end && T->end == lines[target + 1].start && pos > T->start) pos = cui__utf8_prev(buf, pos);
             cui__edit_move(c, pos);
         }
@@ -408,7 +454,10 @@ static void cui__edit_move_keys(cui__edit_frame *c) {
             cui_text_layout_line *lines = c->lines;
             int ln = cui__line_of(lines, c->nlines, e->cursor);
             int end = lines[ln].end;
-            if (ln < c->nlines - 1 && end == lines[ln + 1].start && end > lines[ln].start && buf[end - 1] == ' ') end--;
+            /* A soft break the next line starts at belongs to that line: stop before it, after a
+             * space where words wrap, or before the last character where masked text breaks. */
+            if (ln < c->nlines - 1 && end == lines[ln + 1].start && end > lines[ln].start && (c->password || buf[end - 1] == ' '))
+                end = cui__utf8_prev(buf, end);
             cui__edit_move(c, end);
         } else cui__edit_move(c, len);
     }
@@ -487,7 +536,7 @@ static void cui__edit_typing(cui__edit_frame *c, cui__edit_result *res) {
     }
 }
 
-/* scroll so the caret stays in view, and tell the input method where it is */
+/** Scroll so the caret stays in view, and tell the input method where it is. */
 static void cui__edit_follow_caret(cui__edit_frame *c, const cui__edit_result *res) {
     cui_ctx *ui = c->ui;
     cui_edit_state *e = c->e;
@@ -502,7 +551,7 @@ static void cui__edit_follow_caret(cui__edit_frame *c, const cui__edit_result *r
             if (full - e->scroll_x < area.w - 2) e->scroll_x = CUI_MAX(0, full - area.w + 2);
         }
     } else if (area.h > 0) {
-        if (res->changed) c->nlines = cui__edit_lines(ui, c->font, c->size, c->buf, len, area.w, &c->lines);
+        if (res->changed) c->nlines = cui__edit_lines(ui, c->font, c->size, c->buf, len, area.w, c->password, &c->lines);
         if (res->changed || c->moved || e->selecting) {   /* follow the caret only when it moved */
             int ln = cui__line_of(c->lines, c->nlines, e->cursor);
             float cy = ln * c->line_h;
@@ -518,7 +567,7 @@ static void cui__edit_follow_caret(cui__edit_frame *c, const cui__edit_result *r
         else if (c->nlines > 0) {   /* the caret's line, so the candidate list opens under it, not under the whole area */
             int ln = cui__line_of(c->lines, c->nlines, e->cursor);
             const cui_text_layout_line *L = &c->lines[ln];
-            cr.x = area.x + cui__text_width(ui, c->font, c->size, c->buf + L->start, e->cursor - L->start, false);
+            cr.x = area.x + cui__x_at(ui, &c->measure, c->buf + L->start, L->end - L->start, e->cursor - L->start);
             cr.y = area.y + (float)ln * c->line_h - e->scroll_y;
             cr.h = c->line_h;
         }
@@ -553,7 +602,7 @@ static cui__edit_result cui__edit_logic(cui_ctx *ui, cui_id id, cui_edit_state *
     c.multiline = multiline; c.password = password; c.read_only = read_only;
     c.area = area; c.font = font; c.size = size; c.line_h = line_h;
     c.measure.font = font; c.measure.size = size; c.measure.password = password;
-    if (multiline) c.nlines = cui__edit_lines(ui, font, size, buf, len, area.w, &c.lines);
+    if (multiline) c.nlines = cui__edit_lines(ui, font, size, buf, len, area.w, password, &c.lines);
 
     cui__edit_pointer(&c, r);
     if (!ui->mdown[0]) e->selecting = false;
@@ -649,7 +698,7 @@ int cui__text_field(cui_ctx *ui, cui_id id, char *buf, size_t cap, const cui_inp
     if (wheel != 0) {
         /* wheel scrolls the text whether or not the field has focus */
         cui_text_layout_line *wl = NULL;
-        int wn = cui__edit_lines(ui, font, size, buf, (int)strlen(buf), area.w, &wl);
+        int wn = cui__edit_lines(ui, font, size, buf, (int)strlen(buf), area.w, password, &wl);
         float total = wn * line_h;
         e->scroll_y = cui__clampf(e->scroll_y - wheel * 40, 0, CUI_MAX(0, total - area.h));
     }
@@ -740,7 +789,7 @@ int cui__text_field(cui_ctx *ui, cui_id id, char *buf, size_t cap, const cui_inp
     p->line_h = line_h;
     if (multiline) {
         cui_rect a = area;
-        p->line_count = cui__edit_lines(ui, font, size, p->buf, len, a.w > 0 ? a.w : 200, &p->lines);
+        p->line_count = cui__edit_lines(ui, font, size, p->buf, len, a.w > 0 ? a.w : 200, password, &p->lines);
     }
     an_->paint = multiline && !disabled ? cui__paint_scrollable_edit : cui__paint_edit;
     an_->paint_data = p;

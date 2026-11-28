@@ -10,6 +10,8 @@ What changed in CUI, newest first. Every component mentioned here runs live in t
 
 ### Fixed
 
+- Text area: `.password` masks the text, as it does in the text field, instead of showing it beside a show/hide button. Each character is a bullet, newlines stay, and lines break after as many bullets as fit, so word lengths do not show. Clicks, Up and Down, End and the input method position follow the bullets.
+- Password field: the caret, the selection and clicks follow every bullet of a password longer than 341 characters; they stopped at the 341st.
 - An installed CUI whose headers go somewhere other than `include` (`-DCMAKE_INSTALL_INCLUDEDIR=headers`) records that directory in its CMake package, so `find_package(cui)` finds `cui/cui.h` ([#135](https://github.com/yappologistic/CUI/pull/135)).
 
 ## 2026-11-25 · 1.5: phones, GPU renderers and many fixes
