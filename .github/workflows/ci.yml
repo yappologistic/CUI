@@ -83,7 +83,8 @@ jobs:
       matrix:
         include:
           - { name: Vulkan renderer, packages: libvulkan-dev, flags: -DCUI_VULKAN=ON, targets: cui cui_gpu_bench }
-          - { name: Wayland via SDL2, packages: libsdl2-dev, flags: -DCUI_PLATFORM=wayland, targets: cui }
+          - { name: Wayland platform, packages: libwayland-dev libxkbcommon-dev wayland-protocols, flags: -DCUI_PLATFORM=wayland, targets: cui }
+          - { name: Wayland platform with Vulkan, packages: libwayland-dev libxkbcommon-dev wayland-protocols libvulkan-dev, flags: -DCUI_PLATFORM=wayland -DCUI_VULKAN=ON, targets: cui }
     steps:
       - uses: actions/checkout@v7
       - name: Install dependencies

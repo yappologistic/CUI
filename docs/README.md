@@ -10,7 +10,7 @@
 8. [Icons](icons.md): the built-in Lucide icons and using any other icon
 9. [Custom components](custom-components.md): canvas, drawing, state and animation
 10. [Integration](integration.md): your own window, input and renderer, C++, and binary size
-11. [Platforms](platform.md): window backends (X11, Win32, Cocoa), GPU renderers, and what differs between systems
+11. [Platforms](platform.md): window backends (X11, Wayland, Win32, Cocoa), GPU renderers, and what differs between systems
 12. [Rendering](rendering.md): vertex format and the reference shader
 13. [Performance and memory](performance.md): what an app costs, measured ([experiments that did not help](performance-experiments.md))
 14. [Questions](faq.md): what CUI is and is not, how it compares, what it cannot do

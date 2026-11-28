@@ -1,5 +1,10 @@
 add_executable(cui_tests test_main.c)
 target_link_libraries(cui_tests PRIVATE cui::cui)
+if(WIN32 AND NOT MSVC)   # optimized, main inlines every test: more than Windows' default 1 MB of stack
+    target_link_options(cui_tests PRIVATE -Wl,--stack,8388608)
+elseif(MSVC)
+    target_link_options(cui_tests PRIVATE /STACK:8388608)
+endif()
 if(WIN32 AND CUI_STB_IMAGE)
     target_compile_definitions(cui_tests PRIVATE CUI_TEST_WINDOWS_IMAGE_PATH)
 endif()

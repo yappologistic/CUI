@@ -311,7 +311,8 @@ An app carries only the components it calls, which is why `hello` is a quarter o
 | Windows 7+ | Win32 (per monitor DPI, dark title bar) | OpenGL 3.3, GDI software fallback | MSVC, MinGW |
 | macOS 10.13+ | Cocoa (Retina, native menus, text input) | OpenGL 3.3+, layer software fallback | Apple clang |
 | Linux, BSD | X11 (XIM text input, HiDPI) | OpenGL 3.3 (GLX), XPutImage fallback | GCC, Clang |
-| Wayland and others | SDL2 or GLFW | OpenGL 3.3 | GCC |
+| Linux, Wayland | Wayland (`-DCUI_PLATFORM=wayland`) | OpenGL 3.3 or ES 3.0, software fallback | |
+| Others | SDL2 or GLFW | OpenGL 3.3 | GCC |
 | Browser | WebAssembly, plain clang ([how](docs/getting-started.md#run-in-the-browser)) | WebGL2, or software | Docs site, every push |
 | Anything | Your own | Your own (one shader) | |
 
@@ -323,7 +324,6 @@ To use CUI inside an engine with your own window and renderer, see [Integration]
 - **The keyboard does not reach everything.** Most components work from the keyboard and each one's page lists its keys. Some parts still need a pointer: the rating, the histogram slider's handles, swipe actions, the reorderable list, the JSON viewer, the agent plan's steps, blame, the time histogram, and the choices inside the open time picker and color picker.
 - **Complex scripts are partial.** Text is UTF-8 with kerning and font fallback, and layouts mirror for right-to-left languages. Arabic-script shaping and bidirectional text are an optional, experimental build option for static text ([details](docs/integration.md#optional-arabic-script-text-shaping)). CJK works once you add a fallback font.
 - **Input methods compose in the system's window.** Committed text arrives; the text being composed is not drawn inline. The window opens at the caret on Windows, macOS, X11, SDL2 and the docs site, but not yet on the GLFW backend.
-- **Native Wayland via SDL2.** Configure with `-DCUI_PLATFORM=wayland` to require SDL2 (2.0.22 or newer) with its Wayland video driver. Window creation fails if native Wayland is unavailable; it never falls back to X11. `sdl2` leaves driver selection to SDL, and `auto` still selects X11 on Linux.
 - **Android and iOS are experimental.** The backends build with the NDK and Xcode (see [Getting started](docs/getting-started.md)) and map touch to the mouse, with a raw multi-touch API beside it, but they have had little testing on devices and CI does not build them. Layouts adapt to phone widths, and apps also run in mobile browsers.
 - **It is new.** Version 1.0 was released in November 2026, so it has little real-world use behind it yet. The [changelog](CHANGELOG.md) lists what each release changed.
 

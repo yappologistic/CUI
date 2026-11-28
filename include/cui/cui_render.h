@@ -77,19 +77,22 @@ CUI_API bool cui_gl_is_software(const cui_gl_renderer *r);
 
 /* The platform's GPU renderer: the draw data the OpenGL renderer takes (vertices, indices,
  * commands), drawn the same way with the same shader, into the window's own swapchain or
- * layer. One per platform: Direct3D 12 on Windows, Vulkan on Linux, Metal on
+ * layer. One per platform: Direct3D 12 on Windows, Vulkan on Linux (X11, Wayland), Metal on
  * macOS. */
 typedef struct cui_gpu_renderer cui_gpu_renderer;
 
 /* Linux: the window cui_gpu_create takes. The app keeps width and height
- * (pixels) current and keeps it alive as long as the renderer. */
+ * (pixels) current and keeps it alive as long as the renderer. For a Wayland
+ * window, wl_surface is set and display is the wl_display *: the app sets the
+ * surface's scale or viewport, the renderer only attaches pictures of that size. */
 typedef struct cui_x11_window {
-    void *display;              /* Display * */
+    void *display;              /* Display *, or wl_display * */
     unsigned long window;       /* Window (X11) */
     int width, height;
+    void *wl_surface;           /* wl_surface * (Wayland); NULL for an X11 window */
 } cui_x11_window;
 
-/* window: an HWND, on Linux a cui_x11_window *, on macOS an NSWindow * (its
+/* window: an HWND, on Linux a cui_x11_window * (X11 or Wayland), on macOS an NSWindow * (its
  * content view gets a CAMetalLayer). NULL when the device or window cannot be set up. CUI_GPU
  * set to part of an adapter's name (e.g. "nvidia") picks the GPU. */
 CUI_API cui_gpu_renderer *cui_gpu_create(void *window, bool vsync);

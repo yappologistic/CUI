@@ -26,9 +26,12 @@ static bool cui__env_is(const char *name, const char *value) {
 #endif
 
 #if CUI__APP_GPU && defined(__linux__)
-/* The X11 backend's window as cui_gpu_create takes it, with its current size; the
+/* The X11 or Wayland backend's window as cui_gpu_create takes it, with its current size; the
  * other Linux backends (GLFW, SDL) do not have one. */
 extern cui_x11_window *cui__plat_x11_window(cui_app *app) __attribute__((weak));
+/* The Wayland backend's: false when a frame must not be drawn now (the window is hidden, and a
+ * presentation would wait for it without end, or the window took another size than w by h). */
+extern bool cui__plat_gpu_frame(cui_app *app, int width, int height) __attribute__((weak));
 #endif
 
 static void cui__app_make_software(cui_app *app) {
@@ -95,12 +98,12 @@ cui_app *cui_app_create(const cui_app_desc *desc) {
      * CUI_RENDERER_GPU, or CUI_RENDERER=gpu or its name (d3d12, vulkan, metal) */
     if (d->renderer == CUI_RENDERER_GPU || cui__env_is("CUI_RENDERER", "gpu") || cui__env_is("CUI_RENDERER", CUI__APP_GPU_NAME)) {
 #if defined(__linux__)
-        void *gpu_window = cui__plat_x11_window ? cui__plat_x11_window(app) : NULL;   /* only the X11 backend lends its window */
+        void *gpu_window = cui__plat_x11_window ? cui__plat_x11_window(app) : NULL;   /* only the X11 and Wayland backends lend their window */
 #else
         void *gpu_window = cui__plat_native(app);
 #endif
         const char *plat = cui__plat_name();
-        if (gpu_window && (!strcmp(plat, "win32") || !strcmp(plat, "cocoa") || !strcmp(plat, "x11")))
+        if (gpu_window && (!strcmp(plat, "win32") || !strcmp(plat, "cocoa") || !strcmp(plat, "x11") || !strcmp(plat, "wayland")))
             app->gpu = cui_gpu_create(gpu_window, !d->no_vsync);
         if (!app->gpu) fprintf(stderr, "cui: the %s renderer is unavailable\n", CUI__APP_GPU_NAME);
     }
@@ -111,7 +114,7 @@ cui_app *cui_app_create(const cui_app_desc *desc) {
         /* OpenGL drawn on the CPU (a virtual machine, a remote session) costs several times
          * what the software renderer does, as that one redraws only what changed. Where the
          * window can take a software picture as well, Auto goes software. */
-        bool can_switch = !strcmp(cui__plat_name(), "x11") || !strcmp(cui__plat_name(), "win32");
+        bool can_switch = !strcmp(cui__plat_name(), "x11") || !strcmp(cui__plat_name(), "wayland") || !strcmp(cui__plat_name(), "win32");
         if (app->gl && cui_gl_is_software(app->gl) && d->renderer == CUI_RENDERER_AUTO && can_switch && !cui__env_is("CUI_RENDERER", "opengl")) {
             cui_gl_destroy(app->gl);
             app->gl = NULL;
@@ -241,13 +244,16 @@ void cui__app_render(cui_app *app) {
     if (app->gpu) {
 #if defined(__linux__)
         cui__plat_x11_window(app);   /* the renderer reads the window's size from it */
+        if (!cui__plat_gpu_frame || cui__plat_gpu_frame(app, w, h))
 #endif
         cui_gpu_render(app->gpu, dd);
+        app->force_present = false;
     } else
 #endif
     if (app->gl) {
         cui_gl_render(app->gl, dd, true);
         cui__plat_gl_swap(app);
+        app->force_present = false;
     } else {
         if (w != app->sw_w || h != app->sw_h) {
             free(app->sw_pixels);

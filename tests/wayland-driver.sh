@@ -1,6 +1,6 @@
 #!/bin/sh
 # Integration check on a disposable desktop with both display servers running.
-# Arguments: explicit-wayland and default-X11 builds' tests/cui_app_smoke.
+# Arguments: wayland and default-X11 builds' tests/cui_app_smoke.
 set -eu
 : "${WAYLAND_DISPLAY:?need a Wayland compositor}" "${DISPLAY:?need a working X server}"
 wayland=$(realpath "$1"); x11=$(realpath "$2")

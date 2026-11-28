@@ -79,7 +79,7 @@ For a build system other than CMake, or to vendor CUI into a large codebase, use
 
 **The includes differ.** This guide writes `#include <cui/cui.h>` and `#include <cui/cui_app.h>`. With the single-file distribution both are one header beside your code, so write `#include "cui.h"` (or `"cui_single.h"`) in their place and leave the second line out.
 
-**What it leaves out.** The OpenGL and software renderers and the Win32, Cocoa, X11, SDL2 and GLFW window layers are in; the GPU renderers are built with CMake only ([Platforms](platform.md)).
+**What it leaves out.** The OpenGL and software renderers and the Win32, Cocoa, X11, SDL2 and GLFW window layers are in; the GPU renderers and the Wayland window are built with CMake only ([Platforms](platform.md)).
 
 `cui.c` is the whole library, about 78,000 lines, and takes around half a minute to compile. Compile it once and link the object file; your own files then build in a moment:
 
@@ -297,9 +297,9 @@ Android and iOS are supported as experimental platform backends: `-DCUI_PLATFORM
 |---|---|
 | CMake says `Could NOT find X11` | Install the X11 headers: `libx11-dev` (Debian, Ubuntu), `libX11-devel` (Fedora), `libx11` (Arch) |
 | `undefined reference to XOpenDisplay` (building without CMake) | Put `-lX11 -ldl -lm -lpthread` after the source files on the command line |
-| No window on Wayland without XWayland | Configure with `-DCUI_PLATFORM=wayland` (SDL2 2.0.22+) or `-DCUI_PLATFORM=glfw` (install `libsdl2-dev` or `libglfw3-dev`) |
+| No window on Wayland without XWayland | Configure with `-DCUI_PLATFORM=wayland` for a native Wayland window ([what it needs](platform.md#wayland-windows)), or with `-DCUI_PLATFORM=sdl2` or `-DCUI_PLATFORM=glfw` (install `libsdl2-dev` or `libglfw3-dev`) |
 | Black or empty window, OpenGL errors (virtual machines, remote desktop, old drivers) | CUI falls back to its software renderer when OpenGL 3.3 cannot start; to force it, run with `CUI_RENDERER=software` |
-| Everything looks too small or too large | Run with `CUI_SCALE=1.5` (or any scale) to override what the display reports |
+| Everything looks too small or too large | Run with `CUI_SCALE=1.5` (or any scale) to override what the display reports; a native Wayland window takes the compositor's display scale instead |
 | A console window opens next to the app (Windows) | Call `cui_app_target(my_app)` in your `CMakeLists.txt`. Without CMake: `-mwindows` (MinGW), or `/SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup` (MSVC) |
 | `cui/cui.h: No such file or directory` with the single-file distribution | Write `#include "cui.h"` in place of `<cui/cui.h>` and `<cui/cui_app.h>` (see [One file](#one-file)) |
 | The app is over 1 MB | The linker kept every component. Call `cui_app_target(my_app)` and build `Release` or `MinSizeRel`; without CMake see the flags under [One file](#one-file) |

@@ -1,4 +1,5 @@
-/* Vulkan renderer (cui_gpu_*, built with CUI_VULKAN; Linux, on the X11 window): the draw data the OpenGL renderer takes (cui_draw_data's vertices, indices and
+/* Vulkan renderer (cui_gpu_*, built with CUI_VULKAN; Linux, on the X11 window, or on the
+ * Wayland one when built with CUI_PLATFORM=wayland):the draw data the OpenGL renderer takes (cui_draw_data's vertices, indices and
  * commands), drawn the same way. One pipeline; its fragment shader is cui_render_gl.c's
  * (cui_render_vulkan.frag), branching on the vertex's mode. Keep the two in step.
  *
@@ -16,8 +17,14 @@
 
 #if defined(CUI_VULKAN) && defined(__linux__)
 
+#ifdef CUI_WAYLAND   /* the app's window is a Wayland one (CUI_PLATFORM=wayland), otherwise an X11 one */
+#define VK_USE_PLATFORM_WAYLAND_KHR
+struct wl_display;
+struct wl_surface;
+#else
 #define VK_USE_PLATFORM_XLIB_KHR
 #include <X11/Xlib.h>
+#endif
 #include <vulkan/vulkan.h>
 #include <math.h>
 #include <stddef.h>
@@ -446,7 +453,11 @@ static void cui__vk_tex_destroy(void *user, cui_texture tex) {
 /* ---- the instance and the device ---- */
 
 static bool cui__vk_instance(cui_gpu_renderer *r) {
+#ifdef CUI_WAYLAND
+    const char *exts[2] = { VK_KHR_SURFACE_EXTENSION_NAME, VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME };
+#else
     const char *exts[2] = { VK_KHR_SURFACE_EXTENSION_NAME, VK_KHR_XLIB_SURFACE_EXTENSION_NAME };
+#endif
     VkApplicationInfo app = { VK_STRUCTURE_TYPE_APPLICATION_INFO };
     app.pApplicationName = "cui";
     app.pEngineName = "cui";
@@ -459,10 +470,17 @@ static bool cui__vk_instance(cui_gpu_renderer *r) {
 }
 
 static VkResult cui__vk_surface(cui_gpu_renderer *r) {
+#ifdef CUI_WAYLAND
+    VkWaylandSurfaceCreateInfoKHR info = { VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR };
+    info.display = (struct wl_display *)r->xwin->display;
+    info.surface = (struct wl_surface *)r->xwin->wl_surface;
+    return vkCreateWaylandSurfaceKHR(r->instance, &info, NULL, &r->surface);
+#else
     VkXlibSurfaceCreateInfoKHR info = { VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR };
     info.dpy = (Display *)r->xwin->display;
     info.window = (Window)r->xwin->window;
     return vkCreateXlibSurfaceKHR(r->instance, &info, NULL, &r->surface);
+#endif
 }
 
 /* a device that draws to the surface with what the renderer needs: CUI_GPU's, else a discrete GPU, else any */
@@ -699,7 +717,7 @@ static bool cui__vk_swapchain(cui_gpu_renderer *r) {
     VkSurfaceCapabilitiesKHR caps;
     if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(r->physical, r->surface, &caps) != VK_SUCCESS) return false;
     VkExtent2D extent = caps.currentExtent;
-    if (extent.width == UINT32_MAX) {   /* the surface leaves the size to the app */
+    if (extent.width == UINT32_MAX) {   /* (Wayland) the window's size is the app's to say */
         extent.width = (uint32_t)(r->xwin->width > 0 ? r->xwin->width : 0);
         extent.height = (uint32_t)(r->xwin->height > 0 ? r->xwin->height : 0);
     }

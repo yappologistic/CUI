@@ -80,7 +80,7 @@ static bool smoke_app_id_ok(cui_app *app) {
         return false;
     }
 #endif
-    const char *system = smoke_window_system();
+    const char *system = strcmp(cui_app_backend(app), "wayland") == 0 ? "wayland" : smoke_window_system();   /* the Wayland backend has no WM_CLASS */
     if (strcmp(system, "x11") != 0) {
         printf("WM_CLASS not checked: %s runs on %s\n", cui_app_backend(app), system);
         return true;

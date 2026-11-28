@@ -157,6 +157,6 @@ The result is one executable. The library, the fonts and the icons are inside it
 
 - **Windows:** the app has no console window. Add an icon and version details with your own `.rc` file, as for any Windows program.
 - **macOS:** the build gives a plain executable. To get an app with an icon in the Dock, set `MACOSX_BUNDLE` on your target and supply an `Info.plist`, as for any CMake app. An unsigned app is stopped by Gatekeeper on other people's machines until you sign and notarize it.
-- **Linux:** the app needs `libX11` at run time, which desktop systems have (through XWayland on Wayland). OpenGL is loaded when it is present, and the software renderer is used when it is not, so the app also starts on a machine with no GPU driver.
+- **Linux:** the app needs `libX11` at run time, which desktop systems have (through Xwayland on a Wayland desktop). Built with `-DCUI_PLATFORM=wayland` it opens a native Wayland window and needs `libwayland-client`, `libwayland-egl`, `libwayland-cursor` and `libxkbcommon` instead ([Platforms](platform.md)). OpenGL is loaded when it is present, and the software renderer is used when it is not, so the app also starts on a machine with no GPU driver.
 
 CUI is MIT licensed. The fonts and icons inside your executable have their own licenses, which ask you to keep their notices: ship [THIRD_PARTY.md](../THIRD_PARTY.md) and the license files it names with your app, or build with your own fonts (`CUI_NO_DEFAULT_FONTS`, see [Getting started](getting-started.md#options)).

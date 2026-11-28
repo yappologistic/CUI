@@ -6,6 +6,7 @@ What changed in CUI, newest first. Every component mentioned here runs live in t
 
 ### Added
 
+- **A native Wayland window** on Linux (`-DCUI_PLATFORM=wayland`, in place of the X11 backend; it was the SDL2 backend held to its Wayland driver, which `sdl2` covers): drawn at the display's own pixels, with pointer, keyboard, clipboard text, and OpenGL, Vulkan or software drawing. No input methods, file drops or window positions yet. See [Platforms](docs/platform.md#wayland-windows).
 - `cui_app_desc.custom_title_bar`: on Windows the system's title bar goes and the app draws its own, while the window keeps its border, shadow, resizing on every edge and its size, place and maximized state. A platform layer of your own takes part through `cui_platform_iface.window_frame` and `.window_button`, and moves the window over what `cui_title_bar_hit_test` calls the caption. `cui_title_bar`, the component that draws the bar, follows in its own change; until then such a window has no caption to drag it by. See [Platform services](docs/integration.md#platform-services) ([#134](https://github.com/yappologistic/CUI/pull/134)).
 
 ### Fixed
